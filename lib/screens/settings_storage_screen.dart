@@ -153,7 +153,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           : Builder(builder: (context) {
               final rows = <Widget>[
                 // ── DOWNLOADS ─────────────────────────────────────────────
-                _sectionLabel(l10n.ssDownloads),
+                _sectionLabel(context, l10n.ssDownloads),
                 _storageCard(context,
                   title: l10n.ssDownloadedSongs,
                   used: _fmt(_downloadedSize),
@@ -195,7 +195,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 ),
 
                 // ── SONG CACHE ─────────────────────────────────────────────
-                _sectionLabel(l10n.ssSongCache),
+                _sectionLabel(context, l10n.ssSongCache),
                 _cacheSliderCard(context,
                   title: l10n.ssMaxSongCacheSize,
                   value: _maxSongCache,
@@ -213,7 +213,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 ),
 
                 // ── IMAGE CACHE ────────────────────────────────────────────
-                _sectionLabel(l10n.ssImageCache),
+                _sectionLabel(context, l10n.ssImageCache),
                 _cacheSliderCard(context,
                   title: l10n.ssMaxImageCacheSize,
                   value: _maxImageCache,
@@ -262,7 +262,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           Row(children: [
             Expanded(child: Text(title,
               style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500))),
-            Text(used, style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(used, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 12),
           AurumPressable(
@@ -311,7 +311,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           Row(children: [
             Expanded(child: Text(title,
               style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500))),
-            Text(displayMax, style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(displayMax, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           Slider(value: value, min: 0, max: max, divisions: 20, onChanged: onChanged),
           Row(children: [
@@ -359,9 +359,9 @@ AppBar _appBar(BuildContext context, String title) => AppBar(
   title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
 );
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-  child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+  child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
 

@@ -92,10 +92,10 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
               Container(
                 width: 36, height: 36,
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.12),
+                  color: AurumTheme.accentOf(context).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.history_rounded, color: AurumTheme.gold, size: 18),
+                child: Icon(Icons.history_rounded, color: AurumTheme.accentOf(context), size: 18),
               ),
               const SizedBox(width: 12),
               Text('Changelog',
@@ -122,7 +122,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
                     Text(_error!, style: TextStyle(color: AurumTheme.textMutedOf(context))),
                     const SizedBox(height: 16),
                     TextButton(onPressed: () { setState(() { _loading = true; _error = null; }); _load(); },
-                      child: const Text('Retry', style: TextStyle(color: AurumTheme.gold))),
+                      child: Text('Retry', style: TextStyle(color: AurumTheme.accentOf(context)))),
                   ]))
                 : ListView.separated(
                     physics: const BouncingScrollPhysics(),
@@ -181,7 +181,7 @@ class _ReleaseCardState extends State<_ReleaseCard> {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: r.isLatest
-              ? AurumTheme.gold.withOpacity(0.4)
+              ? AurumTheme.accentOf(context).withOpacity(0.4)
               : AurumTheme.dividerOf(context),
             width: r.isLatest ? 1 : 0.5,
           ),
@@ -202,12 +202,12 @@ class _ReleaseCardState extends State<_ReleaseCard> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: AurumTheme.gold.withOpacity(0.15),
+                        color: AurumTheme.accentOf(context).withOpacity(0.15),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AurumTheme.gold.withOpacity(0.4)),
+                        border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.4)),
                       ),
-                      child: const Text('Latest', style: TextStyle(
-                        color: AurumTheme.gold, fontSize: 10, fontWeight: FontWeight.w700,
+                      child: Text('Latest', style: TextStyle(
+                        color: AurumTheme.accentOf(context), fontSize: 10, fontWeight: FontWeight.w700,
                       )),
                     ),
                   ],

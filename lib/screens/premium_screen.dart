@@ -273,7 +273,7 @@ class _PremiumScreenState extends State<PremiumScreen>
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: [
-                      AurumTheme.gold.withOpacity(0.18 + _glow.value * 0.08),
+                      AurumTheme.accent.withOpacity(0.18 + _glow.value * 0.08),
                       Colors.transparent,
                     ],
                     radius: 0.8,
@@ -359,8 +359,8 @@ class _PremiumScreenState extends State<PremiumScreen>
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      AurumTheme.gold.withOpacity(0.25 + _glow.value * 0.15),
-                      AurumTheme.gold.withOpacity(0.05),
+                      AurumTheme.accent.withOpacity(0.25 + _glow.value * 0.15),
+                      AurumTheme.accent.withOpacity(0.05),
                       Colors.transparent,
                     ],
                   ),
@@ -375,14 +375,14 @@ class _PremiumScreenState extends State<PremiumScreen>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      AurumTheme.goldDark,
-                      AurumTheme.gold,
-                      AurumTheme.goldLight,
+                      AurumTheme.accentDark,
+                      AurumTheme.accent,
+                      AurumTheme.accentLight,
                     ],
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: AurumTheme.gold
+                      color: AurumTheme.accent
                           .withOpacity(0.5 + _glow.value * 0.25),
                       blurRadius: 30 + _glow.value * 15,
                       spreadRadius: 2 + _glow.value * 4,
@@ -419,8 +419,8 @@ class _PremiumScreenState extends State<PremiumScreen>
       ),
       const SizedBox(height: 24),
       ShaderMask(
-        shaderCallback: (bounds) => const LinearGradient(
-          colors: [AurumTheme.goldDark, AurumTheme.goldLight, AurumTheme.gold],
+        shaderCallback: (bounds) => LinearGradient(
+          colors: [AurumTheme.accentDark, AurumTheme.accentLight, AurumTheme.accent],
         ).createShader(bounds),
         child: Text(
           l10n.psAurumPlus,
@@ -538,7 +538,7 @@ class _PremiumScreenState extends State<PremiumScreen>
         height: 58,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          color: AurumTheme.gold.withOpacity(0.15),
+          color: AurumTheme.accent.withOpacity(0.15),
         ),
         child: const Center(
           child: SizedBox(
@@ -570,10 +570,10 @@ class _PremiumScreenState extends State<PremiumScreen>
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: const [
-                    AurumTheme.goldDark,
-                    AurumTheme.goldLight,
-                    AurumTheme.gold,
+                  colors: [
+                    AurumTheme.accentDark,
+                    AurumTheme.accentLight,
+                    AurumTheme.accent,
                   ],
                   stops: [
                     (sweep - 0.4).clamp(0.0, 1.0),
@@ -584,7 +584,7 @@ class _PremiumScreenState extends State<PremiumScreen>
                 boxShadow: [
                   BoxShadow(
                     color:
-                        AurumTheme.gold.withOpacity(0.45 + _glow.value * 0.2),
+                        AurumTheme.accent.withOpacity(0.45 + _glow.value * 0.2),
                     blurRadius: 24 + _glow.value * 10,
                     spreadRadius: 1,
                     offset: const Offset(0, 6),
@@ -635,12 +635,12 @@ class _PremiumScreenState extends State<PremiumScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.verified_rounded,
-                color: AurumTheme.gold.withOpacity(0.7), size: 14),
+                color: AurumTheme.accent.withOpacity(0.7), size: 14),
             const SizedBox(width: 5),
             Text(
               l10n.psMoneyBack,
               style: TextStyle(
-                color: AurumTheme.gold.withOpacity(0.7),
+                color: AurumTheme.accent.withOpacity(0.7),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -664,12 +664,12 @@ class _TrustBadge extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: Colors.white.withOpacity(0.05),
-        border: Border.all(color: AurumTheme.gold.withOpacity(0.2), width: 0.8),
+        border: Border.all(color: AurumTheme.accent.withOpacity(0.2), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AurumTheme.gold, size: 13),
+          Icon(icon, color: AurumTheme.accent, size: 13),
           const SizedBox(width: 5),
           Text(
             label,
@@ -709,7 +709,7 @@ class _ParticlePainter extends CustomPainter {
       final opacity = (0.08 + p[4] * 0.18) *
           (0.5 + 0.5 * math.sin(t * math.pi * 2 * (0.5 + p[2])));
 
-      _paints[i].color = AurumTheme.gold.withOpacity(opacity);
+      _paints[i].color = AurumTheme.accent.withOpacity(opacity);
       canvas.drawCircle(Offset(x, y), radius, _paints[i]);
     }
   }
@@ -752,11 +752,11 @@ class _PlanCard extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           gradient: isSelected
-              ? const LinearGradient(
+              ? LinearGradient(
                   colors: [
-                    AurumTheme.goldDark,
-                    AurumTheme.gold,
-                    AurumTheme.goldLight,
+                    AurumTheme.accentDark,
+                    AurumTheme.accent,
+                    AurumTheme.accentLight,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -772,7 +772,7 @@ class _PlanCard extends StatelessWidget {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.45),
+                    color: AurumTheme.accent.withOpacity(0.45),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
@@ -896,12 +896,12 @@ class _PlanCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.black,
                     borderRadius: BorderRadius.circular(7),
-                    border: Border.all(color: AurumTheme.gold, width: 0.8),
+                    border: Border.all(color: AurumTheme.accent, width: 0.8),
                   ),
                   child: Text(
                     badge!,
-                    style: const TextStyle(
-                      color: AurumTheme.goldLight,
+                    style: TextStyle(
+                      color: AurumTheme.accentLight,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.4,
@@ -996,10 +996,10 @@ class _SuccessViewState extends State<_SuccessView>
                     height: 120,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: AurumTheme.goldGradient,
+                      gradient: AurumTheme.accentGradient,
                       boxShadow: [
                         BoxShadow(
-                          color: AurumTheme.gold.withOpacity(0.6),
+                          color: AurumTheme.accent.withOpacity(0.6),
                           blurRadius: 40,
                           spreadRadius: 8,
                         ),
@@ -1017,8 +1017,8 @@ class _SuccessViewState extends State<_SuccessView>
                   position: _textSlide,
                   child: Column(children: [
                     ShaderMask(
-                      shaderCallback: (b) => const LinearGradient(
-                        colors: [AurumTheme.goldDark, AurumTheme.gold],
+                      shaderCallback: (b) => LinearGradient(
+                        colors: [AurumTheme.accentDark, AurumTheme.accent],
                       ).createShader(b),
                       child: Text(
                         l10n.psSuccessTitle,
@@ -1052,11 +1052,11 @@ class _SuccessViewState extends State<_SuccessView>
                     width: double.infinity,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        gradient: AurumTheme.goldGradient,
+                        gradient: AurumTheme.accentGradient,
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: AurumTheme.gold.withOpacity(0.4),
+                            color: AurumTheme.accent.withOpacity(0.4),
                             blurRadius: 20,
                             offset: const Offset(0, 6),
                           ),

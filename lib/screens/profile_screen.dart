@@ -132,7 +132,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               animation: _particleCtrl,
               builder: (_, __) => CustomPaint(
                 size: Size.infinite,
-                painter: _ProfileParticlePainter(_particleCtrl.value),
+                painter: _ProfileParticlePainter(_particleCtrl.value, AurumTheme.accentOf(context)),
               ),
             ),
           ),
@@ -150,7 +150,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: [
-                      AurumTheme.gold.withOpacity(0.06 + _glow.value * 0.03),
+                      AurumTheme.accentOf(context).withOpacity(0.06 + _glow.value * 0.03),
                       Colors.transparent,
                     ],
                     radius: 0.9,
@@ -198,6 +198,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
 class _ProfileParticlePainter extends CustomPainter {
   final double t;
+  final Color accentColor;
   static final _rng = math.Random(42);
   // 12 (not 18) — fewer, smaller, dimmer dots than PremiumScreen's paywall
   // background. That screen is a one-off sales moment where a livelier
@@ -212,7 +213,7 @@ class _ProfileParticlePainter extends CustomPainter {
   ]);
   static final _paints = List.generate(12, (_) => Paint());
 
-  _ProfileParticlePainter(this.t);
+  _ProfileParticlePainter(this.t, this.accentColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -224,7 +225,7 @@ class _ProfileParticlePainter extends CustomPainter {
       final opacity = (0.03 + p[4] * 0.06) *
           (0.5 + 0.5 * math.sin(t * math.pi * 2 * (0.5 + p[2])));
 
-      _paints[i].color = AurumTheme.gold.withOpacity(opacity);
+      _paints[i].color = accentColor.withOpacity(opacity);
       canvas.drawCircle(Offset(x, y), radius, _paints[i]);
     }
   }
@@ -303,10 +304,10 @@ class _ProfileHero extends StatelessWidget {
                 width: 100, height: 100,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: AurumTheme.goldGradient,
+                  gradient: AurumTheme.accentGradientOf(context),
                   boxShadow: [
                     BoxShadow(
-                      color: AurumTheme.gold.withOpacity(0.45),
+                      color: AurumTheme.accentOf(context).withOpacity(0.45),
                       blurRadius: 22,
                       spreadRadius: 2,
                     ),
@@ -328,19 +329,19 @@ class _ProfileHero extends StatelessWidget {
                           memCacheHeight: 200,
                           placeholder: (_, __) => Container(
                             color: AurumTheme.bgCardOf(context),
-                            child: const Icon(Icons.person_rounded,
-                                color: AurumTheme.gold, size: 44),
+                            child: Icon(Icons.person_rounded,
+                                color: AurumTheme.accentOf(context), size: 44),
                           ),
                           errorWidget: (_, __, ___) => Container(
                             color: AurumTheme.bgCardOf(context),
-                            child: const Icon(Icons.person_rounded,
-                                color: AurumTheme.gold, size: 44),
+                            child: Icon(Icons.person_rounded,
+                                color: AurumTheme.accentOf(context), size: 44),
                           ),
                         )
                       : Container(
                           color: AurumTheme.bgCardOf(context),
-                          child: const Icon(Icons.person_rounded,
-                              color: AurumTheme.gold, size: 44),
+                          child: Icon(Icons.person_rounded,
+                              color: AurumTheme.accentOf(context), size: 44),
                         ),
                 ),
               ),
@@ -377,7 +378,7 @@ class _ProfileHero extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
-                      gradient: AurumTheme.goldGradient,
+                      gradient: AurumTheme.accentGradientOf(context),
                     ),
                     child: Text(
                       l10n.prPremiumBadge,
@@ -458,11 +459,11 @@ class _PremiumCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AurumTheme.goldDark.withOpacity(0.22),
-            AurumTheme.gold.withOpacity(0.08),
+            AurumTheme.accentDarkOf(context).withOpacity(0.22),
+            AurumTheme.accentOf(context).withOpacity(0.08),
           ],
         ),
-        border: Border.all(color: AurumTheme.gold.withOpacity(0.28), width: 0.9),
+        border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.28), width: 0.9),
       ),
       child: Column(
         children: [
@@ -474,7 +475,7 @@ class _PremiumCard extends StatelessWidget {
                 width: 40, height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: AurumTheme.goldGradient,
+                  gradient: AurumTheme.accentGradientOf(context),
                 ),
                 child: const Icon(Icons.workspace_premium_rounded,
                     color: Colors.black, size: 20),
@@ -485,7 +486,7 @@ class _PremiumCard extends StatelessWidget {
                 children: [
                   Text(l10n.prAurumPremiumPlain,
                       style: TextStyle(
-                        color: AurumTheme.gold,
+                        color: AurumTheme.accentOf(context),
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                       )),
@@ -505,11 +506,11 @@ class _PremiumCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
                   color: isPremium
-                      ? AurumTheme.gold.withOpacity(0.15)
+                      ? AurumTheme.accentOf(context).withOpacity(0.15)
                       : Colors.white.withOpacity(0.07),
                   border: Border.all(
                     color: isPremium
-                        ? AurumTheme.gold.withOpacity(0.4)
+                        ? AurumTheme.accentOf(context).withOpacity(0.4)
                         : AurumTheme.dividerOf(context),
                   ),
                 ),
@@ -517,7 +518,7 @@ class _PremiumCard extends StatelessWidget {
                   isPremium ? l10n.prActive : l10n.prFree,
                   style: TextStyle(
                     color: isPremium
-                        ? AurumTheme.gold
+                        ? AurumTheme.accentOf(context)
                         : AurumTheme.textMutedOf(context),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -527,7 +528,7 @@ class _PremiumCard extends StatelessWidget {
             ]),
           ),
 
-          Divider(height: 1, color: AurumTheme.gold.withOpacity(0.12)),
+          Divider(height: 1, color: AurumTheme.accentOf(context).withOpacity(0.12)),
 
           // Benefits list
           Padding(
@@ -563,9 +564,9 @@ class _BenefitRow extends StatelessWidget {
           width: 36, height: 36,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AurumTheme.gold.withOpacity(active ? 0.12 : 0.05),
+            color: AurumTheme.accentOf(context).withOpacity(active ? 0.12 : 0.05),
           ),
-          child: Icon(icon, color: active ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+          child: Icon(icon, color: active ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 18),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -588,7 +589,7 @@ class _BenefitRow extends StatelessWidget {
         ),
         Icon(
           active ? Icons.check_circle_rounded : Icons.lock_rounded,
-          color: active ? AurumTheme.gold : AurumTheme.textMutedOf(context).withOpacity(0.5),
+          color: active ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context).withOpacity(0.5),
           size: 18,
         ),
       ]),
@@ -753,17 +754,17 @@ class _AccountCardState extends State<_AccountCard> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                          color: AurumTheme.gold.withOpacity(0.5), width: 2),
+                          color: AurumTheme.accentOf(context).withOpacity(0.5), width: 2),
                     ),
                     child: CircleAvatar(
                       radius: 22,
-                      backgroundColor: AurumTheme.gold.withOpacity(0.15),
+                      backgroundColor: AurumTheme.accentOf(context).withOpacity(0.15),
                       backgroundImage: auth.avatarUrl != null
                           ? NetworkImage(auth.avatarUrl!)
                           : null,
                       child: auth.avatarUrl == null
-                          ? const Icon(Icons.person_rounded,
-                              color: AurumTheme.gold)
+                          ? Icon(Icons.person_rounded,
+                              color: AurumTheme.accentOf(context))
                           : null,
                     ),
                   ),
@@ -794,7 +795,7 @@ class _AccountCardState extends State<_AccountCard> {
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(l10n.prSyncingLibrary,
                                 style: TextStyle(
-                                    color: AurumTheme.gold, fontSize: 11)),
+                                    color: AurumTheme.accentOf(context), fontSize: 11)),
                           ),
                       ],
                     ),
@@ -853,8 +854,8 @@ class _AccountCardState extends State<_AccountCard> {
                               size: 20),
                           label: Text(l10n.prSignIn),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AurumTheme.gold,
-                            side: const BorderSide(color: AurumTheme.gold),
+                            foregroundColor: AurumTheme.accentOf(context),
+                            side: BorderSide(color: AurumTheme.accentOf(context)),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(20)),
                             padding: const EdgeInsets.symmetric(

@@ -135,7 +135,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
     // every row appearing at once.
     final rows = <Widget>[
       // ── APP LOCK ──────────────────────────────────────────────────
-      _sectionLabel(l10n.sprAppLock),
+      _sectionLabel(context, l10n.sprAppLock),
       AurumSettingsTile.switchTile(context,
         icon: Icons.lock_rounded,
         title: l10n.sprAppLockTitle,
@@ -203,7 +203,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       ],
 
       // ── INCOGNITO ─────────────────────────────────────────────────
-      _sectionLabel(l10n.sprIncognito),
+      _sectionLabel(context, l10n.sprIncognito),
       AurumSettingsTile.switchTile(context,
         icon: Icons.visibility_off_rounded,
         title: l10n.sprIncognitoMode,
@@ -219,7 +219,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         _infoTile(context,
           icon: Icons.info_outline_rounded,
           message: l10n.sprIncognitoOnInfo,
-          color: AurumTheme.gold,
+          color: AurumTheme.accentOf(context),
         ),
       AurumSettingsTile.switchTile(context,
         icon: Icons.bar_chart_rounded,
@@ -234,7 +234,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       ),
 
       // ── CLEAR DATA ────────────────────────────────────────────────
-      _sectionLabel(l10n.sprClearData),
+      _sectionLabel(context, l10n.sprClearData),
       AurumSettingsTile.danger(context,
         icon: Icons.history_rounded,
         title: l10n.sprClearHistory,
@@ -419,7 +419,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AurumTheme.gold),
+                  borderSide: BorderSide(color: AurumTheme.accentOf(context)),
                 ),
                 errorText: _error.isEmpty ? null : _error,
               ),
@@ -445,7 +445,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
               child: ElevatedButton(
                 onPressed: () => _step2 ? _confirm(l10n) : _next(l10n),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AurumTheme.gold,
+                  backgroundColor: AurumTheme.accentOf(context),
                   foregroundColor: Colors.black,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -475,9 +475,9 @@ AppBar _appBar(BuildContext context, String title) => AppBar(
   title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
 );
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-  child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+  child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
 Widget _infoTile(BuildContext context, {

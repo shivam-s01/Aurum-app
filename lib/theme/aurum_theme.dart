@@ -15,9 +15,9 @@ class _DynamicMarker extends ThemeExtension<_DynamicMarker> {
 
 class AurumTheme {
   // ── Brand Colors (fixed, theme-independent) ──
-  static const Color gold      = Color(0xFF9B7EDE);
-  static const Color goldLight = Color(0xFFB69FEE);
-  static const Color goldDark  = Color(0xFF7A5FC4);
+  static const Color accent      = Color(0xFF9B7EDE);
+  static const Color accentLight = Color(0xFFB69FEE);
+  static const Color accentDark  = Color(0xFF7A5FC4);
 
   // ── Dark Theme ──
   // ECHO NIGHTLY MATCH ("ekdam dark na rahe"): Echo's default dark mode
@@ -33,7 +33,7 @@ class AurumTheme {
   // 5 units apart — indistinguishable in practice, so "Dark" mode never
   // actually looked different from Amoled. Rebuilt below the same way
   // Echo derives its palette: one shared hue (258°, the app's own brand
-  // violet — gold/goldLight/goldDark above), stepped lightness per tier,
+  // violet — accent/accentLight/accentDark above), stepped lightness per tier,
   // low-but-perceptible saturation (~16%) so the cast reads as a
   // deliberate charcoal-violet surface rather than a color error, while
   // AMOLED below stays exactly the flat true-black it always was.
@@ -94,8 +94,17 @@ class AurumTheme {
   static const Color divider      = darkDivider;
 
   // ── Gradients ──
-  static const LinearGradient goldGradient = LinearGradient(
-    colors: [goldDark, gold, goldLight],
+  static const LinearGradient accentGradient = LinearGradient(
+    colors: [accentDark, accent, accentLight],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Dynamic-theme-aware version of accentGradient — uses the live
+  /// wallpaper-derived accent shades when Dynamic Color mode is active,
+  /// otherwise falls back to the fixed accentGradient above.
+  static LinearGradient accentGradientOf(BuildContext context) => LinearGradient(
+    colors: [accentDarkOf(context), accentOf(context), accentLightOf(context)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -147,7 +156,7 @@ class AurumTheme {
 
   /// Material You / "wallpaper theme" builder — derives every surface from
   /// the system's dynamic ColorScheme (harvested from the device wallpaper
-  /// by Android 12+) instead of Aurum's fixed purple/gold palette. `dynamic`
+  /// by Android 12+) instead of Aurum's fixed purple/accent palette. `dynamic`
   /// must be a real scheme obtained from DynamicColorBuilder; there is no
   /// fallback here on purpose — callers (ThemeProvider) are responsible for
   /// falling back to _dark()/_light() when the platform doesn't support it.
@@ -218,10 +227,10 @@ class AurumTheme {
   }) {
     final isDark = brightness == Brightness.dark;
     // When a real Material You scheme is supplied, its own primary/secondary
-    // (wallpaper-derived) replace Aurum's fixed gold everywhere below —
-    // that's the whole point of this mode. Otherwise fall back to gold.
-    final primary   = dynamicScheme?.primary ?? gold;
-    final secondary = dynamicScheme?.secondary ?? goldLight;
+    // (wallpaper-derived) replace Aurum's fixed accent everywhere below —
+    // that's the whole point of this mode. Otherwise fall back to accent.
+    final primary   = dynamicScheme?.primary ?? accent;
+    final secondary = dynamicScheme?.secondary ?? accentLight;
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -350,12 +359,32 @@ class AurumTheme {
 
   /// Accent color for the current theme — the wallpaper-derived Material
   /// You color when Dynamic Color mode is active, otherwise the user's
-  /// chosen accent (or gold by default). Screens that currently reference
-  /// the `gold` constant directly can switch to this to pick up dynamic
-  /// theming automatically; existing `AurumTheme.gold` references keep
+  /// chosen accent (or accent by default). Screens that currently reference
+  /// the `accent` constant directly can switch to this to pick up dynamic
+  /// theming automatically; existing `AurumTheme.accent` references keep
   /// working unchanged (they just won't react to wallpaper color).
   static Color accentOf(BuildContext context) =>
       Theme.of(context).colorScheme.primary;
+
+  /// Lighter accent variant for the current theme — the wallpaper-derived
+  /// Material You secondary color when Dynamic Color mode is active,
+  /// otherwise the fixed accentLight constant. Use alongside accentOf()
+  /// wherever a gradient/lerp needs a light-tone companion to the accent.
+  static Color accentLightOf(BuildContext context) =>
+      Theme.of(context).extension<_DynamicMarker>() != null
+          ? Theme.of(context).colorScheme.secondary
+          : accentLight;
+
+  /// Darker accent variant for the current theme — derived from the
+  /// active ColorScheme's primary when Dynamic Color mode is active
+  /// (darkened, since Material You schemes don't expose a distinct
+  /// "dark" tier the way the fixed palette does), otherwise the fixed
+  /// accentDark constant.
+  static Color accentDarkOf(BuildContext context) {
+    if (Theme.of(context).extension<_DynamicMarker>() == null) return accentDark;
+    final hsl = HSLColor.fromColor(Theme.of(context).colorScheme.primary);
+    return hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
+  }
 
   // ── Decorations ──
   static BoxDecoration cardDecorationOf(BuildContext context) => BoxDecoration(
@@ -364,13 +393,13 @@ class AurumTheme {
     border: Border.all(color: dividerOf(context), width: 0.5),
   );
 
-  static BoxDecoration goldCardDecorationOf(BuildContext context) => BoxDecoration(
+  static BoxDecoration accentCardDecorationOf(BuildContext context) => BoxDecoration(
     color: bgCardOf(context),
     borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: gold.withOpacity(0.3), width: 0.5),
+    border: Border.all(color: accent.withOpacity(0.3), width: 0.5),
     boxShadow: [
       BoxShadow(
-        color: gold.withOpacity(0.08),
+        color: accent.withOpacity(0.08),
         blurRadius: 12,
         offset: const Offset(0, 4),
       ),
@@ -384,13 +413,13 @@ class AurumTheme {
     border: Border.all(color: divider, width: 0.5),
   );
 
-  static BoxDecoration get goldCardDecoration => BoxDecoration(
+  static BoxDecoration get accentCardDecoration => BoxDecoration(
     color: bgCard,
     borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: gold.withOpacity(0.3), width: 0.5),
+    border: Border.all(color: accent.withOpacity(0.3), width: 0.5),
     boxShadow: [
       BoxShadow(
-        color: gold.withOpacity(0.08),
+        color: accent.withOpacity(0.08),
         blurRadius: 12,
         offset: const Offset(0, 4),
       ),

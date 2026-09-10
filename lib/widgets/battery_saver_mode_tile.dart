@@ -136,7 +136,7 @@ class BatterySaverModeTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isSignedIn
-              ? AurumTheme.gold.withOpacity(0.35)
+              ? AurumTheme.accentOf(context).withOpacity(0.35)
               : AurumTheme.dividerOf(context),
           width: isSignedIn ? 1 : 0.5,
         ),
@@ -146,12 +146,12 @@ class BatterySaverModeTile extends StatelessWidget {
         leading: Container(
           width: 38, height: 38,
           decoration: BoxDecoration(
-            color: AurumTheme.gold.withOpacity(0.1),
+            color: AurumTheme.accentOf(context).withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
             active ? Icons.battery_alert_rounded : Icons.battery_saver_rounded,
-            color: AurumTheme.gold, size: 18,
+            color: AurumTheme.accentOf(context), size: 18,
           ),
         ),
         title: Text(
@@ -164,7 +164,7 @@ class BatterySaverModeTile extends StatelessWidget {
         subtitle: Text(
           subtitle,
           style: TextStyle(
-            color: isSignedIn ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+            color: isSignedIn ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
             fontSize: 12,
           ),
         ),
@@ -175,13 +175,13 @@ class BatterySaverModeTile extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(enabled ? 0.12 : 0.06),
+                  color: AurumTheme.accentOf(context).withOpacity(enabled ? 0.12 : 0.06),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   enabled ? l10n.bsmTileAutomaticBadge : l10n.bsmTileOffBadge,
                   style: TextStyle(
-                    color: enabled ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                    color: enabled ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
                     fontSize: 11, fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -263,10 +263,10 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                 Container(
                   width: 40, height: 40,
                   decoration: BoxDecoration(
-                    color: AurumTheme.gold.withOpacity(0.12),
+                    color: AurumTheme.accentOf(context).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(11),
                   ),
-                  child: const Icon(Icons.battery_saver_rounded, color: AurumTheme.gold, size: 20),
+                  child: Icon(Icons.battery_saver_rounded, color: AurumTheme.accentOf(context), size: 20),
                 ),
                 const SizedBox(width: 12),
                 Text(
@@ -283,10 +283,10 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 16),
+                      Icon(Icons.check_circle_rounded, color: AurumTheme.accentOf(context), size: 16),
                       const SizedBox(width: 4),
                       Text(l10n.bsmSheetSaved,
-                          style: const TextStyle(color: AurumTheme.gold, fontSize: 12, fontWeight: FontWeight.w600)),
+                          style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 12, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ),
@@ -301,13 +301,13 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.auto_awesome_rounded, color: AurumTheme.gold.withOpacity(0.8), size: 13),
+                Icon(Icons.auto_awesome_rounded, color: AurumTheme.accentOf(context).withOpacity(0.8), size: 13),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     l10n.bsmSheetPremiumHint,
                     style: TextStyle(
-                      color: AurumTheme.gold.withOpacity(0.85),
+                      color: AurumTheme.accentOf(context).withOpacity(0.85),
                       fontSize: 11.5,
                       fontWeight: FontWeight.w500,
                       height: 1.3,
@@ -358,10 +358,10 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                             margin: EdgeInsets.only(right: v == 15 ? 10 : 0),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             decoration: BoxDecoration(
-                              color: isSelected ? AurumTheme.gold.withOpacity(0.14) : Colors.transparent,
+                              color: isSelected ? AurumTheme.accentOf(context).withOpacity(0.14) : Colors.transparent,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: isSelected ? AurumTheme.gold : AurumTheme.dividerOf(context),
+                                color: isSelected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
                                 width: isSelected ? 1.4 : 0.8,
                               ),
                             ),
@@ -369,7 +369,7 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                             child: Text(
                               l10n.bsmSheetPercent(v),
                               style: TextStyle(
-                                color: isSelected ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+                                color: isSelected ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
                                 fontSize: 15,
                                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                               ),
@@ -388,7 +388,7 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
               width: double.infinity,
               child: FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: AurumTheme.gold,
+                  backgroundColor: AurumTheme.accentOf(context),
                   foregroundColor: Colors.black,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -433,10 +433,10 @@ class _ModeOption extends StatelessWidget {
         duration: AurumMotion.durationOrZero(AurumMotion.medium1),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? AurumTheme.gold.withOpacity(0.08) : Colors.transparent,
+          color: selected ? AurumTheme.accentOf(context).withOpacity(0.08) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+            color: selected ? AurumTheme.accentOf(context).withOpacity(0.5) : AurumTheme.dividerOf(context),
             width: selected ? 1.2 : 0.8,
           ),
         ),
@@ -444,7 +444,7 @@ class _ModeOption extends StatelessWidget {
           children: [
             Icon(
               selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-              color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+              color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
               size: 18,
             ),
             const SizedBox(width: 10),

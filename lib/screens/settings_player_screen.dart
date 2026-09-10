@@ -234,9 +234,9 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               Container(
                 width: 38, height: 38,
                 decoration: BoxDecoration(
-                    color: AurumTheme.gold.withOpacity(0.1),
+                    color: AurumTheme.accentOf(context).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.high_quality_rounded, color: AurumTheme.gold, size: 18),
+                child: Icon(Icons.high_quality_rounded, color: AurumTheme.accentOf(context), size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -271,13 +271,13 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AurumTheme.gold.withOpacity(0.08)
+                      ? AurumTheme.accentOf(context).withOpacity(0.08)
                       : Colors.transparent,
                 ),
                 child: Row(children: [
                   Icon(
                     selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-                    color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                    color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
                     size: 18,
                   ),
                   const SizedBox(width: 10),
@@ -351,8 +351,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         gradient: value
             ? LinearGradient(
                 colors: [
-                  AurumTheme.gold.withOpacity(0.16),
-                  AurumTheme.gold.withOpacity(0.04),
+                  AurumTheme.accentOf(context).withOpacity(0.16),
+                  AurumTheme.accentOf(context).withOpacity(0.04),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -361,7 +361,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         color: value ? null : AurumTheme.bgCardOf(context),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: value ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+          color: value ? AurumTheme.accentOf(context).withOpacity(0.5) : AurumTheme.dividerOf(context),
           width: value ? 1 : 0.5,
         ),
       ),
@@ -370,7 +370,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         leading: Container(
           width: 40, height: 40,
           decoration: BoxDecoration(
-            gradient: AurumTheme.goldGradient,
+            gradient: AurumTheme.accentGradientOf(context),
             borderRadius: BorderRadius.circular(11),
           ),
           child: const Icon(Icons.auto_awesome_rounded, color: Colors.black, size: 19),
@@ -392,7 +392,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     l10n.spPremiumSoundPartialSupport,
-                    style: TextStyle(color: AurumTheme.gold.withOpacity(0.85), fontSize: 11, height: 1.3),
+                    style: TextStyle(color: AurumTheme.accentOf(context).withOpacity(0.85), fontSize: 11, height: 1.3),
                   ),
                 ),
             ],
@@ -400,7 +400,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         ),
         trailing: Switch(
           value: value,
-          activeColor: AurumTheme.gold,
+          activeColor: AurumTheme.accentOf(context),
           onChanged: (v) async {
             setState(() => _premiumSound = v);
             await _save('premium_sound', v);
@@ -468,7 +468,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           // screen — one section per stagger slot keeps the cascade
           // timing identical across all of Settings.
           AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.spPlayback),
+          _sectionLabel(context, l10n.spPlayback),
           _streamQualityTile(context),
           _switchTile(context,
               icon: Icons.data_saver_on_rounded,
@@ -565,14 +565,14 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           ])),
           AurumStaggerItem(index: 1, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
-          _sectionLabel(l10n.spSleepTimer),
+          _sectionLabel(context, l10n.spSleepTimer),
           _buildSleepTimerTile(context, timer),
           ])),
 
           // ── EQUALIZER ─────────────────────────────────────────────────────
           AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
-          _sectionLabel(l10n.spEqualizer),
+          _sectionLabel(context, l10n.spEqualizer),
           _navTile(context,
               icon: Icons.graphic_eq_rounded,
               title: l10n.spEqualizerTitle,
@@ -584,7 +584,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           // ── BEHAVIOR ──────────────────────────────────────────────────────
           AurumStaggerItem(index: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
-          _sectionLabel(l10n.spBehavior),
+          _sectionLabel(context, l10n.spBehavior),
           _switchTile(context,
               icon: Icons.queue_music_rounded,
               title: l10n.spKeepQueue,
@@ -692,10 +692,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               Container(
                 width: 38, height: 38,
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.1),
+                  color: AurumTheme.accentOf(context).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.speed_rounded, color: AurumTheme.gold, size: 18),
+                child: Icon(Icons.speed_rounded, color: AurumTheme.accentOf(context), size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -707,12 +707,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.12),
+                  color: AurumTheme.accentOf(context).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   _playbackSpeed == 1.0 ? l10n.spNormal : '${_playbackSpeed}×',
-                  style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),
             ]),
@@ -728,8 +728,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const ['0.25×','0.5×','0.75×','1×','1.25×','1.5×','1.75×','2×']
-                  .map((l) => Text(l, style: TextStyle(color: AurumTheme.gold, fontSize: 9)))
+              children: ['0.25×','0.5×','0.75×','1×','1.25×','1.5×','1.75×','2×']
+                  .map((l) => Text(l, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 9)))
                   .toList(),
             ),
           ],
@@ -757,10 +757,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               Container(
                 width: 38, height: 38,
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.1),
+                  color: AurumTheme.accentOf(context).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.compare_arrows_rounded, color: AurumTheme.gold, size: 18),
+                child: Icon(Icons.compare_arrows_rounded, color: AurumTheme.accentOf(context), size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -772,12 +772,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.12),
+                  color: AurumTheme.accentOf(context).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   _crossfadeDuration == 0 ? l10n.spOff : '${_crossfadeDuration.toInt()}s',
-                  style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),
             ]),
@@ -793,8 +793,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const ['Off','1s','2s','3s','4s','5s','6s','7s','8s','9s','10s','11s','12s']
-                  .map((l) => Text(l, style: TextStyle(color: AurumTheme.gold, fontSize: 9)))
+              children: ['Off','1s','2s','3s','4s','5s','6s','7s','8s','9s','10s','11s','12s']
+                  .map((l) => Text(l, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 9)))
                   .toList(),
             ),
           ],
@@ -817,7 +817,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         color: AurumTheme.bgCardOf(context),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isActive ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+          color: isActive ? AurumTheme.accentOf(context).withOpacity(0.5) : AurumTheme.dividerOf(context),
           width: isActive ? 1 : 0.5,
         ),
       ),
@@ -826,10 +826,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         leading: Container(
           width: 38, height: 38,
           decoration: BoxDecoration(
-            color: isActive ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.gold.withOpacity(0.1),
+            color: isActive ? AurumTheme.accentOf(context).withOpacity(0.15) : AurumTheme.accentOf(context).withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(Icons.bedtime_rounded, color: AurumTheme.gold, size: 18),
+          child: Icon(Icons.bedtime_rounded, color: AurumTheme.accentOf(context), size: 18),
         ),
         title: Text(
           isActive ? l10n.spSleepTimerActive : l10n.spSleepTimerTitle,
@@ -841,7 +841,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         subtitle: Text(
           isActive ? l10n.spSleepTimerStopsIn('$mm:$ss') : l10n.spSleepTimerSetSubtitle,
           style: TextStyle(
-            color: isActive ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+            color: isActive ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
             fontSize: 12,
           ),
         ),
@@ -883,7 +883,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
             const Spacer(),
             Text(l10n.spHistorySongsCount(10 + (_historyDuration / 100.0 * 190).round()),
-                style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+                style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           Slider(
             value: _historyDuration,
@@ -1076,7 +1076,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                   border: Border.all(
                     color: _customError != null
                         ? Colors.redAccent.withOpacity(0.6)
-                        : AurumTheme.gold.withOpacity(0.4),
+                        : AurumTheme.accentOf(context).withOpacity(0.4),
                     width: 1,
                   ),
                 ),
@@ -1153,7 +1153,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                     child: ElevatedButton(
                       onPressed: _confirmCustomMinutes,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AurumTheme.gold,
+                        backgroundColor: AurumTheme.accentOf(context),
                         foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -1194,7 +1194,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                       setState(() => _fadeOut = v);
                       widget.onFadeOutChanged(v);
                     },
-                    activeColor: AurumTheme.gold,
+                    activeColor: AurumTheme.accentOf(context),
                   ),
                 ],
               ),
@@ -1226,7 +1226,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                       setState(() => _finishSong = v);
                       widget.onFinishSongChanged(v);
                     },
-                    activeColor: AurumTheme.gold,
+                    activeColor: AurumTheme.accentOf(context),
                   ),
                 ],
               ),
@@ -1250,8 +1250,8 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                         Navigator.pop(context);
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AurumTheme.gold,
-                  disabledBackgroundColor: AurumTheme.gold.withOpacity(0.3),
+                  backgroundColor: AurumTheme.accentOf(context),
+                  disabledBackgroundColor: AurumTheme.accentOf(context).withOpacity(0.3),
                   foregroundColor: Colors.black,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1314,10 +1314,10 @@ class _DurationChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+          color: selected ? AurumTheme.accentOf(context).withOpacity(0.15) : AurumTheme.bgOf(context),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+            color: selected ? AurumTheme.accentOf(context).withOpacity(0.6) : AurumTheme.dividerOf(context),
             width: selected ? 1 : 0.5,
           ),
         ),
@@ -1326,13 +1326,13 @@ class _DurationChip extends StatelessWidget {
           children: [
             if (icon != null) ...[
               Icon(icon, size: 13,
-                  color: selected ? AurumTheme.gold : AurumTheme.textSecondaryOf(context)),
+                  color: selected ? AurumTheme.accentOf(context) : AurumTheme.textSecondaryOf(context)),
               const SizedBox(width: 4),
             ],
             Text(
               label,
               style: TextStyle(
-                color: selected ? AurumTheme.gold : AurumTheme.textSecondaryOf(context),
+                color: selected ? AurumTheme.accentOf(context) : AurumTheme.textSecondaryOf(context),
                 fontSize: 14, fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
@@ -1606,7 +1606,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
           // Only this row rebuilds when the preset name changes (e.g. a
           // band drag flips it to "Custom") — everything else below is
           // untouched by that change.
-          _sectionLabel(l10n.spEqPresets),
+          _sectionLabel(context, l10n.spEqPresets),
           ValueListenableBuilder<String>(
             valueListenable: _presetNotifier,
             builder: (context, preset, _) => _PresetSelector(
@@ -1620,7 +1620,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
           // ── BASS BOOST ──
           // Only this card rebuilds while the Bass Boost slider is
           // dragged — the 10-band list and curve never repaint for it.
-          _sectionLabel('BASS BOOST'),
+          _sectionLabel(context, 'BASS BOOST'),
           ValueListenableBuilder<double>(
             valueListenable: _bassBoostNotifier,
             builder: (context, percent, _) => _BassBoostCard(
@@ -1638,7 +1638,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
           // combining both notifiers with Listenable.merge so it stays
           // accurate to what's actually being sent to the engine without
           // needing its own separate state copy.
-          _sectionLabel(l10n.spEq10Band),
+          _sectionLabel(context, l10n.spEq10Band),
           ListenableBuilder(
             listenable: Listenable.merge([_valuesNotifier, _bassBoostNotifier]),
             builder: (context, _) => _EqResponseGraph(
@@ -2209,11 +2209,11 @@ AppBar _appBar(BuildContext context, String title, {List<Widget>? actions}) =>
       actions: actions,
     );
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
       padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
       child: Text(label,
-          style: const TextStyle(
-              color: AurumTheme.gold,
+          style: TextStyle(
+              color: AurumTheme.accentOf(context),
               fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
     );
 
@@ -2235,11 +2235,11 @@ Widget _switchTile(BuildContext context,
         leading: Container(
           width: 38, height: 38,
           decoration: BoxDecoration(
-            color: value ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+            color: value ? AurumTheme.accentOf(context).withOpacity(0.12) : AurumTheme.bgOf(context),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon,
-              color: value ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+              color: value ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
               size: 18),
         ),
         title: Text(title,
@@ -2248,7 +2248,7 @@ Widget _switchTile(BuildContext context,
                 fontSize: 14, fontWeight: FontWeight.w500)),
         subtitle: Text(subtitle,
             style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-        trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
+        trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.accentOf(context)),
       ),
     );
 
@@ -2313,9 +2313,9 @@ Widget _dropdownTile(BuildContext context,
         leading: Container(
           width: 38, height: 38,
           decoration: BoxDecoration(
-              color: AurumTheme.gold.withOpacity(0.1),
+              color: AurumTheme.accentOf(context).withOpacity(0.1),
               borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: AurumTheme.gold, size: 18),
+          child: Icon(icon, color: AurumTheme.accentOf(context), size: 18),
         ),
         title: Text(title,
             style: TextStyle(
@@ -2327,8 +2327,8 @@ Widget _dropdownTile(BuildContext context,
           value: value,
           underline: const SizedBox(),
           dropdownColor: AurumTheme.bgCardOf(context),
-          style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
-          icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+          style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600),
+          icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accentOf(context), size: 18),
           items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
           onChanged: onChanged,
         ),
@@ -2353,9 +2353,9 @@ Widget _navTile(BuildContext context,
         leading: Container(
           width: 38, height: 38,
           decoration: BoxDecoration(
-              color: AurumTheme.gold.withOpacity(0.12),
+              color: AurumTheme.accentOf(context).withOpacity(0.12),
               borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: AurumTheme.gold, size: 18),
+          child: Icon(icon, color: AurumTheme.accentOf(context), size: 18),
         ),
         title: Text(title,
             style: TextStyle(

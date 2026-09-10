@@ -25,7 +25,7 @@ class SettingsAppearanceScreen extends StatefulWidget {
 class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // Theme
   bool _highRefreshRate = true;
-  Color _accentColor = AurumTheme.gold;
+  Color _accentColor = AurumTheme.accent;
   // Player
   String _playerBgStyle = 'Blur';
   bool _dynamicPlayerColor = true;
@@ -85,7 +85,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // visual separation against the dark theme and clean contrast with
   // white iconography/text drawn on top of the selected swatch.
   static const List<Color> _accentOptions = [
-    AurumTheme.gold,       // free
+    AurumTheme.accent,       // free
     Color(0xFF6D5DF6),     // violet
     Color(0xFF4F8CFF),     // azure
     Color(0xFFE91E63),     // rose
@@ -112,7 +112,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     if (!mounted) return;
     setState(() {
       _highRefreshRate = p.getBool('high_refresh_rate') ?? true;
-      _accentColor = Color(p.getInt('accent_color') ?? AurumTheme.gold.value);
+      _accentColor = Color(p.getInt('accent_color') ?? AurumTheme.accent.value);
       _playerBgStyle = p.getString('player_bg_style') ?? 'Blur';
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
@@ -187,7 +187,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // Settings list) — one section per stagger slot keeps the
           // cascade timing identical across all of Settings.
           AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.saTheme),
+          _sectionLabel(context, l10n.saTheme),
           _card(context, child: Column(children: [
             _themeTile(context, tp, Icons.wallpaper_rounded, 'Dynamic Color (Android 12+)',
                 tp.dynamicDark != null
@@ -227,14 +227,14 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
-                    color: AurumTheme.gold.withOpacity(0.12),
+                    color: AurumTheme.accentOf(context).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+                    border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3)),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
+                    Icon(Icons.login_rounded, color: AurumTheme.accentOf(context), size: 10),
                     const SizedBox(width: 3),
-                    Text(l10n.saExtraColorsSignIn, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                    Text(l10n.saExtraColorsSignIn, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 9, fontWeight: FontWeight.w700)),
                   ]),
                 ),
               ]),
@@ -293,17 +293,17 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ),
           // ── Font Style ──
           AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.saFontStyle),
+          _sectionLabel(context, l10n.saFontStyle),
           _buildFontSelector(context),
 
           // ── Artwork Shape ──
-          _sectionLabel(l10n.saArtworkShape),
+          _sectionLabel(context, l10n.saArtworkShape),
           _buildArtworkShapeSelector(context),
           ])),
 
           // ── Player ──
           AurumStaggerItem(index: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.saPlayer),
+          _sectionLabel(context, l10n.saPlayer),
           _dropdownTile(context,
             title: 'Nav Bar & Mini Player Style',
             subtitle: 'Floating: rounded, blurred capsule. Docked: classic flat bar, edge-to-edge, no blur.',
@@ -381,7 +381,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ])),
           // ── Lyrics ──
           AurumStaggerItem(index: 4, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.saLyrics),
+          _sectionLabel(context, l10n.saLyrics),
           _inlineSwitch(context,
             title: l10n.saShowLyricsOnPlayer,
             subtitle: l10n.saShowLyricsOnPlayerSubtitle,
@@ -461,7 +461,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ])),
           // ── Animations ──
           AurumStaggerItem(index: 5, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _sectionLabel(l10n.saAnimations),
+          _sectionLabel(context, l10n.saAnimations),
           _inlineSwitch(context,
             title: l10n.saEnableAnimations,
             subtitle: l10n.saEnableAnimationsSubtitle,
@@ -532,14 +532,14 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: AurumTheme.gold.withOpacity(0.12),
+                color: AurumTheme.accentOf(context).withOpacity(0.12),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+                border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3)),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
+                Icon(Icons.login_rounded, color: AurumTheme.accentOf(context), size: 10),
                 const SizedBox(width: 3),
-                Text(l10n.saRoundedMonoSignIn, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                Text(l10n.saRoundedMonoSignIn, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 9, fontWeight: FontWeight.w700)),
               ]),
             ),
           ]),
@@ -571,10 +571,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 2),
                         decoration: BoxDecoration(
-                          color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                          color: sel ? AurumTheme.accentOf(context).withOpacity(0.12) : AurumTheme.bgOf(context),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                            color: sel ? AurumTheme.accentOf(context).withOpacity(0.6) : AurumTheme.dividerOf(context),
                             width: sel ? 1 : 0.5,
                           ),
                         ),
@@ -587,7 +587,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                                 e.key,
                                 color: locked
                                     ? AurumTheme.textMutedOf(context).withOpacity(0.5)
-                                    : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                                    : (sel ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context)),
                               ),
                             ),
                           ),
@@ -600,7 +600,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                             style: TextStyle(
                               color: locked
                                   ? AurumTheme.textMutedOf(context).withOpacity(0.4)
-                                  : (sel ? AurumTheme.gold : AurumTheme.textMutedOf(context)),
+                                  : (sel ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context)),
                               fontSize: 10.5,
                             ),
                           ),
@@ -609,7 +609,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                       if (locked)
                         Positioned(
                           top: 6, right: 6,
-                          child: Icon(Icons.lock_rounded, size: 12, color: AurumTheme.gold.withOpacity(0.7)),
+                          child: Icon(Icons.lock_rounded, size: 12, color: AurumTheme.accentOf(context).withOpacity(0.7)),
                         ),
                     ]),
                   ),
@@ -743,10 +743,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
-                  color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                  color: sel ? AurumTheme.accentOf(context).withOpacity(0.12) : AurumTheme.bgOf(context),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                    color: sel ? AurumTheme.accentOf(context).withOpacity(0.6) : AurumTheme.dividerOf(context),
                     width: sel ? 1 : 0.5,
                   ),
                 ),
@@ -754,15 +754,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                   Container(
                     width: 36, height: 36,
                     decoration: BoxDecoration(
-                      color: sel ? AurumTheme.gold.withOpacity(0.3) : AurumTheme.dividerOf(context),
+                      color: sel ? AurumTheme.accentOf(context).withOpacity(0.3) : AurumTheme.dividerOf(context),
                       borderRadius: previews[s],
                     ),
-                    child: sel ? const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 18) : null,
+                    child: sel ? Icon(Icons.music_note_rounded, color: AurumTheme.accentOf(context), size: 18) : null,
                   ),
                   const SizedBox(height: 8),
                   Text(labels[s]!,
                       style: TextStyle(
-                        color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                        color: sel ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
                         fontSize: 11,
                       )),
                 ]),
@@ -782,15 +782,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       leading: Container(
         width: 38, height: 38,
         decoration: BoxDecoration(
-          color: selected ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+          color: selected ? AurumTheme.accentOf(context).withOpacity(0.15) : AurumTheme.bgOf(context),
           borderRadius: BorderRadius.circular(10),
-          border: selected ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+          border: selected ? Border.all(color: AurumTheme.accentOf(context).withOpacity(0.5)) : null,
         ),
-        child: Icon(icon, color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.4) : (selected ? AurumTheme.gold : AurumTheme.textMutedOf(context)), size: 18),
+        child: Icon(icon, color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.4) : (selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context)), size: 18),
       ),
       title: Text(label,
         style: TextStyle(
-          color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.5) : (selected ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+          color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.5) : (selected ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context)),
           fontSize: 14,
           fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         )),
@@ -799,7 +799,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ? null
           : Icon(
               selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-              color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+              color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
               size: 20,
             ),
     );
@@ -821,9 +821,9 @@ AppBar _appBar(BuildContext context, String title, {List<Widget>? actions}) {
   );
 }
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-  child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+  child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
 Widget _card(BuildContext context, {required Widget child}) => Container(
@@ -857,7 +857,7 @@ Widget _inlineSwitch(
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
       subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
+      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.accentOf(context)),
     ),
   );
 }
@@ -899,9 +899,9 @@ Widget _sliderStylePickerTile(
           title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
           subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(value, style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(value, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600)),
             const SizedBox(width: 2),
-            Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+            Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accentOf(context), size: 18),
           ]),
         ),
       ),
@@ -1039,7 +1039,7 @@ class _SliderStyleCard extends StatelessWidget {
         color: const Color(0xFF0B0B11),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: selected ? AurumTheme.gold.withAlpha(90) : Colors.white.withAlpha(14),
+          color: selected ? AurumTheme.accentOf(context).withAlpha(90) : Colors.white.withAlpha(14),
           width: selected ? 1.0 : 0.7,
         ),
       ),
@@ -1096,9 +1096,9 @@ class _SliderStyleCard extends StatelessWidget {
                     width: 16, height: 16,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: selected ? AurumTheme.gold : Colors.transparent,
+                      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
                       border: Border.all(
-                        color: selected ? AurumTheme.gold : Colors.white.withAlpha(36),
+                        color: selected ? AurumTheme.accentOf(context) : Colors.white.withAlpha(36),
                         width: 1.3,
                       ),
                     ),
@@ -1261,8 +1261,8 @@ Widget _dropdownTile(
         value: value,
         underline: const SizedBox(),
         dropdownColor: AurumTheme.bgCardOf(context),
-        style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+        style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600),
+        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accentOf(context), size: 18),
         items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
         onChanged: onChanged,
       ),
@@ -1293,7 +1293,7 @@ Widget _sliderTile(
         Row(children: [
           Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
           const Spacer(),
-          Text(displayValue, style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+          Text(displayValue, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600)),
         ]),
         Slider(value: value, min: min, max: max, divisions: divisions, onChanged: onChanged),
       ]),

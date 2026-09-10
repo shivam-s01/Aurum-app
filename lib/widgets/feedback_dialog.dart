@@ -215,7 +215,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
                     filled ? Icons.star_rounded : Icons.star_outline_rounded,
                     size: 36,
                     color: filled
-                        ? AurumTheme.gold
+                        ? AurumTheme.accentOf(context)
                         : Theme.of(context)
                             .iconTheme
                             .color
@@ -265,9 +265,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
           child: ElevatedButton(
             onPressed: _rating == 0 || _sending ? null : _send,
             style: ElevatedButton.styleFrom(
-              backgroundColor: AurumTheme.gold,
+              backgroundColor: AurumTheme.accentOf(context),
               disabledBackgroundColor:
-                  AurumTheme.gold.withValues(alpha: 0.35),
+                  AurumTheme.accentOf(context).withValues(alpha: 0.35),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -323,8 +323,8 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
             shape: BoxShape.circle,
             gradient: LinearGradient(
               colors: [
-                AurumTheme.gold.withValues(alpha: 0.95),
-                AurumTheme.gold.withValues(alpha: 0.6),
+                AurumTheme.accentOf(context).withValues(alpha: 0.95),
+                AurumTheme.accentOf(context).withValues(alpha: 0.6),
               ],
             ),
           ),
@@ -418,7 +418,7 @@ class _AurumBrandMarkState extends State<_AurumBrandMark>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AurumTheme.gold
+                        color: AurumTheme.accentOf(context)
                             .withValues(alpha: 0.35 * breath),
                         blurRadius: 22,
                         spreadRadius: 2,
@@ -436,9 +436,9 @@ class _AurumBrandMarkState extends State<_AurumBrandMark>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        AurumTheme.goldLight,
-                        AurumTheme.gold,
-                        AurumTheme.goldDark,
+                        AurumTheme.accentLightOf(context),
+                        AurumTheme.accentOf(context),
+                        AurumTheme.accentDarkOf(context),
                       ],
                     ),
                     border: Border.all(

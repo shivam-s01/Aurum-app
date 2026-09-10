@@ -67,7 +67,7 @@ class AurumSettingsTile extends StatelessWidget {
       icon: icon,
       title: title,
       subtitle: subtitle,
-      iconColor: value ? AurumTheme.gold : null,
+      iconColor: value ? AurumTheme.accent : null,
       onTap: () => onChanged(!value),
       trailing: _AurumAnimatedSwitch(value: value, onChanged: onChanged),
     );
@@ -153,8 +153,8 @@ class AurumSettingsTile extends StatelessWidget {
         value: value,
         underline: const SizedBox(),
         dropdownColor: AurumTheme.bgCardOf(context),
-        style: TextStyle(color: AurumTheme.gold, fontSize: 12, fontWeight: FontWeight.w600),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+        style: TextStyle(color: AurumTheme.accent, fontSize: 12, fontWeight: FontWeight.w600),
+        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accent, size: 18),
         items: options.map((o) => DropdownMenuItem(value: o, child: Text(label(o)))).toList(),
         onChanged: onChanged,
       ),
@@ -164,7 +164,7 @@ class AurumSettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final danger = isDanger;
-    final baseColor = danger ? Colors.redAccent : (iconColor ?? AurumTheme.gold);
+    final baseColor = danger ? Colors.redAccent : (iconColor ?? AurumTheme.accent);
     final leading = customIcon ??
         Container(
           width: 38,
@@ -234,7 +234,7 @@ class _AurumAnimatedSwitch extends StatelessWidget {
         padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: value ? AurumTheme.gold : AurumTheme.dividerOf(context),
+          color: value ? AurumTheme.accent : AurumTheme.dividerOf(context),
         ),
         child: AnimatedAlign(
           duration: AurumMotion.durationOrZero(AurumMotion.short2),

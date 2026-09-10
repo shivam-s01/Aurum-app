@@ -183,7 +183,7 @@ class _LanguageRow extends StatelessWidget {
                       child: AurumMorphLoader(size: 20),
                     )
                   : selected
-                      ? Icon(Icons.check_circle_rounded, key: const ValueKey('sel'), color: AurumTheme.gold, size: 22)
+                      ? Icon(Icons.check_circle_rounded, key: const ValueKey('sel'), color: AurumTheme.accentOf(context), size: 22)
                       : Icon(Icons.circle_outlined,
                           key: const ValueKey('unsel'),
                           color: AurumTheme.textMutedOf(context).withValues(alpha: 0.4), size: 22),

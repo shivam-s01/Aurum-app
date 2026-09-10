@@ -642,7 +642,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         action: SnackBarAction(
           label: l10n.asgResumePromptResume,
-          textColor: AurumTheme.gold,
+          textColor: AurumTheme.accentOf(context),
           onPressed: () => player.togglePlay(),
         ),
       ),
@@ -974,7 +974,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // reliably, so this goes back to the simple, previously-working
           // native indicator. Styled gold/dark to still match Aurum.
           RefreshIndicator(
-            color: AurumTheme.gold,
+            color: AurumTheme.accentOf(context),
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
             displacement: 48,
@@ -1131,16 +1131,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     letterSpacing: -0.2,
                     height: 1.0,
                     foreground: Paint()
-                      ..color = AurumTheme.gold.withOpacity(0.22)
+                      ..color = AurumTheme.accentOf(context).withOpacity(0.22)
                       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
                   ),
                 ),
                 ShaderMask(
-                  shaderCallback: (bounds) => const LinearGradient(
+                  shaderCallback: (bounds) => LinearGradient(
                     colors: [
-                      AurumTheme.goldLight,
-                      AurumTheme.gold,
-                      AurumTheme.goldDark,
+                      AurumTheme.accentLightOf(context),
+                      AurumTheme.accentOf(context),
+                      AurumTheme.accentDarkOf(context),
                     ],
                     stops: [0.0, 0.5, 1.0],
                     begin: Alignment.topLeft,
@@ -1164,12 +1164,12 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(
-                  colors: [AurumTheme.goldDark, AurumTheme.gold, AurumTheme.goldLight],
+                gradient: LinearGradient(
+                  colors: [AurumTheme.accentDarkOf(context), AurumTheme.accentOf(context), AurumTheme.accentLightOf(context)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.45),
+                    color: AurumTheme.accentOf(context).withOpacity(0.45),
                     blurRadius: 10,
                     spreadRadius: 0.5,
                   ),
@@ -1545,7 +1545,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
         child: Row(
           children: [
             Icon(Icons.graphic_eq_rounded,
-                color: AurumTheme.gold.withOpacity(0.85), size: 20),
+                color: AurumTheme.accentOf(context).withOpacity(0.85), size: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -1854,7 +1854,7 @@ Widget _buildOnlineError(BuildContext context, {String? message, required VoidCa
         const SizedBox(height: 16),
         TextButton(
           onPressed: onRetry,
-          child: Text(AppLocalizations.of(context)!.commonRetry, style: TextStyle(color: AurumTheme.gold)),
+          child: Text(AppLocalizations.of(context)!.commonRetry, style: TextStyle(color: AurumTheme.accentOf(context))),
         ),
       ]),
     ),
@@ -2139,7 +2139,7 @@ class _SongGridCardState extends State<_SongGridCard> {
                           ),
                           child: AurumEqualizerBars(
                             playing: isActuallyPlaying,
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accentOf(context),
                             size: 16,
                           ),
                         ),
@@ -2398,7 +2398,7 @@ class _OfflineContent extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 20, 12, 0),
           child: Row(children: [
-            Icon(Icons.download_done_rounded, color: AurumTheme.gold, size: 16),
+            Icon(Icons.download_done_rounded, color: AurumTheme.accentOf(context), size: 16),
             const SizedBox(width: 6),
             Text(
               '$totalCount songs on device',
@@ -2432,7 +2432,7 @@ class _OfflineContent extends StatelessWidget {
           const SizedBox(height: 16),
           TextButton(
             onPressed: onTap,
-            child: Text(label, style: TextStyle(color: AurumTheme.gold)),
+            child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context))),
           ),
         ]),
       ),
@@ -2520,7 +2520,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
                     child: Text(
                       AppLocalizations.of(context)!.commonSeeAll,
                       style: TextStyle(
-                        color: AurumTheme.gold,
+                        color: AurumTheme.accentOf(context),
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2615,7 +2615,7 @@ class _ProfileAvatarButton extends StatelessWidget {
           width: 34, height: 34,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: AurumTheme.goldGradient,
+            gradient: AurumTheme.accentGradientOf(context),
           ),
           padding: const EdgeInsets.all(1.5),
           child: ClipOval(
@@ -2665,7 +2665,7 @@ class _StatusPillState extends State<_StatusPill> {
   @override
   Widget build(BuildContext context) {
     final isOnline = context.watch<SourceProvider>().isOnline;
-    final dotColor = isOnline ? AurumTheme.gold : AurumTheme.textMutedOf(context);
+    final dotColor = isOnline ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context);
 
     return AurumPressable(
       scaleAmount: 0.96,
@@ -2846,12 +2846,12 @@ class _SourceOptionState extends State<_SourceOption> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: widget.selected
-                ? AurumTheme.gold.withOpacity(0.12)
+                ? AurumTheme.accentOf(context).withOpacity(0.12)
                 : AurumTheme.bgElevatedOf(context),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: widget.selected
-                  ? AurumTheme.gold.withOpacity(0.5)
+                  ? AurumTheme.accentOf(context).withOpacity(0.5)
                   : AurumTheme.dividerOf(context),
               width: 1,
             ),
@@ -2860,7 +2860,7 @@ class _SourceOptionState extends State<_SourceOption> {
             Icon(widget.icon,
                 size: 20,
                 color: widget.selected
-                    ? AurumTheme.gold
+                    ? AurumTheme.accentOf(context)
                     : AurumTheme.textSecondaryOf(context)),
             const SizedBox(width: 14),
             Expanded(
@@ -2883,7 +2883,7 @@ class _SourceOptionState extends State<_SourceOption> {
               ),
             ),
             if (widget.selected)
-              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.gold),
+              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context)),
           ]),
         ),
     );
@@ -3184,14 +3184,14 @@ class _ArtistChip extends StatelessWidget {
               circular: true,
               showNowPlaying: isCurrentArtist,
               isPlaying: isActuallyPlaying,
-              stackColor: AurumTheme.gold,
+              stackColor: AurumTheme.accentOf(context),
             ),
             const SizedBox(height: 10),
             Text(
               artist.name,
               style: TextStyle(
                 color: isCurrentArtist
-                    ? AurumTheme.gold
+                    ? AurumTheme.accentOf(context)
                     : AurumTheme.textPrimaryOf(context),
                 fontSize: 13,
                 fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
@@ -5479,12 +5479,12 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                   ],
                 ),
                 border: Border.all(
-                  color: AurumTheme.gold.withOpacity(0.3),
+                  color: AurumTheme.accent.withOpacity(0.3),
                   width: 0.8,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.08),
+                    color: AurumTheme.accent.withOpacity(0.08),
                     blurRadius: 16,
                     offset: const Offset(0, 4),
                   ),
@@ -5495,9 +5495,9 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                 ShaderMask(
                   shaderCallback: (bounds) => LinearGradient(
                     colors: const [
-                      AurumTheme.goldDark,
-                      AurumTheme.goldLight,
-                      AurumTheme.gold,
+                      AurumTheme.accentDark,
+                      AurumTheme.accentLight,
+                      AurumTheme.accent,
                     ],
                     stops: [
                       (sweep - 0.4).clamp(0.0, 1.0),
@@ -5516,8 +5516,8 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                       ShaderMask(
                         shaderCallback: (b) => LinearGradient(
                           colors: const [
-                            AurumTheme.goldDark,
-                            AurumTheme.goldLight,
+                            AurumTheme.accentDark,
+                            AurumTheme.accentLight,
                           ],
                           stops: [
                             (sweep - 0.5).clamp(0.0, 1.0),
@@ -5537,7 +5537,7 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                       Text(
                         '320kbps • Offline • No ads • More',
                         style: TextStyle(
-                          color: AurumTheme.gold.withOpacity(0.55),
+                          color: AurumTheme.accent.withOpacity(0.55),
                           fontSize: 12,
                         ),
                       ),
@@ -5548,7 +5548,7 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
-                    gradient: AurumTheme.goldGradient,
+                    gradient: AurumTheme.accentGradient,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Text(

@@ -376,9 +376,9 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                                       fit: BoxFit.cover,
                                       fadeInDuration: const Duration(milliseconds: 220),
                                       errorWidget: (_, __, ___) =>
-                                          Container(color: AurumTheme.darkBgElevated),
+                                          Container(color: AurumTheme.bgElevatedOf(context)),
                                     )
-                                  : Container(color: AurumTheme.darkBgElevated),
+                                  : Container(color: AurumTheme.bgElevatedOf(context)),
                             ),
                           ),
 
@@ -589,7 +589,7 @@ class _TitleRow extends StatelessWidget {
               onTap: () => showAurumFullPlayerOptionsSheet(
                 context,
                 song,
-                accentColor: AurumTheme.gold,
+                accentColor: AurumTheme.accentOf(context),
               ),
             ),
             const SizedBox(width: 14),
@@ -1300,7 +1300,7 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                                         : Container(
                                             width: 52,
                                             height: 52,
-                                            color: AurumTheme.darkBgElevated,
+                                            color: AurumTheme.bgElevatedOf(context),
                                           ),
                                   ),
                                 ),
@@ -1345,7 +1345,7 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                                   onTap: () => showAurumFullPlayerOptionsSheet(
                                     context,
                                     widget.song,
-                                    accentColor: AurumTheme.gold,
+                                    accentColor: AurumTheme.accentOf(context),
                                   ),
                                 ),
                               ],
@@ -1448,7 +1448,7 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                               height: 64,
                               fit: BoxFit.cover,
                             )
-                          : Container(width: 64, height: 64, color: AurumTheme.darkBgElevated),
+                          : Container(width: 64, height: 64, color: AurumTheme.bgElevatedOf(context)),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -1702,7 +1702,7 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                                         height: 52,
                                         fit: BoxFit.cover,
                                       )
-                                    : Container(width: 52, height: 52, color: AurumTheme.darkBgElevated),
+                                    : Container(width: 52, height: 52, color: AurumTheme.bgElevatedOf(context)),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -1852,7 +1852,7 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
       builder: (sheetContext) => ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Container(
-          color: AurumTheme.darkBgElevated,
+          color: AurumTheme.bgElevatedOf(context),
           child: SafeArea(
             top: false,
             child: Column(

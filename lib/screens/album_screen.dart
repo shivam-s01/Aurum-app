@@ -322,14 +322,14 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 28),
                       decoration: BoxDecoration(
                         color: _songs.isEmpty
-                            ? AurumTheme.gold.withOpacity(0.4)
-                            : AurumTheme.gold,
+                            ? AurumTheme.accentOf(context).withOpacity(0.4)
+                            : AurumTheme.accentOf(context),
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: _songs.isEmpty
                             ? null
                             : [
                                 BoxShadow(
-                                  color: AurumTheme.gold.withOpacity(0.35),
+                                  color: AurumTheme.accentOf(context).withOpacity(0.35),
                                   blurRadius: 16,
                                   offset: const Offset(0, 6),
                                 ),
@@ -572,7 +572,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: saved
-                        ? AurumTheme.gold.withOpacity(0.12)
+                        ? AurumTheme.accentOf(context).withOpacity(0.12)
                         : AurumTheme.bgSurfaceOf(context),
                     shape: BoxShape.circle,
                   ),
@@ -876,7 +876,7 @@ class _ActionIcon extends StatelessWidget {
           color: disabled
               ? AurumTheme.textMutedOf(context).withOpacity(0.4)
               : active
-                  ? AurumTheme.gold
+                  ? AurumTheme.accentOf(context)
                   : AurumTheme.textSecondaryOf(context),
         ),
       ),
@@ -960,7 +960,7 @@ class _ArtistChip extends StatelessWidget {
           border: Border.all(color: AurumTheme.dividerOf(context)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: AurumTheme.gold),
+          Icon(icon, size: 14, color: AurumTheme.accentOf(context)),
           const SizedBox(width: 6),
           Text(
             name,

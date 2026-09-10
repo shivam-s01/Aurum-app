@@ -54,7 +54,7 @@ class LikedScreen extends StatelessWidget {
                   const Icon(Icons.favorite_rounded, color: Color(0xFFE1306C), size: 22),
                   const SizedBox(width: 8),
                   ShaderMask(
-                    shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+                    shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
                     child: Text(l10n.libraryLikedSongs, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
                   ),
                 ],
@@ -117,13 +117,13 @@ class LikedScreen extends StatelessWidget {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                                 decoration: BoxDecoration(
-                                  gradient: AurumTheme.goldGradient,
+                                  gradient: AurumTheme.accentGradient,
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(Icons.play_arrow_rounded, color: AurumTheme.bg, size: 18),
+                                  Icon(Icons.play_arrow_rounded, color: AurumTheme.bgOf(context), size: 18),
                                   const SizedBox(width: 4),
-                                  Text(l10n.commonPlayAll, style: TextStyle(color: AurumTheme.bg, fontSize: 13, fontWeight: FontWeight.w700)),
+                                  Text(l10n.commonPlayAll, style: TextStyle(color: AurumTheme.bgOf(context), fontSize: 13, fontWeight: FontWeight.w700)),
                                 ]),
                               ),
                             ),

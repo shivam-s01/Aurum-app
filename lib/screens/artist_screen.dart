@@ -285,8 +285,8 @@ class _ArtistScreenState extends State<ArtistScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                color: AurumTheme.gold,
+                              decoration: BoxDecoration(
+                                color: AurumTheme.accentOf(context),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.check_rounded,
@@ -819,7 +819,7 @@ class _ArtistGlassButton extends StatelessWidget {
           border: Border.all(
             width: 1.4,
             color: active
-                ? AurumTheme.gold
+                ? AurumTheme.accentOf(context)
                 : disabled
                     ? AurumTheme.dividerOf(context)
                     : AurumTheme.textPrimaryOf(context).withOpacity(0.7),
@@ -831,7 +831,7 @@ class _ArtistGlassButton extends StatelessWidget {
           color: disabled
               ? AurumTheme.textMutedOf(context).withOpacity(0.4)
               : active
-                  ? AurumTheme.gold
+                  ? AurumTheme.accentOf(context)
                   : AurumTheme.textPrimaryOf(context),
         ),
       ),

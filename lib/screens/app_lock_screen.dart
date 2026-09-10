@@ -150,8 +150,8 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(
-        backgroundColor: AurumTheme.darkBg,
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
         body: const Center(child: AurumMorphLoader(size: 56)),
       );
     }
@@ -193,7 +193,7 @@ class _LockUI extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AurumTheme.darkBg,
+      backgroundColor: AurumTheme.bgOf(context),
       body: SafeArea(
         child: Column(children: [
           const Spacer(flex: 2),
@@ -202,8 +202,8 @@ class _LockUI extends StatelessWidget {
             width: 72, height: 72,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: AurumTheme.goldGradient,
-              boxShadow: [BoxShadow(color: AurumTheme.gold.withOpacity(0.3), blurRadius: 20, spreadRadius: 2)],
+              gradient: AurumTheme.accentGradient,
+              boxShadow: [BoxShadow(color: AurumTheme.accentOf(context).withOpacity(0.3), blurRadius: 20, spreadRadius: 2)],
             ),
             child: const Icon(Icons.lock_rounded, color: Colors.black, size: 32),
           ),
@@ -239,13 +239,13 @@ class _LockUI extends StatelessWidget {
                   height: filled ? 18 : 14,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: filled ? AurumTheme.gold : Colors.transparent,
+                    color: filled ? AurumTheme.accentOf(context) : Colors.transparent,
                     border: Border.all(
-                      color: filled ? AurumTheme.gold : Colors.white.withOpacity(0.3),
+                      color: filled ? AurumTheme.accentOf(context) : Colors.white.withOpacity(0.3),
                       width: 2,
                     ),
                     boxShadow: filled
-                        ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4), blurRadius: 8)]
+                        ? [BoxShadow(color: AurumTheme.accentOf(context).withOpacity(0.4), blurRadius: 8)]
                         : null,
                   ),
                 );
@@ -278,7 +278,7 @@ class _LockUI extends StatelessWidget {
                   SizedBox(
                     width: 80, height: 80,
                     child: showBiometric
-                        ? _actionKey(icon: Icons.fingerprint_rounded, color: AurumTheme.gold, onTap: onBiometric)
+                        ? _actionKey(icon: Icons.fingerprint_rounded, color: AurumTheme.accentOf(context), onTap: onBiometric)
                         : const SizedBox(),
                   ),
                   _numKey('0'),

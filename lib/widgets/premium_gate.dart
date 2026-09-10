@@ -165,7 +165,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
         color: const Color(0xFF0E0E12),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         border: Border.all(
-          color: AurumTheme.gold.withOpacity(0.22),
+          color: AurumTheme.accent.withOpacity(0.22),
           width: 0.8,
         ),
       ),
@@ -195,10 +195,10 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                   height: 68,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: AurumTheme.goldGradient,
+                    gradient: AurumTheme.accentGradient,
                     boxShadow: [
                       BoxShadow(
-                        color: AurumTheme.gold.withOpacity(0.5),
+                        color: AurumTheme.accent.withOpacity(0.5),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -213,7 +213,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                 const SizedBox(height: 16),
                 ShaderMask(
                   shaderCallback: (b) => const LinearGradient(
-                    colors: [AurumTheme.goldDark, AurumTheme.goldLight],
+                    colors: [AurumTheme.accentDark, AurumTheme.accentLight],
                   ).createShader(b),
                   child: Text(
                     '${widget.feature} is Plus',
@@ -262,17 +262,17 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 10),
                       decoration: BoxDecoration(
-                        color: AurumTheme.gold.withOpacity(0.07),
+                        color: AurumTheme.accent.withOpacity(0.07),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: AurumTheme.gold.withOpacity(0.18),
+                          color: AurumTheme.accent.withOpacity(0.18),
                           width: 0.7,
                         ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(perk.$1, color: AurumTheme.gold, size: 17),
+                          Icon(perk.$1, color: AurumTheme.accent, size: 17),
                           const SizedBox(height: 5),
                           Text(
                             perk.$2,
@@ -332,7 +332,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                       ),
                       child: Row(children: [
                         Icon(Icons.info_outline_rounded,
-                            color: AurumTheme.gold.withOpacity(0.7), size: 15),
+                            color: AurumTheme.accent.withOpacity(0.7), size: 15),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -357,7 +357,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                             height: 56,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
-                              color: AurumTheme.gold.withOpacity(0.15),
+                              color: AurumTheme.accent.withOpacity(0.15),
                             ),
                             child: const Center(
                               child: SizedBox(
@@ -369,11 +369,11 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                           )
                         : DecoratedBox(
                             decoration: BoxDecoration(
-                              gradient: AurumTheme.goldGradient,
+                              gradient: AurumTheme.accentGradient,
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AurumTheme.gold.withOpacity(0.4),
+                                  color: AurumTheme.accent.withOpacity(0.4),
                                   blurRadius: 20,
                                   offset: const Offset(0, 5),
                                 ),
@@ -556,7 +556,7 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
         color: const Color(0xFF0E0E12),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         border: Border.all(
-          color: AurumTheme.gold.withOpacity(0.22),
+          color: AurumTheme.accent.withOpacity(0.22),
           width: 0.8,
         ),
       ),
@@ -588,10 +588,10 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                   height: 68,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: AurumTheme.goldGradient,
+                    gradient: AurumTheme.accentGradient,
                     boxShadow: [
                       BoxShadow(
-                        color: AurumTheme.gold.withOpacity(0.5),
+                        color: AurumTheme.accent.withOpacity(0.5),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -606,7 +606,7 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                 const SizedBox(height: 16),
                 ShaderMask(
                   shaderCallback: (b) => const LinearGradient(
-                    colors: [AurumTheme.goldDark, AurumTheme.goldLight],
+                    colors: [AurumTheme.accentDark, AurumTheme.accentLight],
                   ).createShader(b),
                   child: Text(
                     'Sign in for ${widget.feature}',
@@ -656,17 +656,17 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 10),
                       decoration: BoxDecoration(
-                        color: AurumTheme.gold.withOpacity(0.07),
+                        color: AurumTheme.accent.withOpacity(0.07),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: AurumTheme.gold.withOpacity(0.18),
+                          color: AurumTheme.accent.withOpacity(0.18),
                           width: 0.7,
                         ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(perk.$1, color: AurumTheme.gold, size: 17),
+                          Icon(perk.$1, color: AurumTheme.accent, size: 17),
                           const SizedBox(height: 5),
                           Text(
                             perk.$2,
@@ -719,7 +719,7 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                             height: 56,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
-                              color: AurumTheme.gold.withOpacity(0.15),
+                              color: AurumTheme.accent.withOpacity(0.15),
                             ),
                             child: const Center(
                               child: SizedBox(
@@ -731,11 +731,11 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                           )
                         : DecoratedBox(
                             decoration: BoxDecoration(
-                              gradient: AurumTheme.goldGradient,
+                              gradient: AurumTheme.accentGradient,
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AurumTheme.gold.withOpacity(0.4),
+                                  color: AurumTheme.accent.withOpacity(0.4),
                                   blurRadius: 20,
                                   offset: const Offset(0, 5),
                                 ),

@@ -16,11 +16,11 @@ class QueueScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: AurumTheme.bg,
+      backgroundColor: AurumTheme.bgOf(context),
       appBar: AppBar(
-        backgroundColor: AurumTheme.bg,
+        backgroundColor: AurumTheme.bgOf(context),
         title: ShaderMask(
-          shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+          shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
           child: Text(
             l10n.queueTitle,
             style: const TextStyle(
@@ -32,7 +32,7 @@ class QueueScreen extends StatelessWidget {
         ),
         leading: IconButton(
           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
-          color: AurumTheme.textSecondary,
+          color: AurumTheme.textSecondaryOf(context),
           onPressed: () {
             AurumHaptics.selection();
             Navigator.pop(context);
@@ -117,14 +117,14 @@ class QueueScreen extends StatelessWidget {
                           color: Colors.black.withOpacity(0.5),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 20),
+                        child: Icon(Icons.equalizer_rounded, color: AurumTheme.accentOf(context), size: 20),
                       ),
                   ],
                 ),
                 title: Text(
                   song.title,
                   style: TextStyle(
-                    color: isCurrent ? AurumTheme.gold : AurumTheme.textPrimary,
+                    color: isCurrent ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
                     fontSize: 13,
                     fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
                   ),
@@ -133,7 +133,7 @@ class QueueScreen extends StatelessWidget {
                 ),
                 subtitle: Text(
                   song.artist,
-                  style: const TextStyle(color: AurumTheme.textSecondary, fontSize: 11),
+                  style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -146,16 +146,16 @@ class QueueScreen extends StatelessWidget {
                           AurumHaptics.light();
                           player.removeFromQueue(i);
                         },
-                        child: const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(Icons.close_rounded, color: AurumTheme.textMuted, size: 18),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
                         ),
                       ),
                     ReorderableDragStartListener(
                       index: i,
-                      child: const Padding(
-                        padding: EdgeInsets.all(8),
-                        child: Icon(Icons.drag_handle_rounded, color: AurumTheme.textMuted, size: 20),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(Icons.drag_handle_rounded, color: AurumTheme.textMutedOf(context), size: 20),
                       ),
                     ),
                   ],

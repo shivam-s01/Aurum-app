@@ -62,7 +62,7 @@ class AurumStageBackdrop extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.20), pageBg],
+                  colors: [AurumTheme.accentOf(context).withOpacity(isLight ? 0.14 : 0.20), pageBg],
                 ),
               ),
             ),

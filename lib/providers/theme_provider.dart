@@ -15,7 +15,7 @@ class ThemeProvider extends ChangeNotifier {
 
   AurumThemeMode _mode      = AurumThemeMode.dark;
   String         _fontStyle = 'Default';
-  Color          _accentColor = AurumTheme.gold;
+  Color          _accentColor = AurumTheme.accent;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Rounded';
   String         _fullPlayerStyle = 'Classic';
@@ -24,8 +24,8 @@ class ThemeProvider extends ChangeNotifier {
   String         get fontStyle => _fontStyle;
 
   /// Premium accent color override. Used by the player screen, player
-  /// buttons, and sliders. Defaults to AurumTheme.gold so the rest of
-  /// the app (which references AurumTheme.gold as a const) is unaffected.
+  /// buttons, and sliders. Defaults to AurumTheme.accent so the rest of
+  /// the app (which references AurumTheme.accent as a const) is unaffected.
   Color get accentColor => _accentColor;
 
   /// 'Primary' (default, white) | 'White' | 'Accent' — drives the color

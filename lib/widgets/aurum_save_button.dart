@@ -117,7 +117,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AurumTheme.gold
+                        color: AurumTheme.accentOf(context)
                             .withOpacity(_glowOpacity.value),
                         blurRadius: 16,
                         spreadRadius: 2,
@@ -136,7 +136,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: saved
-                      ? AurumTheme.gold
+                      ? AurumTheme.accentOf(context)
                       : AurumTheme.textMutedOf(context).withOpacity(0.4),
                   width: saved ? 1.4 : 1.0,
                 ),
@@ -158,7 +158,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
                           : Icons.bookmark_border_rounded,
                       key: ValueKey(saved),
                       color: saved
-                          ? AurumTheme.gold
+                          ? AurumTheme.accentOf(context)
                           : AurumTheme.textMutedOf(context),
                       size: widget.size * 0.5,
                     ),

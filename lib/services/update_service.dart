@@ -268,7 +268,7 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
                       border: Border.all(color: Colors.white.withOpacity(0.08)),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(widget.icon, color: AurumTheme.gold, size: 18),
+                      Icon(widget.icon, color: AurumTheme.accent, size: 18),
                       const SizedBox(width: 10),
                       Flexible(
                         child: Text(widget.message,
@@ -407,7 +407,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                   border: Border.all(color: Colors.white.withOpacity(0.07)),
                   boxShadow: [
                     BoxShadow(
-                      color: AurumTheme.gold.withOpacity(0.08),
+                      color: AurumTheme.accent.withOpacity(0.08),
                       blurRadius: 40,
                       spreadRadius: -8,
                     ),
@@ -423,11 +423,11 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
-                        gradient: AurumTheme.goldGradient,
+                        gradient: AurumTheme.accentGradient,
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: AurumTheme.gold.withOpacity(0.35),
+                            color: AurumTheme.accent.withOpacity(0.35),
                             blurRadius: 20,
                             offset: const Offset(0, 6),
                           ),
@@ -470,7 +470,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                           children: [
                             Text('WHAT\'S NEW',
                                 style: TextStyle(
-                                  color: AurumTheme.gold.withOpacity(0.9),
+                                  color: AurumTheme.accent.withOpacity(0.9),
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.8,
@@ -486,7 +486,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                                         width: 5,
                                         height: 5,
                                         decoration: BoxDecoration(
-                                          color: AurumTheme.gold,
+                                          color: AurumTheme.accent,
                                           borderRadius: BorderRadius.circular(3),
                                         ),
                                       ),
@@ -513,7 +513,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                         children: [
                           Icon(
                             _installing ? Icons.settings_rounded : Icons.download_rounded,
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accent,
                             size: 16,
                           ),
                           const SizedBox(width: 8),
@@ -527,7 +527,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                           if (_progress > 0 && _progress < 1.0)
                             Text('${(_progress * 100).toInt()}%',
                                 style: TextStyle(
-                                  color: AurumTheme.gold,
+                                  color: AurumTheme.accent,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 )),
@@ -547,7 +547,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                                     value: value,
                                     minHeight: 6,
                                     backgroundColor: Colors.white.withOpacity(0.08),
-                                    valueColor: AlwaysStoppedAnimation(AurumTheme.gold),
+                                    valueColor: AlwaysStoppedAnimation(AurumTheme.accent),
                                   ),
                                 ),
                         ),
@@ -594,7 +594,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                             child: ElevatedButton(
                               onPressed: _downloadAndInstall,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AurumTheme.gold,
+                                backgroundColor: AurumTheme.accent,
                                 foregroundColor: Colors.black,
                                 padding: const EdgeInsets.symmetric(vertical: 15),
                                 elevation: 0,

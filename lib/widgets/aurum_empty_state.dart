@@ -88,8 +88,8 @@ class _AurumEmptyStateState extends State<AurumEmptyState>
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
                           colors: [
-                            AurumTheme.gold.withOpacity(0.16),
-                            AurumTheme.gold.withOpacity(0.0),
+                            AurumTheme.accentOf(context).withOpacity(0.16),
+                            AurumTheme.accentOf(context).withOpacity(0.0),
                           ],
                         ),
                       ),
@@ -101,12 +101,12 @@ class _AurumEmptyStateState extends State<AurumEmptyState>
                             shape: BoxShape.circle,
                             color: AurumTheme.bgSurfaceOf(context),
                             border: Border.all(
-                              color: AurumTheme.gold.withOpacity(0.35),
+                              color: AurumTheme.accentOf(context).withOpacity(0.35),
                               width: 1,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: AurumTheme.gold.withOpacity(0.18),
+                                color: AurumTheme.accentOf(context).withOpacity(0.18),
                                 blurRadius: 20,
                                 spreadRadius: 1,
                               ),
@@ -114,7 +114,7 @@ class _AurumEmptyStateState extends State<AurumEmptyState>
                           ),
                           child: Icon(
                             widget.icon,
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accentOf(context),
                             size: 28,
                           ),
                         ),
@@ -187,11 +187,11 @@ class _EmptyStateActionState extends State<_EmptyStateAction> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
           decoration: BoxDecoration(
-            gradient: AurumTheme.goldGradient,
+            gradient: AurumTheme.accentGradient,
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: AurumTheme.gold.withOpacity(0.3),
+                color: AurumTheme.accentOf(context).withOpacity(0.3),
                 blurRadius: 14,
                 offset: const Offset(0, 4),
               ),

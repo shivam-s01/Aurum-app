@@ -35,10 +35,9 @@ class CastIconButton extends StatelessWidget {
   }
 
   void _showCastSheet(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
     showAurumModalBottomSheet(
       context: context,
-      backgroundColor: isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
+      backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => const _CastSessionSheet(),
@@ -46,10 +45,9 @@ class CastIconButton extends StatelessWidget {
   }
 
   void _showDevicePickerSheet(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
     showAurumModalBottomSheet(
       context: context,
-      backgroundColor: isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
+      backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => const _CastDevicePickerSheet(),
@@ -59,8 +57,7 @@ class CastIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final engine = context.watch<PlayerProvider>().engine;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final c = color ?? (isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200));
+    final c = color ?? AurumTheme.textSecondaryOf(context);
 
     return ValueListenableBuilder<String>(
       valueListenable: AudioPrefs.castIconVisibilityNotifier,
@@ -106,13 +103,13 @@ class CastIconButton extends StatelessWidget {
                           height: size,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accentOf(context),
                           ),
                         )
                       : Icon(
                           connected ? Icons.cast_connected_rounded : Icons.cast_rounded,
                           size: size,
-                          color: connected ? AurumTheme.gold : c,
+                          color: connected ? AurumTheme.accentOf(context) : c,
                         ),
                 ),
               ),
@@ -144,14 +141,14 @@ class CastingBanner extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AurumTheme.gold.withOpacity(0.12),
+              color: AurumTheme.accentOf(context).withOpacity(0.12),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.cast_connected_rounded, size: 14, color: AurumTheme.gold),
+                Icon(Icons.cast_connected_rounded, size: 14, color: AurumTheme.accentOf(context)),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -160,8 +157,8 @@ class CastingBanner extends StatelessWidget {
                             AppLocalizations.of(context)!.castDeviceFallbackName),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AurumTheme.gold,
+                    style: TextStyle(
+                      color: AurumTheme.accentOf(context),
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
                     ),
@@ -204,7 +201,7 @@ class _CastSessionSheet extends StatelessWidget {
               ),
             ),
             Row(children: [
-              const Icon(Icons.cast_connected_rounded, color: AurumTheme.gold, size: 22),
+              Icon(Icons.cast_connected_rounded, color: AurumTheme.accentOf(context), size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -274,7 +271,7 @@ class _CastDevicePickerSheet extends StatelessWidget {
               ),
             ),
             Row(children: [
-              const Icon(Icons.cast_rounded, color: AurumTheme.gold, size: 22),
+              Icon(Icons.cast_rounded, color: AurumTheme.accentOf(context), size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -312,7 +309,7 @@ class _CastDevicePickerSheet extends StatelessWidget {
                             height: 28,
                             child: CircularProgressIndicator(
                               strokeWidth: 2.5,
-                              color: AurumTheme.gold,
+                              color: AurumTheme.accentOf(context),
                             ),
                           ),
                           const SizedBox(height: 14),
@@ -348,7 +345,7 @@ class _CastDevicePickerSheet extends StatelessWidget {
                       return ListTile(
                         leading: Icon(
                           route.selected ? Icons.cast_connected_rounded : Icons.cast_rounded,
-                          color: route.selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                          color: route.selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
                         ),
                         title: Text(
                           route.name,
@@ -359,7 +356,7 @@ class _CastDevicePickerSheet extends StatelessWidget {
                                 style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12))
                             : null,
                         trailing: route.selected
-                            ? const Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 20)
+                            ? Icon(Icons.check_circle_rounded, color: AurumTheme.accentOf(context), size: 20)
                             : null,
                         onTap: () async {
                           AurumHaptics.selection();

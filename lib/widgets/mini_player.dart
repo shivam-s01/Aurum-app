@@ -807,7 +807,7 @@ class _MiniProgressBar extends StatelessWidget {
           child: LinearProgressIndicator(
             value: progress,
             backgroundColor: Colors.transparent,
-            valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+            valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.accentOf(context)),
             minHeight: 2,
           ),
         ),

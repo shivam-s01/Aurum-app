@@ -76,10 +76,10 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
                 Container(
                   width: 36, height: 36,
                   decoration: BoxDecoration(
-                    color: AurumTheme.gold.withOpacity(0.12),
+                    color: AurumTheme.accentOf(context).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.privacy_tip_rounded, color: AurumTheme.gold, size: 18),
+                  child: Icon(Icons.privacy_tip_rounded, color: AurumTheme.accentOf(context), size: 18),
                 ),
                 const SizedBox(width: 12),
                 Text(l10n.abPrivacyPolicyTitle,
@@ -242,10 +242,10 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
           Container(
             width: 52, height: 52,
             decoration: BoxDecoration(
-              color: AurumTheme.gold.withOpacity(0.10),
+              color: AurumTheme.accentOf(context).withOpacity(0.10),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 26),
+            child: Icon(Icons.music_note_rounded, color: AurumTheme.accentOf(context), size: 26),
           ),
           const SizedBox(width: 16),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -273,7 +273,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         ]),
       ),
 
-      _sectionLabel(l10n.abUpdate),
+      _sectionLabel(context, l10n.abUpdate),
       AurumSettingsTile.action(context,
         icon: Icons.system_update_rounded,
         title: l10n.abCheckForUpdate,
@@ -287,7 +287,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         onTap: () { AurumHaptics.light(); ChangelogSheet.show(context); },
       ),
 
-      _sectionLabel(l10n.abLegal),
+      _sectionLabel(context, l10n.abLegal),
       AurumSettingsTile.action(context,
         icon: Icons.privacy_tip_rounded,
         title: l10n.abPrivacyPolicy,
@@ -301,7 +301,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse); },
       ),
 
-      _sectionLabel(l10n.abCommunity),
+      _sectionLabel(context, l10n.abCommunity),
       AurumSettingsTile.action(context,
         icon: Icons.chat_bubble_rounded,
         title: l10n.abSendFeedback,
@@ -315,7 +315,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         onTap: () { AurumHaptics.light(); _shareApp(); },
       ),
 
-      _sectionLabel(l10n.abDeveloper),
+      _sectionLabel(context, l10n.abDeveloper),
       AurumSettingsTile.action(context,
         customIcon: _instagramIcon(),
         title: l10n.abInstagram,
@@ -329,7 +329,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         onTap: () { AurumHaptics.light(); _launch(AppConstants.telegram); },
       ),
 
-      _sectionLabel('Diagnostics'),
+      _sectionLabel(context, 'Diagnostics'),
       AurumSettingsTile.action(context,
         icon: Icons.bug_report_rounded,
         title: 'Export Diagnostic Log',
@@ -416,7 +416,7 @@ AppBar _appBar(BuildContext context, String title) => AppBar(
   title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
 );
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-  child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+  child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );

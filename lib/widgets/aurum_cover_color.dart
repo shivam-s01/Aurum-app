@@ -44,7 +44,7 @@ class PlaylistColorCover extends StatefulWidget {
   // Fixed, deliberately-designed fallback for playlists with no songs at
   // all to extract a color from yet — never randomized, so every empty
   // playlist looks intentional and consistent rather than mismatched.
-  static const Color _fallbackA = AurumTheme.gold;
+  static const Color _fallbackA = AurumTheme.accent;
   static const Color _fallbackB = Color(0xFF3A2F5C);
 
   @override

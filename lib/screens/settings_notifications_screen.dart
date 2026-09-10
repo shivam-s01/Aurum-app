@@ -84,7 +84,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
 
     final rows = <Widget>[
       // ── PLAYER NOTIFICATION ───────────────────────────────────────
-      _sectionLabel(l10n.snPlayerNotification),
+      _sectionLabel(context, l10n.snPlayerNotification),
       AurumSettingsTile.switchTile(context,
         icon: Icons.notifications_rounded,
         title: l10n.snShowMediaNotif,
@@ -108,7 +108,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
       ),
 
       // ── NOTIFICATION STYLE ────────────────────────────────────────
-      _sectionLabel(l10n.snNotificationStyle),
+      _sectionLabel(context, l10n.snNotificationStyle),
       _styleTile(context, 'Compact', l10n.snStyleCompact, l10n.snStyleCompactDesc, Icons.notifications_none_rounded),
       _styleTile(context, 'Expanded', l10n.snStyleExpanded, l10n.snStyleExpandedDesc, Icons.notifications_active_rounded),
     ];
@@ -150,7 +150,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
           color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: sel ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+            color: sel ? AurumTheme.accentOf(context).withOpacity(0.5) : AurumTheme.dividerOf(context),
             width: sel ? 1 : 0.5,
           ),
         ),
@@ -161,14 +161,14 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
             curve: AurumMotion.standard,
             width: 38, height: 38,
             decoration: BoxDecoration(
-              color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+              color: sel ? AurumTheme.accentOf(context).withOpacity(0.15) : AurumTheme.bgOf(context),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+            child: Icon(icon, color: sel ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 18),
           ),
           title: Text(label,
             style: TextStyle(
-              color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+              color: sel ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
               fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
           subtitle: Text(sub, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
           trailing: AnimatedSwitcher(
@@ -176,7 +176,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
             child: Icon(
               sel ? Icons.check_circle_rounded : Icons.circle_outlined,
               key: ValueKey(sel),
-              color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
+              color: sel ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 20),
           ),
         ),
       ),
@@ -195,9 +195,9 @@ AppBar _appBar(BuildContext context, String title) => AppBar(
   title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
 );
 
-Widget _sectionLabel(String label) => Padding(
+Widget _sectionLabel(BuildContext context, String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-  child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+  child: Text(label, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
 

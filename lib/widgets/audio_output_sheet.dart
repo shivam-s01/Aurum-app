@@ -39,12 +39,10 @@ import 'aurum_artwork.dart';
 /// player, etc).
 Future<void> showAudioOutputSheet(BuildContext context) async {
   AurumHaptics.light();
-  final isLight = Theme.of(context).brightness == Brightness.light;
   await showAurumModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    backgroundColor:
-        isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
+    backgroundColor: AurumTheme.bgElevatedOf(context),
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (_) => const _AudioOutputSheet(),
@@ -335,7 +333,7 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                             width: 24,
                             height: 24,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: AurumTheme.gold))),
+                                strokeWidth: 2, color: AurumTheme.accentOf(context)))),
                   )
                 else
                   ConstrainedBox(
@@ -356,14 +354,14 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                             height: 40,
                             decoration: BoxDecoration(
                               color: d.selected
-                                  ? AurumTheme.gold.withOpacity(0.15)
+                                  ? AurumTheme.accentOf(context).withOpacity(0.15)
                                   : AurumTheme.textMutedOf(context)
                                       .withOpacity(0.08),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(_iconFor(d.kind),
                                 color: d.selected
-                                    ? AurumTheme.gold
+                                    ? AurumTheme.accentOf(context)
                                     : AurumTheme.textMutedOf(context),
                                 size: 20),
                           ),
@@ -372,22 +370,22 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                   color: d.selected
-                                      ? AurumTheme.gold
+                                      ? AurumTheme.accentOf(context)
                                       : AurumTheme.textPrimaryOf(context),
                                   fontSize: 14,
                                   fontWeight: d.selected
                                       ? FontWeight.w700
                                       : FontWeight.w600)),
                           trailing: isPending
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 18,
                                   height: 18,
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: AurumTheme.gold))
+                                      color: AurumTheme.accentOf(context)))
                               : d.selected
-                                  ? const Icon(Icons.check_circle_rounded,
-                                      color: AurumTheme.gold, size: 22)
+                                  ? Icon(Icons.check_circle_rounded,
+                                      color: AurumTheme.accentOf(context), size: 22)
                                   : null,
                           onTap: () => _onSelect(d),
                         );
@@ -467,14 +465,14 @@ class _VolumeRow extends StatelessWidget {
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 3,
-                activeTrackColor: AurumTheme.gold,
+                activeTrackColor: AurumTheme.accentOf(context),
                 inactiveTrackColor: muted.withOpacity(0.18),
                 thumbShape:
                     const RoundSliderThumbShape(enabledThumbRadius: 7),
-                thumbColor: AurumTheme.gold,
+                thumbColor: AurumTheme.accentOf(context),
                 overlayShape:
                     const RoundSliderOverlayShape(overlayRadius: 16),
-                overlayColor: AurumTheme.gold.withOpacity(0.18),
+                overlayColor: AurumTheme.accentOf(context).withOpacity(0.18),
               ),
               child: Slider(
                 value: (v ?? 0).toDouble().clamp(0, max.toDouble()),
@@ -539,7 +537,7 @@ class _SheetInfoRow extends StatelessWidget {
           ),
           Text(value,
               style: TextStyle(
-                  color: AurumTheme.gold,
+                  color: AurumTheme.accentOf(context),
                   fontSize: 13,
                   fontWeight: FontWeight.w700)),
         ],

@@ -98,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: AurumTheme.darkBg,
+      backgroundColor: AurumTheme.bgOf(context),
       body: Stack(
         children: [
           // Ambient gold glow, top-anchored — premium depth instead of flat black.
@@ -112,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen>
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      AurumTheme.gold.withOpacity(0.18 * _glow.value),
+                      AurumTheme.accentOf(context).withOpacity(0.18 * _glow.value),
                       Colors.transparent,
                     ],
                   ),
@@ -143,14 +143,14 @@ class _LoginScreenState extends State<LoginScreen>
                               width: 88, height: 88,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [AurumTheme.goldLight, AurumTheme.goldDark],
+                                gradient: LinearGradient(
+                                  colors: [AurumTheme.accentLightOf(context), AurumTheme.accentDarkOf(context)],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AurumTheme.gold.withOpacity(0.45 * _glow.value),
+                                    color: AurumTheme.accentOf(context).withOpacity(0.45 * _glow.value),
                                     blurRadius: 28,
                                     spreadRadius: 4,
                                   ),
@@ -164,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen>
                           Text(
                             'Astra',
                             style: TextStyle(
-                              color: AurumTheme.darkTextPrimary,
+                              color: AurumTheme.textPrimaryOf(context),
                               fontSize: 32,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 1.2,
@@ -175,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen>
                             l10n.loginSyncSubtitle,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: AurumTheme.darkTextSecondary,
+                              color: AurumTheme.textSecondaryOf(context),
                               fontSize: 14.5,
                               height: 1.4,
                             ),
@@ -221,7 +221,7 @@ class _LoginScreenState extends State<LoginScreen>
                           child: Text(
                             l10n.loginMaybeLater,
                             style: TextStyle(
-                              color: AurumTheme.darkTextMuted,
+                              color: AurumTheme.textMutedOf(context),
                               fontSize: 13.5,
                               fontWeight: FontWeight.w500,
                             ),
@@ -304,16 +304,16 @@ class _BenefitsListState extends State<_BenefitsList> with SingleTickerProviderS
                     width: 30, height: 30,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AurumTheme.gold.withOpacity(0.12),
+                      color: AurumTheme.accentOf(context).withOpacity(0.12),
                     ),
-                    child: Icon(icon, size: 16, color: AurumTheme.goldLight),
+                    child: Icon(icon, size: 16, color: AurumTheme.accentLightOf(context)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       label,
                       style: TextStyle(
-                        color: AurumTheme.darkTextPrimary.withOpacity(0.85),
+                        color: AurumTheme.textPrimaryOf(context).withOpacity(0.85),
                         fontSize: 13.5,
                         height: 1.3,
                       ),

@@ -1101,7 +1101,7 @@ class _SearchScreenState extends State<SearchScreen>
               padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                gradient: selected ? AurumTheme.goldGradient : null,
+                gradient: selected ? AurumTheme.accentGradient : null,
                 color: selected ? null : AurumTheme.bgCardOf(context),
                 borderRadius: BorderRadius.circular(20),
                 border: selected
@@ -1110,7 +1110,7 @@ class _SearchScreenState extends State<SearchScreen>
                 boxShadow: selected
                     ? [
                         BoxShadow(
-                          color: AurumTheme.gold.withOpacity(0.35),
+                          color: AurumTheme.accentOf(context).withOpacity(0.35),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -1477,7 +1477,7 @@ class _SearchScreenState extends State<SearchScreen>
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Row(children: [
         ShaderMask(
-          shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+          shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
           child: Text(l10n.searchTabSearch, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2)),
         ),
       ]),
@@ -1547,14 +1547,14 @@ class _SearchScreenState extends State<SearchScreen>
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: focused
-                ? AurumTheme.gold.withOpacity(0.6)
+                ? AurumTheme.accentOf(context).withOpacity(0.6)
                 : (isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.08)),
             width: focused ? 1.3 : 0.7,
           ),
           boxShadow: focused
               ? [
                   BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.16),
+                    color: AurumTheme.accentOf(context).withOpacity(0.16),
                     blurRadius: 18,
                     spreadRadius: 1,
                   ),
@@ -1591,7 +1591,7 @@ class _SearchScreenState extends State<SearchScreen>
             hintText: l10n.searchHint,
             hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
             prefixIcon: Icon(Icons.search_rounded,
-                color: focused ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
+                color: focused ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 20),
             // Right side: a back arrow whenever the user is "inside"
             // search (focused, typing, viewing history, or looking at
             // results) — a guaranteed one-tap way back to the
@@ -1661,7 +1661,7 @@ class _SearchScreenState extends State<SearchScreen>
               TextButton(
                 onPressed: _clearHistory,
                 style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                child: Text(l10n.searchClearAll, style: TextStyle(color: AurumTheme.gold.withOpacity(0.8), fontSize: 12)),
+                child: Text(l10n.searchClearAll, style: TextStyle(color: AurumTheme.accentOf(context).withOpacity(0.8), fontSize: 12)),
               ),
             ],
           ),
@@ -1926,7 +1926,7 @@ class _SearchScreenState extends State<SearchScreen>
             width: 3,
             height: 16,
             decoration: BoxDecoration(
-              gradient: AurumTheme.goldGradient,
+              gradient: AurumTheme.accentGradient,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1965,9 +1965,9 @@ class _SearchScreenState extends State<SearchScreen>
     final l10n = AppLocalizations.of(context)!;
     return ListTile(
       key: const ValueKey('see_all'),
-      leading: Icon(Icons.travel_explore_rounded, color: AurumTheme.gold, size: 20),
-      title: Text(l10n.searchSeeAllResultsFor(query), style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Icon(Icons.arrow_forward_ios_rounded, color: AurumTheme.gold.withOpacity(0.6), size: 14),
+      leading: Icon(Icons.travel_explore_rounded, color: AurumTheme.accentOf(context), size: 20),
+      title: Text(l10n.searchSeeAllResultsFor(query), style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Icon(Icons.arrow_forward_ios_rounded, color: AurumTheme.accentOf(context).withOpacity(0.6), size: 14),
       dense: true,
       onTap: () => _search(query),
     );
@@ -2190,7 +2190,7 @@ class _SearchScreenState extends State<SearchScreen>
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
           child: Row(
             children: [
-              Icon(Icons.person_rounded, color: AurumTheme.gold, size: 18),
+              Icon(Icons.person_rounded, color: AurumTheme.accentOf(context), size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -2323,7 +2323,7 @@ class _SearchScreenState extends State<SearchScreen>
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
           child: Row(
             children: [
-              Icon(Icons.album_rounded, color: AurumTheme.gold, size: 18),
+              Icon(Icons.album_rounded, color: AurumTheme.accentOf(context), size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -2435,13 +2435,13 @@ class _SearchScreenState extends State<SearchScreen>
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              gradient: selected ? AurumTheme.goldGradient : null,
+              gradient: selected ? AurumTheme.accentGradient : null,
               color: selected ? null : Colors.transparent,
               borderRadius: BorderRadius.circular(20),
               boxShadow: selected
                   ? [
                       BoxShadow(
-                        color: AurumTheme.gold.withOpacity(0.35),
+                        color: AurumTheme.accentOf(context).withOpacity(0.35),
                         blurRadius: 10,
                         offset: const Offset(0, 2),
                       ),
@@ -3053,11 +3053,11 @@ class _ArtistChip extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: AurumTheme.bgCardOf(context),
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.3), width: 1.5),
+              border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3), width: 1.5),
             ),
             child: ClipOval(
               child: artist.imageUrl.isEmpty
-                  ? Icon(Icons.person_rounded, color: AurumTheme.gold.withOpacity(0.7), size: 28)
+                  ? Icon(Icons.person_rounded, color: AurumTheme.accentOf(context).withOpacity(0.7), size: 28)
                   : AurumArtwork(url: artist.imageUrl, size: 60, borderRadius: 30),
             ),
           ),

@@ -2668,8 +2668,6 @@ class _ArtworkVisual extends StatelessWidget {
                       // version for this full-screen hero disc art — see
                       // AurumArtwork.upgradeForFullPlayer's doc comment.
                       url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                      size: double.infinity,
-                      borderRadius: radius,
                       // FIX (white flash on song tap / swipe-down
                       // dismiss / collapse — root cause): see
                       // suppressWhiteShimmer doc comment in
@@ -4188,7 +4186,7 @@ void showAurumFullPlayerOptionsSheet(
     builder: (_) => _PremiumOptionsSheet(
       song: song,
       player: player,
-      accentColor: accentColor ?? AurumTheme.gold,
+      accentColor: accentColor ?? AurumTheme.accent,
       rootContext: context,
     ),
   );
@@ -4219,11 +4217,13 @@ void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
 /// Premium song-details sheet: title, artist, album, duration, year, source.
 void showSongInfoDialog(BuildContext context, Song song) {
   final l10n = AppLocalizations.of(context)!;
-  final isLight = Theme.of(context).brightness == Brightness.light;
-  final bgColor = isLight ? AurumTheme.lightBgCard : const Color(0xFF15131C);
-  final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-  final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white60;
-  final divider = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+  // Dynamic-theme aware: pulls from the live ColorScheme (wallpaper colors
+  // when Material You is active) instead of the fixed light/dark constants,
+  // so this sheet matches the rest of the app under dynamic theme.
+  final bgColor = AurumTheme.bgCardOf(context);
+  final textPrimary = AurumTheme.textPrimaryOf(context);
+  final textMuted = AurumTheme.textSecondaryOf(context);
+  final divider = AurumTheme.dividerOf(context);
 
   final rows = <MapEntry<String, String>>[
     MapEntry(l10n.fpSongInfoTitle, song.title),
@@ -4275,7 +4275,7 @@ void showSongInfoDialog(BuildContext context, Song song) {
                   ),
                   Row(
                     children: [
-                      Icon(Icons.info_outline_rounded, color: AurumTheme.gold, size: 20),
+                      Icon(Icons.info_outline_rounded, color: AurumTheme.accentOf(context), size: 20),
                       const SizedBox(width: 8),
                       Text(
                         l10n.fpSongInfo,
@@ -4595,7 +4595,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                     child: Column(children: [
                       Row(children: [
-                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.gold),
+                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.accent),
                         const SizedBox(width: 8),
                         Text('Downloading ${((dlItem?.progress ?? 0) * 100).toStringAsFixed(0)}%',
                           style: TextStyle(color: textMuted, fontSize: 12)),
@@ -5656,8 +5656,8 @@ class _NowPlayingHeader extends StatelessWidget {
     // low alpha white washed out over bright artwork sections.
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200);
     final cardBg = isLight
-        ? AurumTheme.gold.withAlpha(22)
-        : AurumTheme.gold.withAlpha(18);
+        ? AurumTheme.accent.withAlpha(22)
+        : AurumTheme.accent.withAlpha(18);
     final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
     return Padding(
@@ -5667,7 +5667,7 @@ class _NowPlayingHeader extends StatelessWidget {
         decoration: BoxDecoration(
           color: cardBg,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AurumTheme.gold.withAlpha(40), width: 0.5),
+          border: Border.all(color: AurumTheme.accent.withAlpha(40), width: 0.5),
         ),
         child: Row(children: [
           Stack(children: [
@@ -5680,7 +5680,7 @@ class _NowPlayingHeader extends StatelessWidget {
               child: Container(
                 width: 18, height: 18,
                 decoration: BoxDecoration(
-                  color: AurumTheme.gold,
+                  color: AurumTheme.accent,
                   borderRadius: BorderRadius.circular(9),
                 ),
                 child: Center(child: _MiniEqualizerIcon(isPlaying: isPlaying)),
@@ -5692,7 +5692,7 @@ class _NowPlayingHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(l10n.fpNowPlaying,
-                style: TextStyle(color: AurumTheme.gold.withAlpha(200),
+                style: TextStyle(color: AurumTheme.accent.withAlpha(200),
                     fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
               const SizedBox(height: 3),
               Text(song.title,
@@ -5877,18 +5877,18 @@ class _QueueTileState extends State<_QueueTile> {
           child: Builder(builder: (context) {
             final tileBg = widget.isNextUp
                 ? (isLight
-                    ? AurumTheme.gold.withAlpha(20)
-                    : AurumTheme.gold.withAlpha(16))
+                    ? AurumTheme.accent.withAlpha(20)
+                    : AurumTheme.accent.withAlpha(16))
                 : (isLight
                     ? AurumTheme.lightBgSurface.withAlpha(180)
                     : Colors.white.withAlpha(7));
             final tileBorder = widget.isNextUp
-                ? AurumTheme.gold.withAlpha(isLight ? 70 : 55)
+                ? AurumTheme.accent.withAlpha(isLight ? 70 : 55)
                 : (isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10));
             final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
             final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
             final indexColor = widget.isNextUp
-                ? AurumTheme.gold.withAlpha(200)
+                ? AurumTheme.accent.withAlpha(200)
                 : (isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45));
             final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
 
@@ -5918,8 +5918,8 @@ class _QueueTileState extends State<_QueueTile> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          AurumTheme.gold.withAlpha(220),
-                          AurumTheme.gold.withAlpha(90),
+                          AurumTheme.accent.withAlpha(220),
+                          AurumTheme.accent.withAlpha(90),
                         ],
                       ),
                     ),
@@ -6983,10 +6983,10 @@ class _BgLayer extends StatelessWidget {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.effectivePlayerBgStyle;
     if (!dynamicColor) {
-      bg1 = Color.lerp(AurumTheme.gold, Colors.black, 0.35)!;
-      bg2 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.58)!;
-      bg3 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.78)!;
-      bg4 = Color.lerp(AurumTheme.goldLight, Colors.black, 0.42)!;
+      bg1 = Color.lerp(AurumTheme.accent, Colors.black, 0.35)!;
+      bg2 = Color.lerp(AurumTheme.accentDark, Colors.black, 0.58)!;
+      bg3 = Color.lerp(AurumTheme.accentDark, Colors.black, 0.78)!;
+      bg4 = Color.lerp(AurumTheme.accentLight, Colors.black, 0.42)!;
     }
 
     if (bgStyle == 'Solid') {
@@ -7827,7 +7827,7 @@ class _EqualizerIconState extends State<_EqualizerIcon>
         width: 3.5,
         height: 18 * f,
         decoration: BoxDecoration(
-          color: AurumTheme.gold,
+          color: AurumTheme.accent,
           borderRadius: BorderRadius.circular(2),
         ),
       );

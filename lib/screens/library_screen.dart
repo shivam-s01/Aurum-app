@@ -150,7 +150,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Text(
             'Library',
             style: TextStyle(
-              color: AurumTheme.gold,
+              color: AurumTheme.accentOf(context),
               fontSize: 30,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.6,
@@ -192,7 +192,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: Container(
         height: 52,
         decoration: BoxDecoration(
-          color: AurumTheme.gold.withOpacity(0.08),
+          color: AurumTheme.accentOf(context).withOpacity(0.08),
           borderRadius: BorderRadius.circular(26),
         ),
         child: ListView(
@@ -286,7 +286,7 @@ class _TabChip extends StatelessWidget {
     // selected tab stands out, matching the reference segmented-control
     // look (one continuous strip, one highlighted segment).
     return Material(
-      color: selected ? AurumTheme.gold : Colors.transparent,
+      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -298,7 +298,7 @@ class _TabChip extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? Colors.white : AurumTheme.gold,
+              color: selected ? Colors.white : AurumTheme.accentOf(context),
               fontSize: 14.5,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
             ),
@@ -514,7 +514,7 @@ class _SongsFilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AurumTheme.gold : AurumTheme.bgSurfaceOf(context),
+      color: selected ? AurumTheme.accentOf(context) : AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -555,14 +555,14 @@ class _SortRow extends StatelessWidget {
                   Text(
                     newestFirst ? 'Newest first' : 'Oldest first',
                     style: TextStyle(
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(width: 4),
                   Icon(Icons.keyboard_arrow_down_rounded,
-                      color: AurumTheme.gold, size: 18),
+                      color: AurumTheme.accentOf(context), size: 18),
                 ],
               ),
             ),
@@ -581,7 +581,7 @@ class _SortRow extends StatelessWidget {
                 newestFirst
                     ? Icons.arrow_downward_rounded
                     : Icons.arrow_upward_rounded,
-                color: AurumTheme.gold,
+                color: AurumTheme.accentOf(context),
                 size: 16,
               ),
             ),
@@ -638,7 +638,7 @@ class _HeroActionCard extends StatelessWidget {
                   Text(
                     eyebrow!.toUpperCase(),
                     style: TextStyle(
-                      color: AurumTheme.gold.withOpacity(0.75),
+                      color: AurumTheme.accentOf(context).withOpacity(0.75),
                       fontSize: 11.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.6,
@@ -672,7 +672,7 @@ class _HeroActionCard extends StatelessWidget {
                 Row(
                   children: [
                     Material(
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       borderRadius: BorderRadius.circular(22),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
@@ -714,7 +714,7 @@ class _HeroActionCard extends StatelessWidget {
                           child: Padding(
                             padding: EdgeInsets.all(11),
                             child: Icon(Icons.more_horiz_rounded,
-                                color: AurumTheme.gold, size: 18),
+                                color: AurumTheme.accentOf(context), size: 18),
                           ),
                         ),
                       ),
@@ -770,7 +770,7 @@ class _AurumSongRow extends StatelessWidget {
                         height: 46,
                         color: AurumTheme.bgSurfaceOf(context),
                         child: Icon(Icons.music_note_rounded,
-                            color: AurumTheme.gold, size: 20),
+                            color: AurumTheme.accentOf(context), size: 20),
                       )
                     : AurumArtwork(url: song.artworkUrl, size: 46, borderRadius: 12),
               ),
@@ -902,7 +902,7 @@ class _AurumSongRow extends StatelessWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.gold),
+              leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
               title: Text('Add to Playlist',
                   style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
@@ -983,7 +983,7 @@ void showAurumSongOptionsSheet(BuildContext context, Song song) {
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.gold),
+            leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
             title: Text('Add to Playlist',
                 style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
             onTap: () => Navigator.pop(sheetContext),
@@ -1020,7 +1020,7 @@ class _AurumEmptyState extends StatelessWidget {
                 color: AurumTheme.bgSurfaceOf(context),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: AurumTheme.gold, size: 30),
+              child: Icon(icon, color: AurumTheme.accentOf(context), size: 30),
             ),
             const SizedBox(height: 18),
             Text(
@@ -1067,7 +1067,7 @@ class _AurumPermissionState extends StatelessWidget {
                 color: AurumTheme.bgSurfaceOf(context),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.folder_rounded, color: AurumTheme.gold, size: 30),
+              child: Icon(Icons.folder_rounded, color: AurumTheme.accentOf(context), size: 30),
             ),
             const SizedBox(height: 18),
             Text(
@@ -1086,7 +1086,7 @@ class _AurumPermissionState extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Material(
-              color: AurumTheme.gold,
+              color: AurumTheme.accentOf(context),
               borderRadius: BorderRadius.circular(22),
               child: InkWell(
                 borderRadius: BorderRadius.circular(22),
@@ -1184,7 +1184,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                     child: Text(
                       'Subscribed Only',
                       style: TextStyle(
-                        color: AurumTheme.gold,
+                        color: AurumTheme.accentOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1249,7 +1249,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
                   ? Container(
                       width: 46,
                       height: 46,
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       child: const Icon(Icons.person_rounded,
                           color: Colors.white, size: 22),
                     )
@@ -1291,7 +1291,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
                       ),
                     ),
                     Icon(Icons.arrow_forward_rounded,
-                        color: AurumTheme.gold, size: 18),
+                        color: AurumTheme.accentOf(context), size: 18),
                   ],
                 ),
                 Text(
@@ -1353,7 +1353,7 @@ class _AurumArtistRow extends StatelessWidget {
                         height: 48,
                         color: AurumTheme.bgSurfaceOf(context),
                         child: Icon(Icons.person_rounded,
-                            color: AurumTheme.gold, size: 22),
+                            color: AurumTheme.accentOf(context), size: 22),
                       )
                     : AurumArtwork(url: imageUrl, size: 48, borderRadius: 24),
               ),
@@ -1385,7 +1385,7 @@ class _AurumArtistRow extends StatelessWidget {
                 ),
               ),
               Material(
-                color: AurumTheme.gold,
+                color: AurumTheme.accentOf(context),
                 shape: const CircleBorder(),
                 child: InkWell(
                   customBorder: const CircleBorder(),
@@ -1621,14 +1621,14 @@ class _ViewToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AurumTheme.gold : Colors.transparent,
+      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 18, color: selected ? Colors.white : AurumTheme.gold),
+          child: Icon(icon, size: 18, color: selected ? Colors.white : AurumTheme.accentOf(context)),
         ),
       ),
     );
@@ -1683,7 +1683,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                 Text(
                   'FEATURED ALBUM',
                   style: TextStyle(
-                    color: AurumTheme.gold.withOpacity(0.75),
+                    color: AurumTheme.accentOf(context).withOpacity(0.75),
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
@@ -1705,7 +1705,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                 Row(
                   children: [
                     Material(
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       borderRadius: BorderRadius.circular(22),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
@@ -1736,7 +1736,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                         onTap: open,
                         child: Padding(
                           padding: EdgeInsets.all(11),
-                          child: Icon(Icons.more_horiz_rounded, color: AurumTheme.gold, size: 18),
+                          child: Icon(Icons.more_horiz_rounded, color: AurumTheme.accentOf(context), size: 18),
                         ),
                       ),
                     ),
@@ -2089,7 +2089,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
                   child: Text(
                     'See all',
                     style: TextStyle(
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
@@ -2409,28 +2409,28 @@ class _QuickAccessGrid extends StatelessWidget {
         ),
         _QuickAccessCard(
           icon: Icons.check_circle_rounded,
-          iconColor: AurumTheme.gold,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Offline',
           subtitle: downloadedCount == 0 ? 'Downloaded' : '$downloadedCount downloaded',
           onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.sync_rounded,
-          iconColor: AurumTheme.gold,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Cached',
           subtitle: 'Instant playback',
           onTap: () {},
         ),
         _QuickAccessCard(
           icon: Icons.folder_rounded,
-          iconColor: AurumTheme.gold,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Local Files',
           subtitle: 'On device',
           onTap: () => AurumDepthRoute.to(context, const _LocalFilesScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.trending_up_rounded,
-          iconColor: AurumTheme.gold,
+          iconColor: AurumTheme.accentOf(context),
           title: 'My top 50',
           subtitle: 'All time',
           onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
@@ -2567,7 +2567,7 @@ class _RecentlyPlayedCard extends StatelessWidget {
                   right: 8,
                   bottom: 8,
                   child: Material(
-                    color: AurumTheme.gold,
+                    color: AurumTheme.accentOf(context),
                     shape: const CircleBorder(),
                     child: Padding(
                       padding: const EdgeInsets.all(7),
@@ -2632,7 +2632,7 @@ class _AurumPlaylistRow extends StatelessWidget {
                         height: 48,
                         color: AurumTheme.bgSurfaceOf(context),
                         child: Icon(Icons.playlist_play_rounded,
-                            color: AurumTheme.gold, size: 22),
+                            color: AurumTheme.accentOf(context), size: 22),
                       )
                     : AurumArtwork(url: playlist.coverArt!, size: 48, borderRadius: 12),
               ),
@@ -2994,7 +2994,7 @@ class _ToolbarIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = filled || selected
-        ? AurumTheme.gold
+        ? AurumTheme.accentOf(context)
         : AurumTheme.bgSurfaceOf(context);
     final fg = filled || selected ? Colors.white : AurumTheme.textPrimaryOf(context);
     return Opacity(
@@ -3062,7 +3062,7 @@ class _PlaylistViewToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AurumTheme.gold : Colors.transparent,
+      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -3095,7 +3095,7 @@ class _TagFilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AurumTheme.gold : AurumTheme.bgSurfaceOf(context),
+      color: selected ? AurumTheme.accentOf(context) : AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -3216,7 +3216,7 @@ class _PlaylistListRow extends StatelessWidget {
               ),
             ),
             Material(
-              color: AurumTheme.gold,
+              color: AurumTheme.accentOf(context),
               shape: const CircleBorder(),
               child: InkWell(
                 customBorder: const CircleBorder(),
@@ -3265,7 +3265,7 @@ class _PlaylistListRow extends StatelessWidget {
         child: Wrap(
           children: [
             ListTile(
-              leading: Icon(Icons.edit_rounded, color: AurumTheme.gold),
+              leading: Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
               title: Text('Rename', style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
             ),
@@ -3323,7 +3323,7 @@ class _PlaylistGridTile extends StatelessWidget {
                     right: 8,
                     bottom: 8,
                     child: Material(
-                      color: AurumTheme.gold,
+                      color: AurumTheme.accentOf(context),
                       shape: const CircleBorder(),
                       child: InkWell(
                         customBorder: const CircleBorder(),
@@ -3446,7 +3446,7 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
                 ),
                 const SizedBox(width: 10),
                 Material(
-                  color: AurumTheme.gold,
+                  color: AurumTheme.accentOf(context),
                   borderRadius: BorderRadius.circular(14),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(14),
@@ -3864,7 +3864,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             ),
             ListTile(
               leading:
-                  const Icon(Icons.edit_rounded, color: AurumTheme.gold),
+                  Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
               title: Text(l10n.libraryRenamePlaylist,
                   style:
                       TextStyle(color: AurumTheme.textPrimaryOf(context))),
@@ -3893,7 +3893,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           width: 24, height: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.2,
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accentOf(context),
                             value: () {
                               final (done, total) =
                                   dl.playlistDownloadProgress(pl.songs);
@@ -3902,7 +3902,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           ),
                         )
                       : const Icon(Icons.download_rounded,
-                          color: AurumTheme.gold),
+                          color: AurumTheme.accentOf(context)),
                   title: Text(
                     downloading
                         ? l10n.libraryDownloadingPlaylist
@@ -4024,7 +4024,7 @@ class _SelectModeAppBar extends StatelessWidget {
           child: Text(
             allSelected ? l10n.libraryDeselectAll : l10n.librarySelectAll,
             style: TextStyle(
-              color: AurumTheme.gold,
+              color: AurumTheme.accentOf(context),
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
@@ -4138,7 +4138,7 @@ class _PlaylistHeaderState extends State<_PlaylistHeader> {
               const SizedBox(height: 8),
               ListTile(
                 leading: Icon(Icons.photo_library_rounded,
-                    color: AurumTheme.gold),
+                    color: AurumTheme.accentOf(context)),
                 title: Text(l10n.libraryChooseFromGallery,
                     style: TextStyle(
                         color: AurumTheme.textPrimaryOf(ctx),
@@ -4386,7 +4386,7 @@ class _PlaylistActionRow extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
-                  gradient: AurumTheme.goldGradient,
+                  gradient: AurumTheme.accentGradientOf(context),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
@@ -4462,7 +4462,7 @@ class _PlaylistActionRow extends StatelessWidget {
                 width: 14, height: 14,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: AurumTheme.gold,
+                  color: AurumTheme.accentOf(context),
                   value: total == 0 ? null : done / total,
                 ),
               ),
@@ -4515,7 +4515,7 @@ class _PlaylistSongTile extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
 
     return Container(
-      color: selected ? AurumTheme.gold.withOpacity(0.08) : null,
+      color: selected ? AurumTheme.accentOf(context).withOpacity(0.08) : null,
       child: ListTile(
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -4537,7 +4537,7 @@ class _PlaylistSongTile extends StatelessWidget {
                       height: 24,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: selected ? AurumTheme.goldGradient : null,
+                        gradient: selected ? AurumTheme.accentGradientOf(context) : null,
                         color: selected
                             ? null
                             : AurumTheme.bgCardOf(context),
@@ -4569,7 +4569,7 @@ class _PlaylistSongTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             color: isCurrentSong
-                ? AurumTheme.gold
+                ? AurumTheme.accentOf(context)
                 : AurumTheme.textPrimaryOf(context),
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -4609,7 +4609,7 @@ class _PlaylistSongTile extends StatelessWidget {
                         child: Row(
                           children: [
                             Icon(Icons.check_circle_outline_rounded,
-                                color: AurumTheme.gold, size: 18),
+                                color: AurumTheme.accentOf(context), size: 18),
                             const SizedBox(width: 8),
                             Text(l10n.libraryEnterSelectMode,
                                 style: TextStyle(
@@ -4705,7 +4705,7 @@ class _EmptyPlaylists extends StatelessWidget {
                 gradient: LinearGradient(
                   colors: [
                     Colors.purpleAccent.withOpacity(0.15),
-                    AurumTheme.gold.withOpacity(0.08),
+                    AurumTheme.accentOf(context).withOpacity(0.08),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -4739,11 +4739,11 @@ class _EmptyPlaylists extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 36, vertical: 15),
                 decoration: BoxDecoration(
-                  gradient: AurumTheme.goldGradient,
+                  gradient: AurumTheme.accentGradientOf(context),
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: AurumTheme.gold.withOpacity(0.3),
+                      color: AurumTheme.accentOf(context).withOpacity(0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -4850,7 +4850,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              gradient: AurumTheme.goldGradient,
+              gradient: AurumTheme.accentGradientOf(context),
               borderRadius: BorderRadius.circular(20),
             ),
             child: _creating
@@ -4983,7 +4983,7 @@ class _ImportYtPlaylistDialogState extends State<_ImportYtPlaylistDialog> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              gradient: AurumTheme.goldGradient,
+              gradient: AurumTheme.accentGradientOf(context),
               borderRadius: BorderRadius.circular(20),
             ),
             child: _importing
@@ -5127,7 +5127,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              gradient: AurumTheme.goldGradient,
+              gradient: AurumTheme.accentGradientOf(context),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(l10n.commonSave,
@@ -5218,13 +5218,13 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: AurumTheme.gold.withOpacity(0.12),
+                      color: AurumTheme.accentOf(context).withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: AurumTheme.gold.withOpacity(0.3)),
+                          color: AurumTheme.accentOf(context).withOpacity(0.3)),
                     ),
                     child: const Icon(Icons.add_rounded,
-                        color: AurumTheme.gold, size: 22),
+                        color: AurumTheme.accentOf(context), size: 22),
                   ),
                   title: Text(l10n.libraryNewPlaylistLower,
                       style: TextStyle(
@@ -5313,7 +5313,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                       fontSize: 12)),
                               trailing: alreadyIn
                                   ? const Icon(Icons.check_circle_rounded,
-                                      color: AurumTheme.gold, size: 22)
+                                      color: AurumTheme.accentOf(context), size: 22)
                                   : null,
                               onTap: alreadyIn
                                   ? null
@@ -5329,7 +5329,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                               ? l10n.libraryAddedToPlaylist(pl.name)
                                               : l10n.libraryAlreadyInPlaylist(pl.name)),
                                           backgroundColor:
-                                              added ? AurumTheme.gold : null,
+                                              added ? AurumTheme.accentOf(context) : null,
                                           behavior: SnackBarBehavior.floating,
                                           duration:
                                               const Duration(seconds: 2),
@@ -5393,7 +5393,7 @@ class _AurumTextField extends StatelessWidget {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide:
-              const BorderSide(color: AurumTheme.gold, width: 1.5),
+              BorderSide(color: AurumTheme.accentOf(context), width: 1.5),
         ),
       ),
     );
@@ -5473,7 +5473,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                     ? [
                         IconButton(
                           icon: Icon(Icons.shuffle_rounded,
-                              color: AurumTheme.gold, size: 22),
+                              color: AurumTheme.accentOf(context), size: 22),
                           tooltip: l10n.commonShuffle,
                           onPressed: () {
                             AurumHaptics.selection();
@@ -5498,16 +5498,16 @@ class _HistoryScreenState extends State<_HistoryScreen>
                         height: 28,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AurumTheme.gold.withOpacity(0.15),
+                          color: AurumTheme.accentOf(context).withOpacity(0.15),
                         ),
                         child: const Icon(Icons.history_rounded,
-                            color: AurumTheme.gold, size: 16),
+                            color: AurumTheme.accentOf(context), size: 16),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         l10n.libraryRecentlyPlayed,
                         style: const TextStyle(
-                          color: AurumTheme.gold,
+                          color: AurumTheme.accentOf(context),
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                         ),
@@ -5528,11 +5528,11 @@ class _HistoryScreenState extends State<_HistoryScreen>
                           width: 80,
                           height: 80,
                           decoration: BoxDecoration(
-                            color: AurumTheme.gold.withOpacity(0.08),
+                            color: AurumTheme.accentOf(context).withOpacity(0.08),
                             shape: BoxShape.circle,
                           ),
                           child: Icon(Icons.history_rounded,
-                              color: AurumTheme.gold.withOpacity(0.5),
+                              color: AurumTheme.accentOf(context).withOpacity(0.5),
                               size: 36),
                         ),
                         const SizedBox(height: 20),
@@ -5578,11 +5578,11 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
-                              gradient: AurumTheme.goldGradient,
+                              gradient: AurumTheme.accentGradientOf(context),
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AurumTheme.gold.withOpacity(0.3),
+                                  color: AurumTheme.accentOf(context).withOpacity(0.3),
                                   blurRadius: 8,
                                   offset: const Offset(0, 3),
                                 )
@@ -5922,11 +5922,11 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
               ]
             : [
                 IconButton(
-                  icon: const Icon(Icons.search_rounded, color: AurumTheme.gold),
+                  icon: Icon(Icons.search_rounded, color: AurumTheme.accentOf(context)),
                   onPressed: _openSearch,
                 ),
                 IconButton(
-                  icon: const Icon(Icons.refresh_rounded, color: AurumTheme.gold),
+                  icon: Icon(Icons.refresh_rounded, color: AurumTheme.accentOf(context)),
                   onPressed: () => lib.refresh(),
                 ),
               ],
@@ -5948,10 +5948,10 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
                           color: AurumTheme.bgElevatedOf(context),
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: AurumTheme.gold.withOpacity(0.3)),
+                              color: AurumTheme.accentOf(context).withOpacity(0.3)),
                         ),
                         child: const Icon(Icons.folder_rounded,
-                            color: AurumTheme.gold, size: 32),
+                            color: AurumTheme.accentOf(context), size: 32),
                       ),
                       const SizedBox(height: 20),
                       Text(l10n.libraryPermissionRequired,
@@ -5971,7 +5971,7 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 28, vertical: 12),
                           decoration: BoxDecoration(
-                            gradient: AurumTheme.goldGradient,
+                            gradient: AurumTheme.accentGradientOf(context),
                             borderRadius: BorderRadius.circular(24),
                           ),
                           child: Text(l10n.homeGrantPermission,
@@ -6189,7 +6189,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 alignment: Alignment.centerLeft,
                 child: ShaderMask(
                   shaderCallback: (b) =>
-                      AurumTheme.goldGradient.createShader(b),
+                      AurumTheme.accentGradientOf(context).createShader(b),
                   child: Text(l10n.settingsDownloads,
                       style: const TextStyle(
                           fontSize: 28,
@@ -6305,12 +6305,12 @@ class _DownloadsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = selected
-        ? AurumTheme.gold
+        ? AurumTheme.accentOf(context)
         : AurumTheme.textMutedOf(context);
     return InkWell(
       onTap: onTap,
-      splashColor: AurumTheme.gold.withValues(alpha: 0.06),
-      highlightColor: AurumTheme.gold.withValues(alpha: 0.04),
+      splashColor: AurumTheme.accentOf(context).withValues(alpha: 0.06),
+      highlightColor: AurumTheme.accentOf(context).withValues(alpha: 0.04),
       child: Padding(
         padding: const EdgeInsets.only(bottom: 10, top: 4),
         child: Column(
@@ -6332,12 +6332,12 @@ class _DownloadsTab extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
-                      color: AurumTheme.gold.withValues(alpha: 0.15),
+                      color: AurumTheme.accentOf(context).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text('$badgeCount',
                         style: const TextStyle(
-                            color: AurumTheme.gold,
+                            color: AurumTheme.accentOf(context),
                             fontSize: 11,
                             fontWeight: FontWeight.w700)),
                   ),
@@ -6350,7 +6350,7 @@ class _DownloadsTab extends StatelessWidget {
               height: 2.5,
               width: 64,
               decoration: BoxDecoration(
-                color: selected ? AurumTheme.gold : Colors.transparent,
+                color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -6445,11 +6445,11 @@ class _DownloadsEmptyState extends StatelessWidget {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: AurumTheme.gold.withOpacity(0.1),
+                color: AurumTheme.accentOf(context).withOpacity(0.1),
                 shape: BoxShape.circle,
-                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+                border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3)),
               ),
-              child: Icon(icon, color: AurumTheme.gold, size: 36),
+              child: Icon(icon, color: AurumTheme.accentOf(context), size: 36),
             ),
             const SizedBox(height: 20),
             Text(title,
@@ -6523,7 +6523,7 @@ class _InProgressCard extends StatelessWidget {
                           ? l10n.libraryDownloadPaused
                           : '$percent%',
                       style: const TextStyle(
-                          color: AurumTheme.gold,
+                          color: AurumTheme.accentOf(context),
                           fontSize: 12,
                           fontWeight: FontWeight.w600),
                     ),
@@ -6560,11 +6560,11 @@ class _InProgressCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: item.progress.clamp(0.0, 1.0),
               minHeight: 5,
-              backgroundColor: AurumTheme.gold.withValues(alpha: 0.15),
+              backgroundColor: AurumTheme.accentOf(context).withValues(alpha: 0.15),
               valueColor: AlwaysStoppedAnimation(
                 item.isPaused
-                    ? AurumTheme.gold.withValues(alpha: 0.45)
-                    : AurumTheme.gold,
+                    ? AurumTheme.accentOf(context).withValues(alpha: 0.45)
+                    : AurumTheme.accentOf(context),
               ),
             ),
           ),
@@ -6589,14 +6589,14 @@ class _RoundIconButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: AurumTheme.gold.withValues(alpha: 0.15),
+        color: AurumTheme.accentOf(context).withValues(alpha: 0.15),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(8),
-            child: Icon(icon, color: AurumTheme.gold, size: 18),
+            child: Icon(icon, color: AurumTheme.accentOf(context), size: 18),
           ),
         ),
       ),
@@ -6653,7 +6653,7 @@ class _DownloadProgressRing extends StatelessWidget {
             painter: _RingPainter(
               progress: progress.clamp(0.0, 1.0),
               trackColor: Colors.white.withValues(alpha: 0.25),
-              progressColor: AurumTheme.gold,
+              progressColor: AurumTheme.accentOf(context),
             ),
           ),
         ],
@@ -6849,13 +6849,13 @@ class _DownloadTile extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-              color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+              color: isCurrentSong ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
               fontSize: 14,
               fontWeight: isCurrentSong ? FontWeight.w700 : FontWeight.w600)),
       subtitle: item.isDownloading
           ? Text(
               l10n.libraryDownloadingPercent((item.progress * 100).toStringAsFixed(0)),
-              style: const TextStyle(color: AurumTheme.gold, fontSize: 12))
+              style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 12))
           : item.isFailed
               ? Text(l10n.libraryDownloadFailedTapRetry,
                   style: const TextStyle(color: Colors.redAccent, fontSize: 12))
@@ -6976,7 +6976,7 @@ class _AlbumsScreen extends StatelessWidget {
                   const SizedBox(width: 8),
                   ShaderMask(
                     shaderCallback: (b) =>
-                        AurumTheme.goldGradient.createShader(b),
+                        AurumTheme.accentGradientOf(context).createShader(b),
                     child: Text(l10n.libraryAlbums,
                         style: const TextStyle(
                             fontSize: 22,
@@ -7145,7 +7145,7 @@ class _FollowedAlbumTile extends StatelessWidget {
           Row(
             children: [
               Icon(Icons.album_rounded,
-                  size: 12, color: AurumTheme.gold.withOpacity(0.85)),
+                  size: 12, color: AurumTheme.accentOf(context).withOpacity(0.85)),
               const SizedBox(width: 4),
               Text(
                 l10n.libraryAlbumTag,
@@ -7260,7 +7260,7 @@ class _ArtistsScreen extends StatelessWidget {
                   const SizedBox(width: 8),
                   ShaderMask(
                     shaderCallback: (b) =>
-                        AurumTheme.goldGradient.createShader(b),
+                        AurumTheme.accentGradientOf(context).createShader(b),
                     child: Text(l10n.libraryArtists,
                         style: const TextStyle(
                             fontSize: 22,
@@ -7375,7 +7375,7 @@ class _FollowedArtistTile extends StatelessWidget {
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: AurumTheme.goldGradient,
+                    gradient: AurumTheme.accentGradientOf(context),
                   ),
                   child: ClipOval(
                     child: AurumArtwork(url: imageUrl, size: 54, borderRadius: 27),
@@ -7401,7 +7401,7 @@ class _FollowedArtistTile extends StatelessWidget {
                       Row(
                         children: [
                           Icon(Icons.check_circle_rounded,
-                              size: 13, color: AurumTheme.gold.withOpacity(0.85)),
+                              size: 13, color: AurumTheme.accentOf(context).withOpacity(0.85)),
                           const SizedBox(width: 4),
                           Text(
                             l10n.libraryArtistTag,
@@ -7531,7 +7531,7 @@ class _ComingSoonScreen extends StatelessWidget {
                   const SizedBox(width: 8),
                   ShaderMask(
                     shaderCallback: (b) =>
-                        AurumTheme.goldGradient.createShader(b),
+                        AurumTheme.accentGradientOf(context).createShader(b),
                     child: Text(title,
                         style: const TextStyle(
                             fontSize: 22,
