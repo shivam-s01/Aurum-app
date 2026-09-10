@@ -1503,6 +1503,26 @@ class _SearchScreenState extends State<SearchScreen>
       child: AnimatedContainer(
         duration: AurumMotion.durationOrZero(AurumMotion.medium1),
         curve: Curves.easeOut,
+        // BUG FIX ("keyboard khulte hi search bar ekdam upar tak pill jaisa
+        // ban jata hai"): this container had no height constraint at all —
+        // it relied entirely on the TextField's own intrinsic content
+        // height to size itself. The TextField's InputDecoration never set
+        // isDense, so Flutter's default (non-dense) InputDecorator
+        // reserves extra built-in vertical slack for a helper/error text
+        // line even when none is ever shown here — normally a few pixels
+        // of unnoticed padding, but this bar sits inside a Column that
+        // reflows on every keyboard-open layout pass (the whole search
+        // results/history area resizes as the keyboard's bottom inset
+        // changes), and that reflow is what let this box's height balloon
+        // visibly instead of settling back to its normal compact size,
+        // giving exactly the "ekdam upar tak pill" symptom. Pinning an
+        // explicit height here (44, matching this app's other compact
+        // search/nav bars — see the height: 44 pill elsewhere in this
+        // file) means this bar's size can never depend on the
+        // TextField's variable intrinsic height at all, keyboard open or
+        // not. isDense: true below removes the same extra slack at its
+        // source too, as defense in depth.
+        height: 44,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -1604,7 +1624,19 @@ class _SearchScreenState extends State<SearchScreen>
                   )
                 : null,
             border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+            // BUG FIX (part of the "pill grows tall on keyboard open" fix
+            // above): isDense removes InputDecorator's default extra
+            // vertical slack, which combined with the parent
+            // AnimatedContainer's fixed height:44 above stops this bar
+            // from ever being able to grow taller than its intended
+            // compact size, keyboard open or not. contentPadding reduced
+            // from vertical:14 to vertical:10 to actually fit within that
+            // fixed 44px height alongside the 20px icons and ~20px text
+            // line — the old vertical:14 (28px total) plus text line
+            // would have exceeded 44px and clipped/overflowed now that
+            // the container can no longer silently grow to accommodate it.
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
           textInputAction: TextInputAction.search,
         ),

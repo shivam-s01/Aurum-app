@@ -33,6 +33,12 @@
     <!-- Local music: Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
+    <!-- Saving downloads to the public Music folder pre-scoped-storage
+         (Android 9 and below — API 29+ uses MediaStore inserts instead,
+         which need no runtime storage permission at all). See
+         AurumMediaStoreDownloads.kt's legacy fallback path. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
 
     <!-- Chromecast discovery: Cast devices are found via mDNS/SSDP over the
          LAN. Without CHANGE_WIFI_MULTICAST_STATE, the multicast packets

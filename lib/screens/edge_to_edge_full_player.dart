@@ -40,6 +40,7 @@ import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/audio_output_sheet.dart';
+import '../widgets/aurum_artwork.dart' show AurumArtwork;
 import '../services/native_engine_bridge.dart'
     show MediaVolume, AudioOutputDevice, AudioOutputDeviceKind, AudioOutputDevices;
 import '../utils/aurum_haptics.dart';
@@ -367,7 +368,11 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                               tag: 'aurum_art_${song.id}',
                               child: song.artworkUrl.isNotEmpty
                                   ? CachedNetworkImage(
-                                      imageUrl: song.artworkUrl,
+                                      // Upgrades the list-sized artworkUrl
+                                      // to a sharper version for this
+                                      // full-width edge-to-edge hero image
+                                      // — see AurumArtwork.upgradeForFullPlayer.
+                                      imageUrl: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
                                       fit: BoxFit.cover,
                                       fadeInDuration: const Duration(milliseconds: 220),
                                       errorWidget: (_, __, ___) =>

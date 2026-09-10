@@ -589,6 +589,65 @@ class NativeAudioEngine {
     }
   }
 
+  /// Moves a finished download from the app's private temp storage into
+  /// the device's public Music/Astra folder (via MediaStore on API 29+),
+  /// so it shows up in the file manager / other music apps and survives
+  /// as a real top-level device file instead of being locked inside the
+  /// app's private sandbox. Returns the new location (a content:// URI on
+  /// API 29+, a plain path on older devices) to persist as the download's
+  /// localPath, or null if the save failed (caller should keep the
+  /// original private-storage file as a fallback rather than losing the
+  /// download).
+  Future<String?> saveDownloadToPublicMusic({
+    required String sourcePath,
+    required String displayName,
+    String mimeType = 'audio/mpeg',
+  }) async {
+    try {
+      return await _method.invokeMethod<String>(
+        'saveDownloadToPublicMusic',
+        {
+          'sourcePath': sourcePath,
+          'displayName': displayName,
+          'mimeType': mimeType,
+        },
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deletes a song previously saved via [saveDownloadToPublicMusic].
+  /// Accepts either the content:// URI or plain path that call returned.
+  /// Returns true only if the file/row is actually confirmed gone —
+  /// DownloadProvider must not remove the item from its own list unless
+  /// this returns true, or a failed delete silently leaves an orphaned
+  /// file on disk while the app believes it's been removed.
+  Future<bool> deletePublicDownload(String pathOrUri) async {
+    try {
+      final result = await _method.invokeMethod<bool>(
+        'deletePublicDownload',
+        {'pathOrUri': pathOrUri},
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// True if a previously-saved public download still exists on disk.
+  Future<bool> publicDownloadExists(String pathOrUri) async {
+    try {
+      final result = await _method.invokeMethod<bool>(
+        'publicDownloadExists',
+        {'pathOrUri': pathOrUri},
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── Bass Boost / Equalizer (native android.media.audiofx, see
   // AurumAudioEffects.kt) — replaces the old just_audio-based
   // AudioEffectsController. Gains are given/received in dB (matching the

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -86,7 +87,33 @@ class DownloadProvider extends ChangeNotifier {
         'Accept-Encoding': 'identity',
       },
     ),
-  );
+  )..httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        // SPEED FIX ("download ekdam slow hota hai" — plain low
+        // throughput on a large sequential file transfer, not a stall/
+        // timeout): Dio's default IOHttpClientAdapter creates a bare
+        // dart:io HttpClient with no read-buffer tuning at all. ExoPlayer/
+        // Media3 (what live playback actually streams through) uses
+        // Android's native networking stack, which reads in large
+        // buffered chunks; Dart's VM HttpClient, left at its defaults,
+        // reads the response in much smaller increments — on many
+        // Android ROMs/devices this alone is enough to make a large
+        // sequential download (a 5-8MB song file) visibly slower than
+        // streaming the exact same URL through ExoPlayer, even though
+        // both are hitting the same CDN. Raising maxConnectionsPerHost
+        // (parity with the tuned search client in api_service.dart) and
+        // disabling the HttpClient's own idle/auto-compression handling
+        // (already requested via the identity header above, but the
+        // client-level flag ensures dart:io never negotiates it anyway)
+        // removes the only two adapter-level knobs available for this —
+        // the actual byte-throughput ceiling is the network, but this
+        // stops Dio's own defaults from adding overhead on top of it.
+        final client = HttpClient()
+          ..maxConnectionsPerHost = 6
+          ..autoUncompress = false;
+        return client;
+      },
+    );
 
   // FIX (2026-07-07) — see the resolveForDownload call further below:
   // injected so downloads can use the same native-first YouTube resolver
@@ -734,6 +761,30 @@ class DownloadProvider extends ChangeNotifier {
 
       final size = await finalFile.length();
 
+      // FIX ("download top level pe device mein save ho jaye" — file was
+      // only ever written to the app's private internal storage, which
+      // never shows up in the device's file manager / other music apps).
+      // Move the finished file into the public Music/Astra folder via
+      // MediaStore (native_engine_bridge.dart -> AurumMediaStoreDownloads
+      // on the Kotlin side) — a real, user-visible location. If this
+      // fails for any reason (older device path issue, storage quirk),
+      // localPath simply stays pointing at the private-storage file — the
+      // download still works and plays fine in-app, it just won't also
+      // show up outside the app. Never let this optional step fail the
+      // download that already succeeded.
+      String finalLocalPath = filePath;
+      try {
+        final publicRef = await _engine.saveDownloadToPublicMusic(
+          sourcePath: filePath,
+          displayName: '${_safeFileName(song)}.mp3',
+        );
+        if (publicRef != null) finalLocalPath = publicRef;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] DownloadProvider: public Music save failed for ${song.id}, keeping private copy: $e');
+        }
+      }
+
       // ROOT FIX ("download completes but doesn't save / disappears from
       // the list"): showCompleted() below is a platform-channel call
       // (flutter_local_notifications). On stricter OEM ROMs — including
@@ -758,7 +809,7 @@ class DownloadProvider extends ChangeNotifier {
       await _persist(_items[song.id]!.copyWith(
         status: DownloadStatus.completed,
         progress: 1.0,
-        localPath: filePath,
+        localPath: finalLocalPath,
         fileSizeBytes: size,
       ));
 
@@ -868,11 +919,39 @@ class DownloadProvider extends ChangeNotifier {
     await download(song);
   }
 
-  Future<void> deleteDownload(String songId) async {
+  /// Deletes a completed download's file AND its list entry — in that
+  /// order, and only removes the list entry if the file delete actually
+  /// succeeded.
+  ///
+  /// FIX ("delete karta hu to file gayab hi nahi hoti"): the old version
+  /// called File(path).delete() and completely discarded its result —
+  /// `_items.remove(songId)` ran unconditionally right after, regardless
+  /// of whether the delete actually worked. Two ways that silently left
+  /// an orphaned file on disk while the app showed the download as gone:
+  ///   1. A plain File.delete() failing for any reason (locked file, OEM
+  ///      storage quirk, permission hiccup) was never surfaced or retried
+  ///      — the code just moved on.
+  ///   2. Once downloads started being saved to the public Music/Astra
+  ///      folder via MediaStore (see saveDownloadToPublicMusic), localPath
+  ///      can now be a content:// URI instead of a plain file path — a
+  ///      raw File(path).delete() on a content:// string is a no-op that
+  ///      neither deletes anything nor throws, so it "succeeds" while
+  ///      doing nothing.
+  /// Now routes through NativeEngineBridge.deletePublicDownload, which
+  /// handles both a MediaStore URI (via ContentResolver.delete) and a
+  /// plain private-storage path (via File.delete) correctly, and reports
+  /// back whether the row/file is actually gone. The list entry is only
+  /// removed when that comes back true.
+  Future<bool> deleteDownload(String songId) async {
     final item = _items[songId];
-    if (item?.localPath != null) {
-      final f = File(item!.localPath!);
-      if (await f.exists()) await f.delete();
+    if (item?.localPath != null && item!.localPath!.isNotEmpty) {
+      final deleted = await _engine.deletePublicDownload(item.localPath!);
+      if (!deleted) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] DownloadProvider: failed to delete file for $songId at ${item.localPath} — keeping list entry so the orphaned file stays visible/retryable');
+        }
+        return false;
+      }
     }
     // A paused item's `.part` file was deliberately kept on disk to
     // support resumeDownload — deleting the item entirely (as opposed to
@@ -890,6 +969,7 @@ class DownloadProvider extends ChangeNotifier {
     await box.delete(songId);
     await NotificationService.instance.cancelProgress(songId);
     notifyListeners();
+    return true;
   }
 
   /// Total space used by all completed downloads, in bytes.

@@ -4490,22 +4490,30 @@ class ApiService {
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>');
 
-  // FIX ("ekdam top grade level" artwork — recheck, 2026-09-06): this was
-  // a pure pass-through — captured thumbnails top out around
-  // "=w544-h544-l90-rj" (verified: FEmusic_home/artist-page capture,
-  // 2026-09-06), which is fine for a small card but soft once a shelf
-  // card scales up (hero art, tap-to-expand, larger screens/tablets).
-  // yt3.googleusercontent.com serves the SAME source image at whatever
-  // w/h suffix is requested — this isn't upscaling a smaller file, it's
-  // asking Google's own CDN for a bigger render of the same original,
-  // exactly how YT Music's own web/app clients request larger art for
-  // bigger UI surfaces. Bumped the ceiling to 1000x1000; a genuinely
-  // low-res source image is simply returned at its own native size by
-  // the CDN either way, so this never fabricates detail that isn't
-  // there — it only stops truncating what IS there.
+  // NOTE: the original reasoning here (2026-09-06) was that
+  // yt3.googleusercontent.com serves the SAME source image at whatever w/h
+  // suffix is requested — asking for a bigger size is never upscaling, it's
+  // just requesting a bigger render of the same original from Google's own
+  // CDN, exactly how YT Music's own clients do it for bigger UI surfaces.
+  // That's still true and still the mechanism used below — what changed is
+  // the requested SIZE, not that principle. See _hqArtworkGeneric's own
+  // comment for why 300x300 (not 1000x1000) is now requested here, and
+  // AurumArtwork.upgradeForFullPlayer() for how full-player/edge-to-edge
+  // screens get a sharper render of this same source when they need it.
   static String _hqArtworkGeneric(String url) {
     if (url.isEmpty) return url;
-    return url.replaceAll(RegExp(r'=w\d+-h\d+[\w-]*$'), '=w1000-h1000');
+    // FIX (thumbnail load slow + high MB usage): every list/tile thumbnail
+    // (search results, home shelves, library) was requesting a 1000x1000
+    // full-res image from Google's CDN even though it only ever renders at
+    // ~48-96px in the UI. 300x300 keeps list/tile/mini-player downloads
+    // small and fast. Full player / edge-to-edge screens need sharper art
+    // at their much larger on-screen size — rather than storing a bigger
+    // URL on Song (which would slow every list/tile back down again),
+    // those specific screens upgrade this same URL to a larger size at
+    // render time via AurumArtwork.upgradeForFullPlayer() in
+    // aurum_artwork.dart, a plain string substitution on the already-
+    // present =wN-hN suffix with no extra network round-trip to compute.
+    return url.replaceAll(RegExp(r'=w\d+-h\d+[\w-]*$'), '=w300-h300');
   }
 
   /// A real (title, subtitle, artworkUrl, browseId, isAlbum) shelf item
@@ -9998,16 +10006,19 @@ class ApiService {
               ?.cast<String, dynamic>();
           final browseId = (titleNav?['browseEndpoint']?['browseId'] ?? '').toString();
           if (browseId.isEmpty || !seenAlbumBrowseIds.add(browseId)) continue;
-          final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
-                      ?['thumbnail']?['thumbnails'] as List?) ??
-              const [];
-          String cardArt = '';
-          if (cardThumbs.isNotEmpty) {
-            final rawUrl = (cardThumbs.last['url'] ?? '').toString();
-            cardArt = rawUrl.isNotEmpty
-                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
-                : '';
-          }
+          // FIX ("youtube ke albums ka thumbnail nahi aata" — artist page
+          // Albums/Singles section): this card is a musicTwoRowItemRenderer
+          // (already unwrapped by _findRenderers), whose thumbnail lives
+          // directly under card['thumbnail'] — NOT under a 'thumbnailRenderer'
+          // key, which doesn't exist anywhere on this renderer shape at all.
+          // That wrong key meant cardThumbs was always empty here, so every
+          // YouTube album/single card on an artist page rendered with no
+          // artwork. _ytmThumbnailUrl already reads the correct
+          // card['thumbnail']['musicThumbnailRenderer']... path (same one
+          // the working album-search parser above uses) plus applies the
+          // hi-res upgrade, so reuse it directly instead of a second
+          // hand-rolled (and wrong) extraction here.
+          final cardArt = _ytmThumbnailUrl(card);
           final subtitleRuns = ((card['subtitle']?['runs'] as List?) ?? const []);
           String? year;
           for (final r in subtitleRuns) {
@@ -10111,16 +10122,10 @@ class ApiService {
           if (pageType != 'MUSIC_PAGE_TYPE_ARTIST') continue; // not an artist card — skip
           final relatedId = (browseEndpoint?['browseId'] ?? '').toString();
           if (relatedId.isEmpty || !seenRelatedIds.add(relatedId)) continue;
-          final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
-                      ?['thumbnail']?['thumbnails'] as List?) ??
-              const [];
-          String cardArt = '';
-          if (cardThumbs.isNotEmpty) {
-            final rawUrl = (cardThumbs.last['url'] ?? '').toString();
-            cardArt = rawUrl.isNotEmpty
-                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
-                : '';
-          }
+          // Same wrong-key thumbnail bug as the Albums/Singles fix above —
+          // this renderer has no 'thumbnailRenderer' key either; reuse
+          // _ytmThumbnailUrl, which reads the correct path.
+          final cardArt = _ytmThumbnailUrl(card);
           relatedArtists.add(RelatedArtist(
             id: relatedId,
             name: _cleanText(cardTitle),
@@ -10890,16 +10895,9 @@ class ApiService {
         // carry artist or playlist cards elsewhere, which this screen has
         // no use for.
         if (!browseId.startsWith('MPRE') || !seenIds.add(browseId)) continue;
-        final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
-                    ?['thumbnail']?['thumbnails'] as List?) ??
-            const [];
-        String cardArt = '';
-        if (cardThumbs.isNotEmpty) {
-          final rawUrl = (cardThumbs.last['url'] ?? '').toString();
-          cardArt = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
-              : '';
-        }
+        // Same wrong-key thumbnail bug as the artist-page Albums/Singles
+        // fix — no 'thumbnailRenderer' key on this renderer shape.
+        final cardArt = _ytmThumbnailUrl(card);
         final subtitleRuns = (card['subtitle']?['runs'] as List?) ?? const [];
         String? year;
         for (final r in subtitleRuns) {
@@ -11427,11 +11425,18 @@ class ApiService {
     if (imgField is List && imgField.isNotEmpty) {
       // saavn.dev / jiosaavn-op both return image as an array of
       // {quality: "50x50"|"150x150"|"500x500", url: "..."} ordered small→large.
-      // Pick the entry with the largest declared quality instead of assuming
-      // the array's last element is always the biggest — future-proofs
-      // against a host ever adding a 1000x1000 tier ahead of 500x500.
+      //
+      // Target 150x150 for list/tile speed — full player upgrades this to
+      // Saavn's largest available tier (500x500, the biggest Saavn's CDN
+      // ever provides) at render time via
+      // AurumArtwork.upgradeForFullPlayer(), same pattern as the YouTube
+      // 300->600 upgrade. Falls back to the closest available size (or
+      // the largest tier) if Saavn ever omits the exact 150 tier.
+      const targetSize = 150;
       Map? best;
       int bestSize = -1;
+      Map? closestAbove;
+      int closestAboveSize = 1 << 30;
       for (final entry in imgField) {
         if (entry is! Map || entry['url'] is! String) continue;
         final u = entry['url'] as String;
@@ -11439,12 +11444,22 @@ class ApiService {
         final q = (entry['quality'] ?? '').toString();
         final match = RegExp(r'(\d+)x\d+').firstMatch(q);
         final size = match != null ? int.parse(match.group(1)!) : 0;
+        if (size == targetSize) {
+          best = entry;
+          bestSize = size;
+          break;
+        }
+        if (size > targetSize && size < closestAboveSize) {
+          closestAbove = entry;
+          closestAboveSize = size;
+        }
         if (size >= bestSize) {
           bestSize = size;
           best = entry;
         }
       }
-      if (best != null) return best['url'] as String;
+      final chosen = (bestSize == targetSize ? best : null) ?? closestAbove ?? best;
+      if (chosen != null) return chosen['url'] as String;
     }
     if (imgField is String && imgField.startsWith('http')) {
       return imgField

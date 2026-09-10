@@ -592,6 +592,70 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     }
                 }
 
+                // ── Public Music storage for finished downloads ──────────
+                // See AurumMediaStoreDownloads.kt doc comment for the full
+                // rationale: downloads used to be saved only in the app's
+                // private internal storage, invisible to the device's own
+                // file manager / other music apps, and the old delete path
+                // silently ignored failures. DownloadProvider (Dart) calls
+                // these two after a transfer finishes / when the user
+                // deletes a download, instead of touching the file
+                // directly itself.
+                "saveDownloadToPublicMusic" -> {
+                    val sourcePath = call.argument<String>("sourcePath")
+                    val displayName = call.argument<String>("displayName")
+                    val mimeType = call.argument<String>("mimeType") ?: "audio/mpeg"
+                    if (sourcePath == null || displayName == null) {
+                        result.success(null)
+                    } else {
+                        // BUG FIX (found on recheck): this was previously called
+                        // directly on the calling thread with no dispatch at all —
+                        // unlike every other handler here (see resolveForDownload
+                        // just above, which wraps its work in scope.launch).
+                        // saveToPublicMusic does a full blocking file copy
+                        // (potentially several MB of disk I/O) via MediaStore's
+                        // ContentResolver — running that inline on the platform
+                        // channel's thread (Main, since scope defaults to
+                        // Dispatchers.Main.immediate) would freeze the UI for the
+                        // duration of every single download's copy, and risk an
+                        // ANR on larger files or slow storage. Dispatchers.IO
+                        // moves the actual copy off the main thread; result.success
+                        // is still safe to call from there since Dio/Flutter's
+                        // platform channel handles the thread hop back.
+                        scope.launch(Dispatchers.IO) {
+                            val savedRef = AurumMediaStoreDownloads.saveToPublicMusic(
+                                appContext,
+                                java.io.File(sourcePath),
+                                displayName,
+                                mimeType,
+                            )
+                            result.success(savedRef)
+                        }
+                    }
+                }
+                "deletePublicDownload" -> {
+                    val pathOrUri = call.argument<String>("pathOrUri")
+                    if (pathOrUri == null) {
+                        result.success(false)
+                    } else {
+                        // Same threading fix — delete() can also block on
+                        // ContentResolver/File I/O.
+                        scope.launch(Dispatchers.IO) {
+                            result.success(AurumMediaStoreDownloads.delete(appContext, pathOrUri))
+                        }
+                    }
+                }
+                "publicDownloadExists" -> {
+                    val pathOrUri = call.argument<String>("pathOrUri")
+                    if (pathOrUri == null) {
+                        result.success(false)
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            result.success(AurumMediaStoreDownloads.exists(appContext, pathOrUri))
+                        }
+                    }
+                }
+
                 // ── Auto Sleep Guard ────────────────────────────────────
                 // Battery feature, independent of the Dart Sleep Timer —
                 // see AutoSleepGuard.kt for the full design rationale.

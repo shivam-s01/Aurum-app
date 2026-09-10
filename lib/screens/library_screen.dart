@@ -6879,7 +6879,13 @@ class _DownloadTile extends StatelessWidget {
               onSelected: (value) {
                 final dl = context.read<DownloadProvider>();
                 if (value == 'delete') {
-                  dl.deleteDownload(song.id);
+                  dl.deleteDownload(song.id).then((success) {
+                    if (!success && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Could not delete file — please try again')),
+                      );
+                    }
+                  });
                 } else if (value == 'retry') {
                   dl.retry(song);
                 }

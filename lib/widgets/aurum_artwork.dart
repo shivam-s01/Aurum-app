@@ -72,13 +72,60 @@ class AurumArtwork extends StatelessWidget {
     this.suppressWhiteShimmer = false,
   });
 
+  /// Upgrades a list/tile-sized artwork URL (300x300 for YouTube, 150x150
+  /// for Saavn — see _hqArtworkGeneric/_onrenderArtwork in api_service.dart)
+  /// to a sharper size for the full player / edge-to-edge full-screen
+  /// player, where the same URL would otherwise be stretched across the
+  /// entire phone screen and look visibly soft.
+  ///
+  /// Song.artworkUrl is deliberately kept small everywhere else — every
+  /// list, shelf, and the mini player all read that one small URL, which
+  /// is what keeps their downloads fast/light. Only full-player-class
+  /// screens call this at render time to request a bigger version of the
+  /// exact same source image — a plain string substitution, no extra
+  /// network round-trip or API call needed to compute it.
+  ///
+  /// YouTube (`...=w300-h300...`) supports arbitrary sizes via that URL
+  /// parameter, so this simply asks for 600x600 instead. Saavn has no
+  /// such parameter — it only ever serves 3 fixed tiers baked into the
+  /// URL PATH itself (.../50x50/..., .../150x150/..., .../500x500/...) —
+  /// so for Saavn this upgrades to its largest available tier, 500x500,
+  /// which is the best quality Saavn's CDN provides at all. A URL that
+  /// matches neither pattern (local file, content:// URI, already-large,
+  /// or an unrecognized host) is returned unchanged.
+  static String upgradeForFullPlayer(String url) {
+    if (url.isEmpty) return url;
+    if (url.contains('=w300-h300')) {
+      return url.replaceAll('=w300-h300', '=w600-h600');
+    }
+    if (url.contains('150x150')) {
+      return url.replaceAll('150x150', '500x500');
+    }
+    return url;
+  }
+
   int? get _cacheSize {
-    // When size is non-finite (e.g. blurred full-screen background layers
-    // that pass size: double.infinity), decoding at full original
-    // resolution is pure waste — a heavy blur (40σ+) destroys all detail
-    // anyway. Cap to a small fixed decode width; visually identical after
-    // blur, but far cheaper to decode and blur.
-    if (!size.isFinite) return 220;
+    // When size is non-finite (size: double.infinity — used for both the
+    // blurred full-screen background AND the sharp full-player hero disc
+    // art, which also fills its parent at full width/height), the right
+    // decode budget differs completely between the two:
+    //   - Blurred background: a heavy blur (40σ+) destroys all detail
+    //     regardless of decode resolution, so decoding small is free
+    //     quality-wise and saves real memory/CPU. Capped at 220.
+    //   - Sharp hero art (isBlurredBackground: false): this IS the
+    //     visible, unblurred focal image of the whole screen. Capping it
+    //     to 220px here would decode a blurry-looking 220px image no
+    //     matter how high-resolution the source URL actually is —
+    //     silently defeating AurumArtwork.upgradeForFullPlayer()'s whole
+    //     point of fetching a sharper 600x600/500x500 source for exactly
+    //     this case. BUG FIX (found on recheck): before this distinction
+    //     existed, EVERY size:double.infinity caller — including the two
+    //     sharp hero-art call sites in full_player_screen.dart — silently
+    //     fell into the 220px blurred-background cap. Decode at a size
+    //     that actually uses the upgraded source's resolution instead.
+    if (!size.isFinite) {
+      return isBlurredBackground ? 220 : 1200;
+    }
     if (size <= 0) return null;
     return (size * 2).toInt();
   }

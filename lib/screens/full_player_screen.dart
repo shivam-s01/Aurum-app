@@ -2664,7 +2664,10 @@ class _ArtworkVisual extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(radius),
                     child: AurumArtwork(
-                      url: song.artworkUrl,
+                      // Upgrades the list-sized artworkUrl to a sharper
+                      // version for this full-screen hero disc art — see
+                      // AurumArtwork.upgradeForFullPlayer's doc comment.
+                      url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
                       size: double.infinity,
                       borderRadius: radius,
                       // FIX (white flash on song tap / swipe-down
@@ -3261,7 +3264,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(24),
                                     child: AurumArtwork(
-                                      url: widget.song.artworkUrl,
+                                      url: AurumArtwork.upgradeForFullPlayer(widget.song.artworkUrl),
                                       size: double.infinity,
                                       borderRadius: 24,
                                       fadeIn: false,
