@@ -2367,7 +2367,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
 
   Future<void> _showManageTagsSheet(
       BuildContext context, PlaylistProvider pp) async {
-    await showModalBottomSheet(
+    await showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -2916,7 +2916,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
 
   Future<void> _showManageTagsSheet(
       BuildContext context, PlaylistProvider pp) async {
-    await showModalBottomSheet(
+    await showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -3256,7 +3256,7 @@ class _PlaylistListRow extends StatelessWidget {
   }
 
   void _showPlaylistMenu(BuildContext context, AurumPlaylist playlist) {
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
       shape: const RoundedRectangleBorder(

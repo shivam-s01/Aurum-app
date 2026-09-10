@@ -333,6 +333,66 @@ class AurumTheme {
         centerTitle: false,
         iconTheme: IconThemeData(color: textPrimary),
       ),
+      // FIX — "3-dot menu open karte hi white/grey layer flash hoti hai"
+      // (Downloads screen, Playlist song-row menu): PopupMenuButton never
+      // had a global PopupMenuThemeData, so Material 3 fell back to its
+      // own default surfaceTintColor (colorScheme.surfaceTint) and painted
+      // an elevation-tint overlay UNDER the per-call `color:` on every
+      // PopupMenuButton in the app during the open animation — that
+      // overlay was the flash. The per-call `color:` only sets the final
+      // fill, it never touched this tint layer. Killing surfaceTintColor
+      // (and shadowColor, for the same reason on the elevation shadow)
+      // globally here removes the flash everywhere PopupMenuButton is
+      // used, not just Downloads/Playlist.
+      popupMenuTheme: PopupMenuThemeData(
+        color: bgCard,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 4,
+      ),
+      // FIX — same surfaceTint/shadow flash as popupMenuTheme above, but
+      // for every OTHER Material 3 surface that opens on top of the app
+      // without an explicit theme: AlertDialog/showDialog, any raw
+      // showModalBottomSheet call that doesn't pass backgroundColor,
+      // DropdownMenu, and Menu/MenuAnchor/MenuBar. None of these had a
+      // theme entry before, so all of them independently fell back to
+      // Material 3's default surfaceTint-over-surface painting — the
+      // exact same untethered white/grey flash bug as the popup menu,
+      // just on different widgets. Centralizing all of them here means
+      // no future screen can reintroduce this class of bug by adding a
+      // new dialog/sheet/dropdown without explicitly opting back into a
+      // tint (which nothing in this app's design wants).
+      dialogTheme: DialogThemeData(
+        backgroundColor: bgCard,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 8,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: bgCard,
+        modalBackgroundColor: bgCard,
+        surfaceTintColor: Colors.transparent,
+        modalBarrierColor: Colors.black.withAlpha(115),
+        shadowColor: Colors.transparent,
+        elevation: 8,
+        modalElevation: 8,
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        menuStyle: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(bgCard),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(4),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(bgCard),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(4),
+        ),
+      ),
       // FIX — THE actual, confirmed source of the "ghost pill": this
       // theme sets bottomNavigationBarTheme.backgroundColor to a solid
       // card color (navBar). Even though the app's own bottom bar widget
