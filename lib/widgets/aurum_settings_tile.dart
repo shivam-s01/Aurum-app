@@ -67,7 +67,10 @@ class AurumSettingsTile extends StatelessWidget {
       icon: icon,
       title: title,
       subtitle: subtitle,
-      iconColor: value ? AurumTheme.accent : null,
+      // FIX — dynamic theme coverage: switch-tile icon tint was the fixed
+      // accent constant; accentOf(context) picks up wallpaper hue when
+      // Dynamic Color is on, same fixed accent otherwise.
+      iconColor: value ? AurumTheme.accentOf(context) : null,
       onTap: () => onChanged(!value),
       trailing: _AurumAnimatedSwitch(value: value, onChanged: onChanged),
     );
@@ -153,8 +156,11 @@ class AurumSettingsTile extends StatelessWidget {
         value: value,
         underline: const SizedBox(),
         dropdownColor: AurumTheme.bgCardOf(context),
-        style: TextStyle(color: AurumTheme.accent, fontSize: 12, fontWeight: FontWeight.w600),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accent, size: 18),
+        // FIX — dynamic theme coverage: dropdown text/arrow color was the
+        // fixed accent constant, unlike its dropdownColor above which
+        // already used the context-aware helper.
+        style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 12, fontWeight: FontWeight.w600),
+        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accentOf(context), size: 18),
         items: options.map((o) => DropdownMenuItem(value: o, child: Text(label(o)))).toList(),
         onChanged: onChanged,
       ),
@@ -164,7 +170,9 @@ class AurumSettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final danger = isDanger;
-    final baseColor = danger ? Colors.redAccent : (iconColor ?? AurumTheme.accent);
+    // FIX — dynamic theme coverage: default icon/accent tint for a tile
+    // was the fixed accent constant.
+    final baseColor = danger ? Colors.redAccent : (iconColor ?? AurumTheme.accentOf(context));
     final leading = customIcon ??
         Container(
           width: 38,
@@ -234,7 +242,9 @@ class _AurumAnimatedSwitch extends StatelessWidget {
         padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: value ? AurumTheme.accent : AurumTheme.dividerOf(context),
+          // FIX — dynamic theme coverage: toggle track's ON color was the
+          // fixed accent constant.
+          color: value ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
         ),
         child: AnimatedAlign(
           duration: AurumMotion.durationOrZero(AurumMotion.short2),

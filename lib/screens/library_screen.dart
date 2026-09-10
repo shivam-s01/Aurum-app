@@ -3845,8 +3845,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final isLight = Theme.of(context).brightness == Brightness.light;
     showAurumModalBottomSheet(
       context: context,
+      // FIX — dynamic theme (Material You) coverage: was hardcoded to the
+      // fixed lightBgCard constant in light mode, so this sheet ignored
+      // the wallpaper-derived surface color the rest of the app now uses.
+      // bgCardOf(context) resolves from the live ColorScheme, so it's
+      // Dynamic-Color-aware and falls back to the same lightBgCard when
+      // Dynamic Color is off — dark mode's darkBgElevated is unchanged.
       backgroundColor:
-          isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
+          isLight ? AurumTheme.bgCardOf(context) : AurumTheme.darkBgElevated,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => SafeArea(
@@ -4591,8 +4597,10 @@ class _PlaylistSongTile extends StatelessWidget {
                   PopupMenuButton<String>(
                     icon: Icon(Icons.more_vert_rounded,
                         color: AurumTheme.textMutedOf(context), size: 20),
+                    // FIX — dynamic theme coverage: same lightBgCard-hardcode
+                    // gap as the sheet above, on this popup menu's surface.
                     color: isLight
-                        ? AurumTheme.lightBgCard
+                        ? AurumTheme.bgCardOf(context)
                         : AurumTheme.darkBgElevated,
                     onSelected: (value) {
                       if (value == 'remove') {
@@ -5154,8 +5162,10 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
   await showAurumModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    // FIX — dynamic theme coverage: same lightBgCard-hardcode gap as the
+    // sheets above.
     backgroundColor:
-        isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
+        isLight ? AurumTheme.bgCardOf(context) : AurumTheme.darkBgElevated,
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
@@ -6874,8 +6884,10 @@ class _DownloadTile extends StatelessWidget {
           : PopupMenuButton<String>(
               icon: Icon(Icons.more_vert_rounded,
                   color: AurumTheme.textMutedOf(context), size: 20),
+              // FIX — dynamic theme coverage: same lightBgCard-hardcode gap
+              // as the sheets above, on this download-row popup menu.
               color:
-                  isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgCard,
+                  isLight ? AurumTheme.bgCardOf(context) : AurumTheme.darkBgCard,
               onSelected: (value) {
                 final dl = context.read<DownloadProvider>();
                 if (value == 'delete') {

@@ -4423,16 +4423,28 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     final isDownloaded = downloads.isDownloaded(song.id);
     final isDownloading = downloads.isDownloading(song.id);
 
+    // FIX — dynamic theme (Material You) coverage: this sheet previously
+    // hardcoded AurumTheme.lightBgCard/lightTextPrimary/lightTextSecondary/
+    // lightBgSurface/lightDivider for its entire light-mode look, and used
+    // the *dark*-mode's own song-artwork-tinted accentColor lerp even when
+    // Dynamic Color mode was on — so the one options sheet in the app never
+    // picked up the wallpaper hue the rest of the screens now do. Routed
+    // through the same context-aware AurumTheme.*Of(context) helpers every
+    // other screen uses (they resolve straight from Theme.of(context)
+    // .colorScheme, so they're already Dynamic-Color-aware, and simply
+    // return the fixed light/dark constants when Dynamic Color is off) —
+    // dark mode's artwork-tinted background is kept as-is since that
+    // per-song lerp already looked premium.
     final bgColor = isLight
-        ? AurumTheme.lightBgCard
+        ? AurumTheme.bgCardOf(context)
         : Color.lerp(widget.accentColor, const Color(0xFF0C0C18), 0.55)!;
-    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white70;
+    final textPrimary = isLight ? AurumTheme.textPrimaryOf(context) : Colors.white;
+    final textMuted = isLight ? AurumTheme.textMutedOf(context) : Colors.white70;
     final tileColor = isLight
-        ? AurumTheme.lightBgSurface
+        ? AurumTheme.bgSurfaceOf(context)
         : Colors.white.withAlpha(10);
     final tileBorder = isLight
-        ? AurumTheme.lightDivider
+        ? AurumTheme.dividerOf(context)
         : Colors.white.withAlpha(18);
 
     final sleepActive = SleepTimerService.instance.isActive;
@@ -4537,7 +4549,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
             border: Border(
               top: BorderSide(
                 color: isLight
-                    ? AurumTheme.lightDivider
+                    ? AurumTheme.dividerOf(context)
                     : Colors.white.withAlpha(14),
                 width: 0.5,
               ),
@@ -4554,7 +4566,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                   margin: const EdgeInsets.only(top: 12, bottom: 16),
                   decoration: BoxDecoration(
                     color: isLight
-                        ? AurumTheme.lightTextMuted.withAlpha(80)
+                        ? AurumTheme.textMutedOf(context).withAlpha(80)
                         : Colors.white.withAlpha(40),
                     borderRadius: BorderRadius.circular(2),
                   ),
@@ -4587,7 +4599,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   child: Divider(
-                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
+                    color: isLight ? AurumTheme.dividerOf(context) : Colors.white.withAlpha(14),
                     height: 1,
                   ),
                 ),
@@ -4597,7 +4609,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                     child: Column(children: [
                       Row(children: [
-                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.accent),
+                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.accentOf(context)),
                         const SizedBox(width: 8),
                         Text('Downloading ${((dlItem?.progress ?? 0) * 100).toStringAsFixed(0)}%',
                           style: TextStyle(color: textMuted, fontSize: 12)),

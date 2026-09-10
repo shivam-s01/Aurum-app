@@ -163,43 +163,86 @@ class AurumTheme {
   static ThemeData dynamicTheme(ColorScheme dynamic) {
     final isLight = dynamic.brightness == Brightness.light;
 
-    // FIX — "washed out" light dynamic mode: Android's raw light-mode
-    // tonal palette (surface/surfaceContainer/surfaceContainerHigh) sits
-    // at ~96-99% lightness by design — it's built for text-heavy system
-    // UI, not for a media app's premium feel. Used as-is, every surface
-    // reads as near-white with barely a tint, which is why it looked
-    // flat/cheap next to the dark theme's rich low-lightness surfaces.
-    // Google's own apps (Gmail, Photos) don't use the raw tones directly
-    // either — they deepen them for a "premium tinted paper" look. We
-    // recreate that here by re-deriving each surface from the scheme's
-    // own hue/saturation but pulling lightness down and saturation up a
-    // little — same wallpaper hue, richer execution. Dark mode is left
-    // untouched since Android's dark tonal palette is already low-key and
-    // reads as premium as-is (confirmed working from earlier screenshots).
+    // FIX v2 — "washed out / muddy" light dynamic mode (round 2): the
+    // original enrich() only nudged lightness to 0.94–0.98 and saturation
+    // by 0.03–0.05 — barely different from Android's raw near-white tonal
+    // surfaces, so cards/backgrounds still read as flat off-white and
+    // toggles/borders that relied on subtle surface contrast nearly
+    // vanished. Google's own apps (Gmail, Photos) push noticeably further
+    // than the raw M3 tones — visibly tinted "paper", not just barely-off
+    // white. Retuned targets below are deliberately much lower/richer.
+    // Dark mode is untouched — Android's dark tonal palette is already
+    // low-key and reads as premium as-is.
     Color enrich(Color c, {required double lightness, required double satBoost}) {
       final hsl = HSLColor.fromColor(c);
       return hsl
           .withSaturation((hsl.saturation + satBoost).clamp(0.0, 1.0))
-          .withLightness(lightness)
+          .withLightness(lightness.clamp(0.0, 1.0))
           .toColor();
     }
 
+    // FIX v2 — muddy/terracotta-looking accent in light mode: Android's
+    // raw dynamic `primary` tone is tuned for text-on-tint contrast, not
+    // for reading as a vivid brand accent — against Aurum's enriched
+    // (still fairly light) card surfaces it came across desaturated and
+    // brownish rather than a clean wallpaper-purple/whatever-hue accent.
+    // Pull saturation up and lightness into a fixed, more vivid band so
+    // the accent pops the same way the fixed-purple theme's accent does,
+    // while still tracking the wallpaper's actual hue.
+    Color punchUpAccent(Color c, {required double lightness, required double minSat}) {
+      final hsl = HSLColor.fromColor(c);
+      final sat = hsl.saturation < minSat ? minSat : hsl.saturation;
+      return hsl.withSaturation(sat).withLightness(lightness).toColor();
+    }
+
     final bg = isLight
-        ? enrich(dynamic.surface, lightness: 0.98, satBoost: 0.03)
+        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.10)
         : dynamic.surface;
     final bgCard = isLight
-        ? enrich(dynamic.surfaceContainer, lightness: 0.965, satBoost: 0.04)
+        ? enrich(dynamic.surfaceContainer, lightness: 0.90, satBoost: 0.12)
         : dynamic.surfaceContainer;
     final bgSurface = isLight
-        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.945, satBoost: 0.05)
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.86, satBoost: 0.14)
         : dynamic.surfaceContainerHigh;
-    // Primary/secondary (buttons, accents) keep their normal Material You
-    // tone in light mode — only the background/card surfaces were washed
-    // out; the accent itself already read fine, over-enriching it too made
-    // every screen feel like one flat purple wash instead of "white with a
-    // wallpaper-colored accent", which is the actual Material You look.
-    final enrichedScheme = dynamic;
+    final bgElevated = isLight
+        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.83, satBoost: 0.15)
+        : dynamic.surfaceContainerHighest;
 
+    // Text/divider tones also enriched in light mode — the raw
+    // onSurfaceVariant/outlineVariant tones sat too close to bg's own
+    // (now-richer) lightness once bg stopped being near-white, which
+    // collapsed muted-text and divider contrast to almost nothing.
+    final textMuted = isLight
+        ? enrich(dynamic.onSurfaceVariant, lightness: 0.38, satBoost: 0.08)
+        : dynamic.onSurfaceVariant;
+    final divider = isLight
+        ? enrich(dynamic.outlineVariant, lightness: 0.72, satBoost: 0.06)
+        : dynamic.outlineVariant;
+
+    // Accent (primary/secondary) — punched up in light mode only, for the
+    // same "reads as a real accent, not a muddy tint" reason as bg above.
+    final accentPrimary = isLight
+        ? punchUpAccent(dynamic.primary, lightness: 0.46, minSat: 0.45)
+        : dynamic.primary;
+    final accentSecondary = isLight
+        ? punchUpAccent(dynamic.secondary, lightness: 0.58, minSat: 0.30)
+        : dynamic.secondary;
+
+    final enrichedScheme = dynamic.copyWith(
+      primary: accentPrimary,
+      // onPrimary/onSecondary must stay readable against the NEW punched-up
+      // primary/secondary above, not the raw (usually much lighter) dynamic
+      // ones the original onPrimary/onSecondary were calculated for — both
+      // enriched tones sit well below 0.5 lightness in light mode, so white
+      // text/icons on top is the correct contrast choice there.
+      onPrimary: isLight ? Colors.white : dynamic.onPrimary,
+      secondary: accentSecondary,
+      onSecondary: isLight ? Colors.white : dynamic.onSecondary,
+      surfaceContainerHighest: bgElevated,
+      surfaceContainerHigh: bgSurface,
+      onSurfaceVariant: textMuted,
+      outlineVariant: divider,
+    );
 
     return _build(
       brightness: dynamic.brightness,
@@ -207,8 +250,8 @@ class AurumTheme {
       bgCard: bgCard,
       bgSurface: bgSurface,
       textPrimary: dynamic.onSurface,
-      textMuted: dynamic.onSurfaceVariant,
-      divider: dynamic.outlineVariant,
+      textMuted: textMuted,
+      divider: divider,
       navBar: bgCard,
       dynamicScheme: enrichedScheme,
     );
@@ -301,8 +344,38 @@ class AurumTheme {
         trackHeight: 3,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
       ),
+      // FIX — toggle switches nearly invisible in light dynamic mode:
+      // with no switchTheme set, Flutter's Material 3 default paints the
+      // OFF-state track from the ambient ColorScheme's surfaceVariant-ish
+      // tone, which in the (already fairly light) dynamic light scheme
+      // sat only a few percent off the card background it usually sits
+      // on — track and card blended together. Explicit colors here tie
+      // the switch to the same enriched bg/text tones the rest of the
+      // theme uses, so OFF reads as a clearly visible muted track and ON
+      // reads as the accent, in both light and dark, dynamic or fixed.
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return primary;
+          return isDark ? darkTextMuted : Colors.white;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return primary.withOpacity(0.5);
+          }
+          return isDark ? bgSurface : divider;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.transparent;
+          return divider;
+        }),
+      ),
+      // FIX — default IconThemeData ignored the dynamic scheme entirely,
+      // always falling back to the fixed static darkTextSecondary/
+      // lightTextSecondary constants even in Material You mode, so
+      // generic icons (anything not explicitly colored by a widget)
+      // never picked up the wallpaper hue the rest of the screen did.
       iconTheme: IconThemeData(
-        color: isDark ? darkTextSecondary : lightTextSecondary,
+        color: dynamicScheme != null ? textMuted : (isDark ? darkTextSecondary : lightTextSecondary),
       ),
       dividerColor: divider,
       cardColor: bgCard,

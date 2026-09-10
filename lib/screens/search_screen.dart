@@ -1101,7 +1101,11 @@ class _SearchScreenState extends State<SearchScreen>
               padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                gradient: selected ? AurumTheme.accentGradient : null,
+                // FIX — dynamic theme coverage: selected-chip fill used the
+                // fixed accentGradient; accentGradientOf(context) tracks the
+                // wallpaper hue in Dynamic Color mode, same fixed gradient
+                // otherwise.
+                gradient: selected ? AurumTheme.accentGradientOf(context) : null,
                 color: selected ? null : AurumTheme.bgCardOf(context),
                 borderRadius: BorderRadius.circular(20),
                 border: selected
@@ -1477,7 +1481,9 @@ class _SearchScreenState extends State<SearchScreen>
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Row(children: [
         ShaderMask(
-          shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
+          // FIX — dynamic theme coverage: heading shimmer used the fixed
+          // accentGradient.
+          shaderCallback: (b) => AurumTheme.accentGradientOf(context).createShader(b),
           child: Text(l10n.searchTabSearch, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2)),
         ),
       ]),
@@ -1926,7 +1932,9 @@ class _SearchScreenState extends State<SearchScreen>
             width: 3,
             height: 16,
             decoration: BoxDecoration(
-              gradient: AurumTheme.accentGradient,
+              // FIX — dynamic theme coverage: section-header accent bar
+              // used the fixed accentGradient.
+              gradient: AurumTheme.accentGradientOf(context),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -2435,7 +2443,9 @@ class _SearchScreenState extends State<SearchScreen>
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              gradient: selected ? AurumTheme.accentGradient : null,
+              // FIX — dynamic theme coverage: same selected-chip gradient
+              // gap as the filter chip above.
+              gradient: selected ? AurumTheme.accentGradientOf(context) : null,
               color: selected ? null : Colors.transparent,
               borderRadius: BorderRadius.circular(20),
               boxShadow: selected
