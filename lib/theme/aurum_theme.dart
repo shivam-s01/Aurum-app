@@ -163,16 +163,21 @@ class AurumTheme {
   static ThemeData dynamicTheme(ColorScheme dynamic) {
     final isLight = dynamic.brightness == Brightness.light;
 
-    // FIX v2 — "washed out / muddy" light dynamic mode (round 2): the
-    // original enrich() only nudged lightness to 0.94–0.98 and saturation
-    // by 0.03–0.05 — barely different from Android's raw near-white tonal
-    // surfaces, so cards/backgrounds still read as flat off-white and
-    // toggles/borders that relied on subtle surface contrast nearly
-    // vanished. Google's own apps (Gmail, Photos) push noticeably further
-    // than the raw M3 tones — visibly tinted "paper", not just barely-off
-    // white. Retuned targets below are deliberately much lower/richer.
-    // Dark mode is untouched — Android's dark tonal palette is already
-    // low-key and reads as premium as-is.
+    // FIX v3 — over-saturated "whole screen looks tinted pink" (round 3):
+    // v2's satBoost of 0.10-0.15 was applied to background/card surfaces,
+    // not just the accent — on a vivid wallpaper hue that pushes bg
+    // saturation up alongside its lightness cut, so every surface (not
+    // just buttons/icons) reads as one solid wash of the wallpaper color.
+    // Google's own Material You never boosts *background* saturation this
+    // aggressively — surfaces stay near-neutral/subtle even against a
+    // vivid wallpaper; only small accent elements (buttons, active icons,
+    // highlights) are allowed to read as vividly colored. Backgrounds now
+    // only deepen lightness (the part that actually fixed v1's "washed
+    // out/flat" complaint) with a much smaller satBoost — just enough to
+    // avoid looking gray, not enough to look painted. Accent below is
+    // unchanged — it is a small element by design, so a stronger boost
+    // there is still correct. Dark mode is untouched — Android's dark
+    // tonal palette is already low-key and reads as premium as-is.
     Color enrich(Color c, {required double lightness, required double satBoost}) {
       final hsl = HSLColor.fromColor(c);
       return hsl
@@ -196,16 +201,16 @@ class AurumTheme {
     }
 
     final bg = isLight
-        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.10)
+        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.02)
         : dynamic.surface;
     final bgCard = isLight
-        ? enrich(dynamic.surfaceContainer, lightness: 0.90, satBoost: 0.12)
+        ? enrich(dynamic.surfaceContainer, lightness: 0.90, satBoost: 0.03)
         : dynamic.surfaceContainer;
     final bgSurface = isLight
-        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.86, satBoost: 0.14)
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.86, satBoost: 0.04)
         : dynamic.surfaceContainerHigh;
     final bgElevated = isLight
-        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.83, satBoost: 0.15)
+        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.83, satBoost: 0.05)
         : dynamic.surfaceContainerHighest;
 
     // Text/divider tones also enriched in light mode — the raw
