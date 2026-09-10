@@ -350,6 +350,21 @@ class NativeAudioEngine {
         final songId = args['songId'] as String?;
         if (songId != null) onLikeToggleRequested?.call(songId);
         return null;
+
+      // FIX ("Auto" quality always shown for YouTube songs): the native
+      // YouTube resolve path (HybridStreamResolver.kt -> YoutubeInnertube)
+      // now reports the real audio bitrate it already extracted from
+      // YouTube's own stream formats, on this same reverse channel used
+      // for onLikeToggleRequested above. Setting the exact same
+      // AudioPrefs.lastResolvedKbps the JioSaavn/Worker resolve path
+      // already sets means the Bluetooth output sheet's _qualityLabel and
+      // Settings > Player & Audio's quality row both pick this up with no
+      // changes needed on their end — they were already reading this
+      // field, it just never had a real YouTube value to read before.
+      case 'onYoutubeBitrateResolved':
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        AudioPrefs.lastResolvedKbps = args['kbps'] as int?;
+        return null;
       default:
         return null;
     }
@@ -598,10 +613,16 @@ class NativeAudioEngine {
   /// localPath, or null if the save failed (caller should keep the
   /// original private-storage file as a fallback rather than losing the
   /// download).
+  ///
+  /// [artworkBytes], if supplied, is embedded into the file as ID3 cover
+  /// art before the copy — see the FIX comment on DownloadProvider's call
+  /// site for why this was missing before (downloads played fine in-app
+  /// but showed no thumbnail in the file manager / other music apps).
   Future<String?> saveDownloadToPublicMusic({
     required String sourcePath,
     required String displayName,
     String mimeType = 'audio/mpeg',
+    Uint8List? artworkBytes,
   }) async {
     try {
       return await _method.invokeMethod<String>(
@@ -610,6 +631,7 @@ class NativeAudioEngine {
           'sourcePath': sourcePath,
           'displayName': displayName,
           'mimeType': mimeType,
+          if (artworkBytes != null) 'artworkBytes': artworkBytes,
         },
       );
     } catch (_) {

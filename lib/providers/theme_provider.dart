@@ -5,7 +5,22 @@ import '../theme/aurum_theme.dart';
 
 enum AurumThemeMode { dark, light, amoled, system, dynamic }
 
-class ThemeProvider extends ChangeNotifier {
+// FIX ("system dark mode toggle karte huye app khula rehta hai toh dynamic
+// theme switch nahi hota" — dynamic mode's themeMode getter below already
+// reads WidgetsBinding.instance.platformDispatcher.platformBrightness LIVE,
+// so the *value* was never stale — the bug was that nothing ever told
+// Flutter to re-ask for it. DynamicColorBuilder in main.dart only rebuilds
+// when the wallpaper-derived ColorScheme itself changes; a plain system
+// dark/light toggle with no wallpaper change never fires that, and no
+// other widget was listening for platform brightness changes either — so
+// MaterialApp kept using whichever ThemeMode was last computed, frozen
+// until *some* unrelated Provider happened to notifyListeners() and forced
+// a rebuild. WidgetsBindingObserver's didChangePlatformBrightness() is the
+// actual OS-level hook for this: implementing it here and calling
+// notifyListeners() makes ThemeProvider itself push a rebuild the instant
+// the system brightness flips, so dynamic mode (and system mode) react
+// live while the app is open, exactly like Google's own dynamic-color apps.
+class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _key       = 'aurum_theme_mode';
   static const _fontKey   = 'font_style';
   static const _accentKey = 'accent_color';
@@ -157,7 +172,35 @@ class ThemeProvider extends ChangeNotifier {
     return platformBrightness == Brightness.dark;
   }
 
-  ThemeProvider() { _load(); }
+  ThemeProvider() {
+    _load();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  // Fires whenever the OS-level brightness setting changes while the app
+  // is running (system dark/light toggle, scheduled day/night switch,
+  // battery-saver auto dark mode, etc.) — this is what was missing.
+  // themeMode/isDarkOf() already compute the correct answer from
+  // platformBrightness on every call; this just makes sure something
+  // actually calls them again (via notifyListeners → MaterialApp rebuild)
+  // the moment the OS reports the change, instead of waiting for an
+  // unrelated rebuild to happen to pick up the new value.
+  @override
+  void didChangePlatformBrightness() {
+    super.didChangePlatformBrightness();
+    // Only modes that actually derive from platform brightness need a
+    // rebuild here — fixed dark/light/amoled selections are unaffected by
+    // the OS setting, so skip the redundant notify for those.
+    if (_mode == AurumThemeMode.system || _mode == AurumThemeMode.dynamic) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();

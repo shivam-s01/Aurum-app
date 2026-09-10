@@ -60,6 +60,18 @@ object AurumMediaStoreDownloads {
      * whichever is returned as the download's new localPath, and uses it
      * for both playback and later deletion.
      *
+     * FIX ("thumbnail ke sath download nahi ho raha" — file saved fine
+     * but carried no cover art visible outside the app): if [artworkBytes]
+     * is supplied, it's embedded into [sourceFile] as an ID3v2 APIC frame
+     * (see Id3ArtworkWriter) BEFORE the copy below, so the public copy —
+     * and the private-storage fallback on failure — both carry real
+     * embedded artwork any file manager/music app can show, not just
+     * Aurum's own UI (which always drew artwork from the separate
+     * network artworkUrl, never from the file itself). Embedding is
+     * best-effort: a failure here never blocks the download, it just
+     * means that one file ends up with no embedded art, exactly like
+     * before this fix.
+     *
      * On any failure, returns null — caller keeps the original private
      * file as a safe fallback (still playable in-app) rather than losing
      * the download entirely.
@@ -69,8 +81,14 @@ object AurumMediaStoreDownloads {
         sourceFile: File,
         displayName: String,
         mimeType: String = "audio/mpeg",
+        artworkBytes: ByteArray? = null,
     ): String? {
         return try {
+            if (artworkBytes != null && artworkBytes.isNotEmpty()) {
+                Id3ArtworkWriter.embedCoverArt(sourceFile, artworkBytes)
+                // Return value intentionally ignored — embedding is
+                // best-effort and must never block the actual save below.
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveViaMediaStore(context, sourceFile, displayName, mimeType)
             } else {

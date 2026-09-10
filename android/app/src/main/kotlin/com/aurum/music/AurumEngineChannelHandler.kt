@@ -605,6 +605,12 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     val sourcePath = call.argument<String>("sourcePath")
                     val displayName = call.argument<String>("displayName")
                     val mimeType = call.argument<String>("mimeType") ?: "audio/mpeg"
+                    // Raw image bytes (JPEG/PNG) for the song's artwork,
+                    // fetched Dart-side before this call — see the matching
+                    // FIX comment in AurumMediaStoreDownloads.saveToPublicMusic.
+                    // Optional: null/absent just means no embedding, exactly
+                    // the old behavior.
+                    val artworkBytes = call.argument<ByteArray>("artworkBytes")
                     if (sourcePath == null || displayName == null) {
                         result.success(null)
                     } else {
@@ -628,6 +634,7 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                                 java.io.File(sourcePath),
                                 displayName,
                                 mimeType,
+                                artworkBytes,
                             )
                             result.success(savedRef)
                         }

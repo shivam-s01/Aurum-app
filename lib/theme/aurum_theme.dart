@@ -200,28 +200,39 @@ class AurumTheme {
       return hsl.withSaturation(sat).withLightness(lightness).toColor();
     }
 
+    // FIX v4 — "whole screen looks like one pink wash" (round 4): v3 still
+    // put a non-zero satBoost on EVERY surface tier (0.02→0.05, increasing
+    // as lightness dropped), which is exactly backwards — lower lightness
+    // + rising saturation compounds into a visibly tinted card/surface/
+    // elevated stack, not a neutral one. Google's own dynamic-color apps
+    // (Files, Photos, etc.) keep every background tier at ~0 added
+    // saturation and only step lightness a few points apart — color only
+    // shows up on accent elements (icons, buttons, chips), never as a wash
+    // across the whole screen. satBoost is now 0 on all four tiers; the
+    // lightness band is also flattened (0.99→0.90 instead of 0.93→0.83) so
+    // tiers stay close together the way Files' base/nav/card tiers do,
+    // rather than sinking into a visibly darker pink at each step.
     final bg = isLight
-        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.02)
+        ? enrich(dynamic.surface, lightness: 0.99, satBoost: 0.0)
         : dynamic.surface;
     final bgCard = isLight
-        ? enrich(dynamic.surfaceContainer, lightness: 0.90, satBoost: 0.03)
+        ? enrich(dynamic.surfaceContainer, lightness: 0.96, satBoost: 0.0)
         : dynamic.surfaceContainer;
     final bgSurface = isLight
-        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.86, satBoost: 0.04)
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.93, satBoost: 0.0)
         : dynamic.surfaceContainerHigh;
     final bgElevated = isLight
-        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.83, satBoost: 0.05)
+        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.90, satBoost: 0.0)
         : dynamic.surfaceContainerHighest;
 
-    // Text/divider tones also enriched in light mode — the raw
-    // onSurfaceVariant/outlineVariant tones sat too close to bg's own
-    // (now-richer) lightness once bg stopped being near-white, which
-    // collapsed muted-text and divider contrast to almost nothing.
+    // Text/divider tones — no satBoost either, same reasoning as above.
+    // Lightness targets unchanged from v3 (these were fine — the earlier
+    // "collapsed contrast" bug this fixed is about darkness, not hue).
     final textMuted = isLight
-        ? enrich(dynamic.onSurfaceVariant, lightness: 0.38, satBoost: 0.08)
+        ? enrich(dynamic.onSurfaceVariant, lightness: 0.38, satBoost: 0.0)
         : dynamic.onSurfaceVariant;
     final divider = isLight
-        ? enrich(dynamic.outlineVariant, lightness: 0.72, satBoost: 0.06)
+        ? enrich(dynamic.outlineVariant, lightness: 0.72, satBoost: 0.0)
         : dynamic.outlineVariant;
 
     // Accent (primary/secondary) — punched up in light mode only, for the
