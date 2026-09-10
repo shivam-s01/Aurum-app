@@ -337,6 +337,15 @@ class _GoogleContinueButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("pill dikh hi nahi raha" on light/dynamic backgrounds): pure
+    // white fill with elevation:0 and no border is invisible the moment
+    // the scaffold behind it is also near-white (light theme, or the
+    // enriched dynamic-light bg which sits at 0.99 lightness) — nothing
+    // separates the button edge from the page. Google's own official
+    // Sign-In button never relies on elevation for this exact reason; it
+    // always ships a fixed 1px border (#747775) regardless of what's
+    // behind it. Adding that border here makes the pill read the same
+    // way on every background instead of only on dark ones.
     return SizedBox(
       width: double.infinity,
       height: 52,
@@ -344,7 +353,12 @@ class _GoogleContinueButton extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         elevation: 0,
-        child: InkWell(
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF747775), width: 1),
+          ),
+          child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: busy ? null : onTap,
           child: Center(
@@ -368,6 +382,7 @@ class _GoogleContinueButton extends StatelessWidget {
                       ),
                     ],
                   ),
+          ),
           ),
         ),
       ),

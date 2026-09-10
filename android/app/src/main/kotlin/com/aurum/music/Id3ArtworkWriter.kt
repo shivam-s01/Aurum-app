@@ -45,6 +45,65 @@ object Id3ArtworkWriter {
     fun embedCoverArt(file: File, artworkBytes: ByteArray, mimeType: String = "image/jpeg"): Boolean {
         return try {
             val original = file.readBytes()
+
+            // FIX round 2 ("YouTube ka song download pe bilkul play nahi
+            // ho raha" — same corruption bug, different container): round
+            // 1 only blacklisted the MP4 "ftyp" signature, since that
+            // covered JioSaavn's downloads. But YouTube downloads go
+            // through YoutubeInnertube.resolve(), which picks the
+            // highest-averageBitrate audio stream with NO container
+            // filter — on the overwhelming majority of videos that's
+            // itag 251, WebM/Opus, not MP4 at all. WebM starts with an
+            // EBML magic number (0x1A45DFA3), which the ftyp-only check
+            // never matched, so this writer kept right on prepending an
+            // MP3-only ID3v2 tag onto WebM files too — same box/container
+            // corruption as before, just under a different format name.
+            // Blacklisting containers one at a time will always be one
+            // step behind whatever format shows up next (Saavn or
+            // YouTube could both start serving Ogg/FLAC/anything
+            // tomorrow). Flip to a WHITELIST instead: only proceed if the
+            // bytes actually look like a real MP3 elementary stream —
+            // either an existing ID3v2 header, or a valid MPEG audio
+            // frame sync (0xFF followed by a byte whose top 3 bits are
+            // all 1). Anything else is left completely untouched.
+            val looksLikeMp3 =
+                (original.size >= 3 &&
+                    original[0] == 'I'.code.toByte() &&
+                    original[1] == 'D'.code.toByte() &&
+                    original[2] == '3'.code.toByte()) ||
+                (original.size >= 2 &&
+                    (original[0].toInt() and 0xFF) == 0xFF &&
+                    (original[1].toInt() and 0xE0) == 0xE0)
+
+            if (looksLikeMp3) {
+                embedIntoMp3(file, original, artworkBytes, mimeType)
+            } else {
+                // FIX round 3 ("thumbnail ke sath download bhi ho, Astra
+                // ki branding kharab na ho" — market-facing ask): rounds
+                // 1-2 made this writer safe by skipping MP4/WebM entirely
+                // rather than corrupting them, but "safe" there meant "no
+                // embedded art at all" for JioSaavn's MP4 downloads (the
+                // majority of downloads in this app). MP4 CAN carry real
+                // cover art — via an iTunes-style moov/udta/meta/ilst/covr
+                // box, never an ID3 frame — but writing one is only safe
+                // if inserting those bytes cannot shift any sample data
+                // that a `stco`/`co64` chunk-offset table already points
+                // to. See embedIntoMp4Safely() below for exactly which
+                // layout qualifies and why every other case still just
+                // skips (same safe no-op as before, never corrupts).
+                // WebM (YouTube's usual container) has no equivalently
+                // simple/safe insertion point without a real EBML writer,
+                // so it still skips — no regression there, just no new
+                // capability yet.
+                embedIntoMp4Safely(file, original, artworkBytes, mimeType)
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun embedIntoMp3(file: File, original: ByteArray, artworkBytes: ByteArray, mimeType: String): Boolean {
+        return try {
             val apicFrame = buildApicFrame(artworkBytes, mimeType)
 
             val existingTagSize = existingId3v2TagSize(original)
@@ -141,5 +200,132 @@ object Id3ArtworkWriter {
         frame.write(byteArrayOf(0x00, 0x00)) // frame flags: none
         frame.write(bodyBytes)
         return frame.toByteArray()
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // MP4 cover art (iTunes-style moov/udta/meta/hdlr/ilst/covr/data)
+    // ─────────────────────────────────────────────────────────────
+    //
+    // WHY THIS HAS TO BE THIS CAREFUL: an MP4's sample-to-file mapping
+    // is a table of absolute byte offsets (`stco`/`co64` boxes, nested
+    // inside moov/trak/.../stbl) that point directly into `mdat`. If we
+    // insert ANY bytes before `mdat`, every one of those offsets is now
+    // wrong by the inserted length, and the file plays back garbled or
+    // not at all — patching every stco/co64 entry correctly is real
+    // MP4-muxer work, not something to bolt on here. The one insertion
+    // that is unconditionally safe without touching a single offset:
+    // appending new bytes to the very END of `moov`, and ONLY when
+    // `moov` itself comes AFTER `mdat` in the file. In that layout,
+    // `mdat` (and everything stco/co64 point at) is already finished
+    // and untouched by anything we do afterward — we're just making the
+    // trailing `moov` box bigger. If `moov` comes BEFORE `mdat` instead
+    // (the other common MP4 layout, used for network "fast start"),
+    // that safety guarantee doesn't hold, so this bails out and embeds
+    // nothing — same safe no-op as before, never a corrupt file.
+    private fun embedIntoMp4Safely(file: File, original: ByteArray, artworkBytes: ByteArray, mimeType: String): Boolean {
+        return try {
+            val boxes = readTopLevelBoxes(original) ?: return false
+            val moov = boxes.firstOrNull { it.type == "moov" } ?: return false
+            val mdat = boxes.firstOrNull { it.type == "mdat" } ?: return false
+
+            // Unsafe layout (moov before mdat) — see class-level reasoning
+            // above. Skip rather than risk touching sample offsets.
+            if (moov.offset < mdat.offset) return false
+
+            // Don't touch a file that already has metadata we haven't
+            // parsed — safer to skip than to risk a malformed duplicate
+            // udta/meta structure sitting alongside an existing one.
+            val moovChildren = readTopLevelBoxes(
+                original.copyOfRange(moov.offset + 8, moov.offset + moov.size)
+            ) ?: return false
+            if (moovChildren.any { it.type == "udta" }) return false
+
+            val typeIndicator = if (mimeType.contains("png", ignoreCase = true)) 14 else 13
+            val dataPayload = ByteArrayOutputStream(artworkBytes.size + 8).apply {
+                write(byteArrayOf(0x00, 0x00, 0x00, typeIndicator.toByte())) // version(0) + flags(type)
+                write(byteArrayOf(0x00, 0x00, 0x00, 0x00))                   // locale, reserved
+                write(artworkBytes)
+            }.toByteArray()
+            val dataBox = mp4Box("data", dataPayload)
+            val covrBox = mp4Box("covr", dataBox)
+            val ilstBox = mp4Box("ilst", covrBox)
+
+            val hdlrPayload = ByteArrayOutputStream(32).apply {
+                write(byteArrayOf(0x00, 0x00, 0x00, 0x00)) // version + flags
+                write(byteArrayOf(0x00, 0x00, 0x00, 0x00)) // predefined
+                write("mdir".toByteArray(Charsets.US_ASCII)) // handler_type
+                write(ByteArray(12))                         // reserved
+                write(0x00)                                  // empty name
+            }.toByteArray()
+            val hdlrBox = mp4Box("hdlr", hdlrPayload)
+
+            val metaPayload = ByteArrayOutputStream(hdlrBox.size + ilstBox.size + 4).apply {
+                write(byteArrayOf(0x00, 0x00, 0x00, 0x00)) // version + flags
+                write(hdlrBox)
+                write(ilstBox)
+            }.toByteArray()
+            val metaBox = mp4Box("meta", metaPayload)
+            val udtaBox = mp4Box("udta", metaBox)
+
+            val insertAt = moov.offset + moov.size
+            val output = ByteArrayOutputStream(original.size + udtaBox.size)
+            output.write(original, 0, insertAt)
+            output.write(udtaBox)
+            output.write(original, insertAt, original.size - insertAt)
+            val result = output.toByteArray()
+
+            // Patch moov's own declared size (4-byte BE at its own start)
+            // to include the udta box we just appended as its new child.
+            val newMoovSize = moov.size + udtaBox.size
+            result[moov.offset] = ((newMoovSize ushr 24) and 0xFF).toByte()
+            result[moov.offset + 1] = ((newMoovSize ushr 16) and 0xFF).toByte()
+            result[moov.offset + 2] = ((newMoovSize ushr 8) and 0xFF).toByte()
+            result[moov.offset + 3] = (newMoovSize and 0xFF).toByte()
+
+            file.writeBytes(result)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private data class Mp4Box(val type: String, val offset: Int, val size: Int)
+
+    /**
+     * Walks a flat sequence of ISO-BMFF boxes starting at offset 0 of
+     * [bytes] (works for both top-level file boxes and a box's own
+     * children, since both are just concatenated [size][type][payload]
+     * entries). Returns null if a 64-bit extended-size (size field == 1)
+     * or to-EOF (size field == 0) box is encountered — both are valid
+     * MP4 but rare for these short audio-only downloads, and neither is
+     * needed for the safe-layout check above; bailing out just means
+     * "skip embedding," never a corrupt read.
+     */
+    private fun readTopLevelBoxes(bytes: ByteArray): List<Mp4Box>? {
+        val boxes = mutableListOf<Mp4Box>()
+        var pos = 0
+        while (pos + 8 <= bytes.size) {
+            val size = ((bytes[pos].toInt() and 0xFF) shl 24) or
+                ((bytes[pos + 1].toInt() and 0xFF) shl 16) or
+                ((bytes[pos + 2].toInt() and 0xFF) shl 8) or
+                (bytes[pos + 3].toInt() and 0xFF)
+            if (size < 8 || pos + size > bytes.size) return null
+            val type = String(bytes, pos + 4, 4, Charsets.US_ASCII)
+            boxes.add(Mp4Box(type, pos, size))
+            pos += size
+        }
+        return boxes
+    }
+
+    private fun mp4Box(type: String, payload: ByteArray): ByteArray {
+        val size = payload.size + 8
+        val box = ByteArrayOutputStream(size)
+        box.write((size ushr 24) and 0xFF)
+        box.write((size ushr 16) and 0xFF)
+        box.write((size ushr 8) and 0xFF)
+        box.write(size and 0xFF)
+        box.write(type.toByteArray(Charsets.US_ASCII))
+        box.write(payload)
+        return box.toByteArray()
     }
 }

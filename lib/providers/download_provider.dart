@@ -13,7 +13,6 @@ import '../services/notification_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
 import '../services/native_engine_bridge.dart';
-import '../widgets/aurum_artwork.dart';
 
 /// Manages downloading songs for offline playback.
 ///
@@ -762,62 +761,12 @@ class DownloadProvider extends ChangeNotifier {
 
       final size = await finalFile.length();
 
-      // FIX ("download top level pe device mein save ho jaye" — file was
-      // only ever written to the app's private internal storage, which
-      // never shows up in the device's file manager / other music apps).
-      // Move the finished file into the public Music/Astra folder via
-      // MediaStore (native_engine_bridge.dart -> AurumMediaStoreDownloads
-      // on the Kotlin side) — a real, user-visible location. If this
-      // fails for any reason (older device path issue, storage quirk),
-      // localPath simply stays pointing at the private-storage file — the
-      // download still works and plays fine in-app, it just won't also
-      // show up outside the app. Never let this optional step fail the
-      // download that already succeeded.
-      // FIX ("song download ho ja raha hai lekin thumbnail ke sath
-      // download nahi ho raha" — file lands fine but shows no cover art
-      // in the file manager / any other music app): the raw downloaded
-      // audio never had artwork embedded in its own ID3 tag — the app's
-      // own UI only ever looked "fine" because it draws artwork from
-      // song.artworkUrl (a separate network URL kept in the Song
-      // model/Hive record), never from the file's own bytes. Fetch the
-      // artwork here and hand it to the native save step so it gets
-      // embedded as a real ID3 APIC frame — see Id3ArtworkWriter.kt.
-      // Best-effort: any failure here (network hiccup, no artworkUrl,
-      // unsupported URI scheme) just means no embedded art for this one
-      // file, exactly like before — it must never fail the download that
-      // has already succeeded.
-      Uint8List? artworkBytes;
-      final hqArtworkUrl = AurumArtwork.upgradeForFullPlayer(song.artworkUrl);
-      if (hqArtworkUrl.isNotEmpty && hqArtworkUrl.startsWith('http')) {
-        try {
-          final artResponse = await _downloadClient.get<List<int>>(
-            hqArtworkUrl,
-            options: Options(responseType: ResponseType.bytes),
-          );
-          final data = artResponse.data;
-          if (data != null && data.isNotEmpty) {
-            artworkBytes = Uint8List.fromList(data);
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('[Aurum] DownloadProvider: artwork fetch failed for ${song.id}, saving without embedded art: $e');
-          }
-        }
-      }
-
-      String finalLocalPath = filePath;
-      try {
-        final publicRef = await _engine.saveDownloadToPublicMusic(
-          sourcePath: filePath,
-          displayName: '${_safeFileName(song)}.mp3',
-          artworkBytes: artworkBytes,
-        );
-        if (publicRef != null) finalLocalPath = publicRef;
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] DownloadProvider: public Music save failed for ${song.id}, keeping private copy: $e');
-        }
-      }
+      // Downloads are kept entirely in the app's own private storage —
+      // never copied to the public Music/Astra folder, so they never show
+      // up in the device's file manager or other apps. Offline playback
+      // inside Aurum itself works exactly the same either way; this only
+      // controls whether a copy also becomes visible outside the app.
+      final String finalLocalPath = filePath;
 
       // ROOT FIX ("download completes but doesn't save / disappears from
       // the list"): showCompleted() below is a platform-channel call

@@ -178,10 +178,19 @@ class AurumTheme {
     // unchanged — it is a small element by design, so a stronger boost
     // there is still correct. Dark mode is untouched — Android's dark
     // tonal palette is already low-key and reads as premium as-is.
-    Color enrich(Color c, {required double lightness, required double satBoost}) {
+    // v5 — v4's satBoost:0.0 only skipped ADDING saturation; it left the
+    // wallpaper-derived tone's OWN saturation untouched. Android's tonal
+    // surface roles are not neutral by construction — on a vivid pink/red
+    // seed, surfaceContainer* can already carry 25-45% native HSL
+    // saturation, which is why every "0 boost" tier still read as a pink
+    // wash. Google's own dynamic-color apps cap surface saturation to a
+    // near-neutral ceiling (~4-6%) regardless of source hue — clamp to
+    // maxSat instead of offsetting, so hue survives (still "themed") but
+    // magnitude is capped the way real Material You surfaces look.
+    Color enrich(Color c, {required double lightness, required double maxSat}) {
       final hsl = HSLColor.fromColor(c);
       return hsl
-          .withSaturation((hsl.saturation + satBoost).clamp(0.0, 1.0))
+          .withSaturation(hsl.saturation.clamp(0.0, maxSat))
           .withLightness(lightness.clamp(0.0, 1.0))
           .toColor();
     }
@@ -212,27 +221,29 @@ class AurumTheme {
     // lightness band is also flattened (0.99→0.90 instead of 0.93→0.83) so
     // tiers stay close together the way Files' base/nav/card tiers do,
     // rather than sinking into a visibly darker pink at each step.
+    // Dark mode is left as raw dynamic.* on purpose (unchanged from v4) —
+    // Android's dark tonal palette is low-chroma by construction, this
+    // pink-wash bug only ever shows up in light mode.
     final bg = isLight
-        ? enrich(dynamic.surface, lightness: 0.99, satBoost: 0.0)
+        ? enrich(dynamic.surface, lightness: 0.99, maxSat: 0.03)
         : dynamic.surface;
     final bgCard = isLight
-        ? enrich(dynamic.surfaceContainer, lightness: 0.96, satBoost: 0.0)
+        ? enrich(dynamic.surfaceContainer, lightness: 0.96, maxSat: 0.04)
         : dynamic.surfaceContainer;
     final bgSurface = isLight
-        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.93, satBoost: 0.0)
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.93, maxSat: 0.05)
         : dynamic.surfaceContainerHigh;
     final bgElevated = isLight
-        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.90, satBoost: 0.0)
+        ? enrich(dynamic.surfaceContainerHighest, lightness: 0.90, maxSat: 0.06)
         : dynamic.surfaceContainerHighest;
 
-    // Text/divider tones — no satBoost either, same reasoning as above.
-    // Lightness targets unchanged from v3 (these were fine — the earlier
-    // "collapsed contrast" bug this fixed is about darkness, not hue).
+    // Text/divider tones — same saturation-ceiling treatment. Lightness
+    // targets unchanged (that axis was never the bug).
     final textMuted = isLight
-        ? enrich(dynamic.onSurfaceVariant, lightness: 0.38, satBoost: 0.0)
+        ? enrich(dynamic.onSurfaceVariant, lightness: 0.38, maxSat: 0.10)
         : dynamic.onSurfaceVariant;
     final divider = isLight
-        ? enrich(dynamic.outlineVariant, lightness: 0.72, satBoost: 0.0)
+        ? enrich(dynamic.outlineVariant, lightness: 0.72, maxSat: 0.06)
         : dynamic.outlineVariant;
 
     // Accent (primary/secondary) — punched up in light mode only, for the

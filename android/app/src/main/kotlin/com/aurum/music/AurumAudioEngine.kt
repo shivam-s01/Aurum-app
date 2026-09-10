@@ -1928,6 +1928,42 @@ class AurumAudioEngine(
         networkCallback = null
     }
 
+    // FIX ("song download ho ke turant play nahi hota, 'missing or
+    // unreadable — skipping' dikha ke skip kar deta hai"): once downloads
+    // moved to the public Music/Astra folder via MediaStore (see
+    // AurumMediaStoreDownloads / saveDownloadToPublicMusic), localPath for
+    // a freshly-downloaded song is a real `content://...` URI, not a
+    // filesystem path. Both idle-recovery checks below used to do
+    // `.removePrefix("content://")` and then hand the leftover string
+    // straight to `java.io.File(path)` — but stripping the scheme off a
+    // content URI does not turn it back into a path; MediaStore content
+    // IDs (e.g. "media/external/audio/media/12345") aren't real
+    // filesystem locations at all, so `File(path).exists()` was false
+    // for essentially every content:// download, every single time. That
+    // false negative is exactly what fired "Downloaded file is missing or
+    // unreadable — skipping to next song" the moment ExoPlayer's normal
+    // prepare/buffer cycle passed through STATE_IDLE, even though the
+    // file was sitting there in MediaStore correctly. Old plain
+    // file-path downloads (pre-MediaStore-migration, or the private-
+    // storage fallback when the public save fails) were never affected —
+    // this only broke the new happy path. A content:// URI has to be
+    // existence-checked via ContentResolver, not java.io.File.
+    private fun localSongFileOk(rawPath: String?): Boolean {
+        if (rawPath.isNullOrEmpty()) return false
+        return try {
+            if (rawPath.startsWith("content://")) {
+                context.contentResolver.openAssetFileDescriptor(
+                    android.net.Uri.parse(rawPath), "r"
+                )?.use { it.length > 0 } ?: false
+            } else {
+                val path = rawPath.removePrefix("file://")
+                java.io.File(path).let { it.exists() && it.length() > 0 }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private suspend fun handleFreshStartIdle() {
         val songAtIdle = queueSongs.getOrNull(currentIndex) ?: return
 
@@ -1952,12 +1988,7 @@ class AurumAudioEngine(
         // recovery path below already does.
         if (songAtIdle.isLocal) {
             val sessionAtIdle = playSessionId
-            val path = songAtIdle.localPath?.removePrefix("file://")?.removePrefix("content://")
-            val fileOk = try {
-                path != null && java.io.File(path).let { it.exists() && it.length() > 0 }
-            } catch (_: Exception) {
-                false
-            }
+            val fileOk = localSongFileOk(songAtIdle.localPath)
             if (fileOk) {
                 // File is genuinely fine; this STATE_IDLE was likely a
                 // transient blip (e.g. brief MediaCodec hiccup) rather than
@@ -2057,12 +2088,7 @@ class AurumAudioEngine(
         // the player stuck.
         if (song.isLocal) {
             val sessionNow = playSessionId
-            val path = song.localPath?.removePrefix("file://")?.removePrefix("content://")
-            val fileOk = try {
-                path != null && java.io.File(path).let { it.exists() && it.length() > 0 }
-            } catch (_: Exception) {
-                false
-            }
+            val fileOk = localSongFileOk(song.localPath)
             if (fileOk) {
                 // Likely a transient decoder hiccup rather than a genuinely
                 // broken file — give it one silent retry from the same
