@@ -2668,6 +2668,8 @@ class _ArtworkVisual extends StatelessWidget {
                       // version for this full-screen hero disc art — see
                       // AurumArtwork.upgradeForFullPlayer's doc comment.
                       url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
+                      size: double.infinity,
+                      borderRadius: radius,
                       // FIX (white flash on song tap / swipe-down
                       // dismiss / collapse — root cause): see
                       // suppressWhiteShimmer doc comment in

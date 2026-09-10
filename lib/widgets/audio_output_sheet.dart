@@ -326,8 +326,8 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                     color: AurumTheme.textMutedOf(context).withOpacity(0.1),
                     height: 1),
                 if (_loading && devices == null)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Center(
                         child: SizedBox(
                             width: 24,

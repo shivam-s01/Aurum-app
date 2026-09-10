@@ -3901,7 +3901,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             }(),
                           ),
                         )
-                      : const Icon(Icons.download_rounded,
+                      : Icon(Icons.download_rounded,
                           color: AurumTheme.accentOf(context)),
                   title: Text(
                     downloading
@@ -5223,7 +5223,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                       border: Border.all(
                           color: AurumTheme.accentOf(context).withOpacity(0.3)),
                     ),
-                    child: const Icon(Icons.add_rounded,
+                    child: Icon(Icons.add_rounded,
                         color: AurumTheme.accentOf(context), size: 22),
                   ),
                   title: Text(l10n.libraryNewPlaylistLower,
@@ -5312,7 +5312,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                       color: AurumTheme.textMutedOf(context),
                                       fontSize: 12)),
                               trailing: alreadyIn
-                                  ? const Icon(Icons.check_circle_rounded,
+                                  ? Icon(Icons.check_circle_rounded,
                                       color: AurumTheme.accentOf(context), size: 22)
                                   : null,
                               onTap: alreadyIn
@@ -5500,13 +5500,13 @@ class _HistoryScreenState extends State<_HistoryScreen>
                           shape: BoxShape.circle,
                           color: AurumTheme.accentOf(context).withOpacity(0.15),
                         ),
-                        child: const Icon(Icons.history_rounded,
+                        child: Icon(Icons.history_rounded,
                             color: AurumTheme.accentOf(context), size: 16),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         l10n.libraryRecentlyPlayed,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AurumTheme.accentOf(context),
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -5950,7 +5950,7 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
                           border: Border.all(
                               color: AurumTheme.accentOf(context).withOpacity(0.3)),
                         ),
-                        child: const Icon(Icons.folder_rounded,
+                        child: Icon(Icons.folder_rounded,
                             color: AurumTheme.accentOf(context), size: 32),
                       ),
                       const SizedBox(height: 20),
@@ -6336,7 +6336,7 @@ class _DownloadsTab extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text('$badgeCount',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: AurumTheme.accentOf(context),
                             fontSize: 11,
                             fontWeight: FontWeight.w700)),
@@ -6522,7 +6522,7 @@ class _InProgressCard extends StatelessWidget {
                       item.isPaused
                           ? l10n.libraryDownloadPaused
                           : '$percent%',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: AurumTheme.accentOf(context),
                           fontSize: 12,
                           fontWeight: FontWeight.w600),

@@ -138,7 +138,7 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
           ),
         ),
         trailing: _loading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 18, height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2, color: AurumTheme.accentOf(context)),
               )
