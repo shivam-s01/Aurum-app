@@ -30,19 +30,16 @@ Future<T?> showAurumModalBottomSheet<T>({
   bool isDismissible = true,
   bool enableDrag = true,
   ShapeBorder? shape,
-  // FIX — same surfaceTint flash class as the PopupMenuButton bug, here
-  // for bottom sheets specifically: leaving this null let Flutter fall
-  // back to Material 3's default surfaceTintColor (colorScheme.surfaceTint)
-  // on every sheet, painted under whatever `backgroundColor` was passed.
-  // Now defaults to transparent everywhere this wrapper is used, with no
-  // per-call-site opt-in required.
-  Color? surfaceTintColor,
 }) {
+  // FIX — surfaceTintColor flash: handled globally via bottomSheetTheme
+  // in aurum_theme.dart (surfaceTintColor: Colors.transparent), not
+  // passed here directly — this project's Flutter version (3.35.0)
+  // doesn't expose a surfaceTintColor named parameter on
+  // showModalBottomSheet itself, only via BottomSheetThemeData.
   return showModalBottomSheet<T>(
     context: context,
     backgroundColor: backgroundColor,
     barrierColor: barrierColor ?? Colors.black45,
-    surfaceTintColor: surfaceTintColor ?? Colors.transparent,
     isScrollControlled: isScrollControlled,
     useSafeArea: useSafeArea,
     isDismissible: isDismissible,
