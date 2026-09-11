@@ -50,31 +50,55 @@ class FollowedArtistsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool isFollowing(String artistId) => _box?.containsKey(artistId) ?? false;
+  bool isFollowing(String artistId) {
+    final key = artistId.trim();
+    if (key.isEmpty) return false;
+    return _box?.containsKey(key) ?? false;
+  }
 
   Future<void> toggleFollow({
     required String artistId,
     required String name,
     required String imageUrl,
   }) async {
+    // ROBUSTNESS FIX ("follow ho raha hai (icon change hota hai) lekin
+    // Library > Artists tab mein nahi dikh raha"): the most likely cause
+    // of "saved but not visible" is a key mismatch — the id used to save
+    // here ending up with different whitespace, or otherwise not
+    // matching, the id used elsewhere to check/display. Trimming the key
+    // once, right here, and using that SAME trimmed key for every read/
+    // write in this class (isFollowing, toggleFollow, followFromRemote)
+    // closes that gap outright — whatever variant of the id the caller
+    // passes in, it's normalized the same way every time before it ever
+    // touches Hive. An empty/blank id is also now a deliberate no-op
+    // instead of silently writing under a blank key, since a blank-key
+    // "follow" can never render meaningfully in the list anyway (the
+    // Artists tab also now filters out any such entries defensively).
+    final key = artistId.trim();
+    if (key.isEmpty) return;
     final box = _box ?? await _boxReady.future;
-    if (isFollowing(artistId)) {
-      await box.delete(artistId);
+    if (box.containsKey(key)) {
+      await box.delete(key);
       if (kDebugMode) {
-        debugPrint('[FollowedArtists] UNFOLLOWED id=$artistId name=$name '
+        debugPrint('[FollowedArtists] UNFOLLOWED id=$key name=$name '
             '— box now has ${box.length} artist(s)');
       }
-      unawaited(SyncService.instance.pushUnfollowedArtist(artistId));
+      unawaited(SyncService.instance.pushUnfollowedArtist(key));
     } else {
       final data = {
-        'id': artistId,
+        'id': key,
         'name': name,
         'imageUrl': imageUrl,
       };
-      await box.put(artistId, data);
+      await box.put(key, data);
+      // Verify the write actually landed instead of assuming it did —
+      // if this somehow comes back false (corrupt box, disk full, etc),
+      // we at least know that's the real cause rather than guessing.
+      final saved = box.containsKey(key);
       if (kDebugMode) {
-        debugPrint('[FollowedArtists] FOLLOWED id=$artistId name=$name '
-            '— box now has ${box.length} artist(s): ${box.values.map((m) => m['name']).toList()}');
+        debugPrint('[FollowedArtists] FOLLOWED id=$key name=$name '
+            'saved=$saved — box now has ${box.length} artist(s): '
+            '${box.values.map((m) => m['name']).toList()}');
       }
       unawaited(SyncService.instance.pushFollowedArtist(data));
     }
@@ -89,10 +113,12 @@ class FollowedArtistsProvider extends ChangeNotifier {
     required String name,
     required String imageUrl,
   }) async {
-    if (isFollowing(artistId)) return;
+    final key = artistId.trim();
+    if (key.isEmpty) return;
+    if (isFollowing(key)) return;
     final box = _box ?? await _boxReady.future;
-    await box.put(artistId, {
-      'id': artistId,
+    await box.put(key, {
+      'id': key,
       'name': name,
       'imageUrl': imageUrl,
     });

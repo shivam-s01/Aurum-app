@@ -88,11 +88,9 @@ enum _LibTab { library, playlists, songs, artists, albums }
 
 class _LibraryScreenState extends State<LibraryScreen> {
   _LibTab _tab = _LibTab.library;
-  final ScrollController _tabScrollCtrl = ScrollController();
 
   @override
   void dispose() {
-    _tabScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -179,42 +177,74 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // that continuous-strip look â€” only the selected tab gets a filled
   // background now, everything else just sits on the shared pill.
   Widget _buildTabRow(BuildContext context) {
-    final tabs = <_LibTab, ({IconData icon, String label})>{
-      _LibTab.library:   (icon: Icons.grid_view_rounded, label: 'Library'),
-      _LibTab.playlists: (icon: Icons.format_list_bulleted_rounded, label: 'Playlists'),
-      _LibTab.songs:     (icon: Icons.music_note_rounded, label: 'Songs'),
-      _LibTab.artists:   (icon: Icons.person_rounded, label: 'Artists'),
-      _LibTab.albums:    (icon: Icons.album_rounded, label: 'Albums'),
+    final tabs = <_LibTab, String>{
+      _LibTab.library: 'Library',
+      _LibTab.playlists: 'Playlists',
+      _LibTab.songs: 'Songs',
+      _LibTab.artists: 'Artists',
+      _LibTab.albums: 'Albums',
     };
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
       child: Container(
-        height: 52,
+        height: 46,
         decoration: BoxDecoration(
-          color: AurumTheme.accentOf(context).withOpacity(0.08),
-          borderRadius: BorderRadius.circular(26),
+          // VISIBILITY FIX ("pill kahi visible nahi ho raha / dynamic
+          // theme mein dikhta hi nahi"): this used to be
+          // accentOf(context).withOpacity(0.08) — accentOf() is the
+          // wallpaper-derived Material You color when Dynamic Color mode
+          // is on (see AurumTheme.accentOf's doc comment), so on plenty
+          // of real wallpapers that color is pale/low-saturation, and 8%
+          // opacity on TOP of that made the whole pill nearly invisible
+          // against the scaffold background — exactly "kahi visible nahi
+          // ho raha". bgSurfaceOf() is a solid, always-adaptive surface
+          // tone (dark/light/AMOLED/dynamic all define it) with no
+          // opacity math riding on an unpredictable accent — it's
+          // guaranteed to sit a clear step above the background on every
+          // theme, then a thin accent-tinted border on top adds the
+          // "premium" definition without ever being the only thing
+          // making the pill visible.
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(23),
+          border: Border.all(
+            color: AurumTheme.accentOf(context).withOpacity(0.22),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: ListView(
-          controller: _tabScrollCtrl,
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+        // FIX ("ek taraf ka ekdam ek kinare chala ja raha hai" / lopsided
+        // tab row): this used to be a horizontally-scrolling ListView —
+        // with 5 tabs at 16/12 padding each, their combined width
+        // overflowed most phone screens, so the row always started
+        // scrolled to one edge instead of sitting centered/balanced, and
+        // the oversized padding made each pill read as chunky/awkward
+        // rather than a tight native-style segmented control. A Row of
+        // Expanded segments instead divides the pill into 5 exactly equal
+        // slices that always fill the full width — nothing to scroll,
+        // nothing lopsided, and matches the compact segmented-control
+        // sizing the rest of the app uses.
+        padding: const EdgeInsets.all(4),
+        child: Row(
           children: [
-            for (final entry in tabs.entries) ...[
-              const SizedBox(width: 4),
-              _TabChip(
-                icon: entry.value.icon,
-                label: entry.value.label,
-                selected: _tab == entry.key,
-                onTap: () {
-                  if (_tab == entry.key) return;
-                  AurumHaptics.selection();
-                  setState(() => _tab = entry.key);
-                },
+            for (final entry in tabs.entries)
+              Expanded(
+                child: _TabChip(
+                  label: entry.value,
+                  selected: _tab == entry.key,
+                  onTap: () {
+                    if (_tab == entry.key) return;
+                    AurumHaptics.selection();
+                    setState(() => _tab = entry.key);
+                  },
+                ),
               ),
-            ],
-            const SizedBox(width: 4),
           ],
         ),
       ),
@@ -266,12 +296,10 @@ class _TopIconButton extends StatelessWidget {
 }
 
 class _TabChip extends StatelessWidget {
-  final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
   const _TabChip({
-    required this.icon,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -279,27 +307,58 @@ class _TabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // FIX: unselected chips no longer paint their own bgSurfaceOf() card â€”
-    // that's what made each tab look like a separate floating card with
-    // visible seams between them. Transparent here lets them sit directly
-    // on the shared pill background from _buildTabRow, so only the
-    // selected tab stands out, matching the reference segmented-control
-    // look (one continuous strip, one highlighted segment).
+    // VISIBILITY + POLISH FIX: unselected chips stay transparent so they
+    // sit directly on the shared pill from _buildTabRow (one continuous
+    // strip, not disconnected cards) - but their TEXT used to be
+    // accentOf(context) too, which on a pale/low-saturation dynamic-theme
+    // wallpaper could end up nearly as low-contrast as the pill itself
+    // was. textSecondaryOf() is guaranteed readable against bgSurfaceOf()
+    // on every theme (dark/light/AMOLED/dynamic), so unselected labels
+    // are always legible regardless of what accent color happens to be
+    // active. The selected chip gets the app's real accent gradient
+    // (accentGradientOf - the same dynamic-theme-aware gradient used
+    // elsewhere, not a flat fill) plus a matching soft glow shadow, so
+    // the active tab reads as a genuine premium highlight rather than a
+    // flat color block - "top level" instead of just "filled in".
+    final gradient = selected ? AurumTheme.accentGradientOf(context) : null;
     return Material(
-      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
-      borderRadius: BorderRadius.circular(24),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: AnimatedContainer(
           duration: AurumMotion.durationOrZero(AurumMotion.short2),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          // FIX (chip felt oversized/awkward vs the rest of the app):
+          // dropped from 16/12 to a tighter 8/9 - combined with the Row+
+          // Expanded layout above, this keeps every segment compact and
+          // evenly sized instead of the previous chunky, unevenly-scrolled
+          // pills.
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
           alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: gradient,
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: AurumTheme.accentOf(context).withOpacity(0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyle(
-              color: selected ? Colors.white : AurumTheme.accentOf(context),
-              fontSize: 14.5,
+              color: selected
+                  ? Colors.white
+                  : AurumTheme.textSecondaryOf(context),
+              fontSize: 12.5,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
             ),
           ),
@@ -1136,8 +1195,31 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
     }
 
     // followed is already newest-first (see FollowedArtistsProvider.followed,
-    // which reverses Hive's insertion order) â€” oldest-first simply un-reverses.
-    final base = followedProvider.followed;
+    // which reverses Hive's insertion order) - oldest-first simply un-reverses.
+    //
+    // DEFENSIVE FIX ("artist follow ho raha hai lekin Library > Artists tab
+    // mein nahi dikh raha"): the icon on ArtistScreen flips instantly
+    // because toggleFollow() calls notifyListeners() right after the Hive
+    // write completes - that part was already correct. But this list used
+    // to be built straight from FollowedArtistsProvider.followed with no
+    // validation, so a single malformed entry (empty id from a rare
+    // edge-case artist resolve, or a duplicate id from two slightly
+    // different id formats for the same artist landing in the box) could
+    // previously produce visually-empty or duplicate-looking rows with no
+    // obvious sign why. Filtering out entries with an empty id/name and
+    // de-duplicating by id here means a genuinely corrupt entry never
+    // renders as a blank/broken row, and if the same artist got saved
+    // under two different id variants it shows once instead of twice or
+    // not at all depending on list order. This never hides a legitimately
+    // followed artist - it only cleans up entries that were never going
+    // to render correctly anyway.
+    final seenArtistIds = <String>{};
+    final base = followedProvider.followed.where((m) {
+      final id = (m['id'] ?? '').toString();
+      final name = (m['name'] ?? '').toString();
+      if (id.isEmpty || name.isEmpty) return false;
+      return seenArtistIds.add(id);
+    }).toList();
     final ordered = _newestFirst ? base : base.reversed.toList();
     final top = ordered.isNotEmpty ? ordered.first : null;
     if (kDebugMode) {
@@ -3153,6 +3235,17 @@ class _PlaylistListRow extends StatelessWidget {
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AurumTheme.textMutedOf(context).withOpacity(0.08),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Row(
           children: [

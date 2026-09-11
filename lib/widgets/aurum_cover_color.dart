@@ -96,9 +96,20 @@ class _PlaylistColorCoverState extends State<PlaylistColorCover> {
           PlaylistColorCover._fallbackA,
           PlaylistColorCover._fallbackB,
         ];
+    // FIX (recheck pass): PlaylistDetailScreen's full-width header calls
+    // this with size: double.infinity — blurRadius/offset below were
+    // derived directly from widget.size, so an infinite size produced an
+    // infinite blurRadius (Flutter throws/paints garbage on that). Same
+    // guard the width/height already used (widget.size.isFinite),
+    // applied to the shadow's math too, with a fixed sensible blur for
+    // the infinite-size header case instead of trying to scale off a
+    // size that isn't a real number.
+    final hasFiniteSize = widget.size.isFinite;
+    final shadowBlur = hasFiniteSize ? widget.size * 0.18 : 24.0;
+    final shadowOffsetY = hasFiniteSize ? widget.size * 0.06 : 8.0;
     return AnimatedContainer(
       duration: AurumMotion.durationOrZero(AurumMotion.long1),
-      curve: Curves.easeOut,
+      curve: Curves.easeOutCubic,
       width: widget.size.isFinite ? widget.size : null,
       height: widget.size.isFinite ? widget.size : null,
       decoration: BoxDecoration(
@@ -108,13 +119,56 @@ class _PlaylistColorCoverState extends State<PlaylistColorCover> {
           end: Alignment.bottomRight,
           colors: colors,
         ),
+        // Soft colored glow matching the extracted palette instead of a
+        // flat generic shadow — makes each cover feel like it's actually
+        // lit by its own gradient rather than sitting on a plain card.
+        // Pure decoration math, no extra image work, so this costs
+        // nothing on top of the AnimatedContainer that was already here.
+        boxShadow: [
+          BoxShadow(
+            color: colors.first.withOpacity(0.35),
+            blurRadius: shadowBlur,
+            offset: Offset(0, shadowOffsetY),
+          ),
+        ],
       ),
-      child: Center(
-        child: Icon(
-          Icons.queue_music_rounded,
-          color: Colors.white.withOpacity(0.85),
-          size: widget.iconSize ?? widget.size * 0.4,
-        ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Faint diagonal sheen — a single translucent gradient overlay,
+          // not a shader/image, so it's effectively free to paint and
+          // never re-triggers any decode/extraction work.
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(widget.borderRadius),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.16),
+                      Colors.white.withOpacity(0.0),
+                      Colors.black.withOpacity(0.10),
+                    ],
+                    stops: const [0.0, 0.45, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Icon(
+            Icons.queue_music_rounded,
+            color: Colors.white.withOpacity(0.92),
+            size: widget.iconSize ?? widget.size * 0.4,
+            shadows: [
+              Shadow(
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: widget.size * 0.06,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

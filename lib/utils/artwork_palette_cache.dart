@@ -20,6 +20,7 @@
 //   but there's no reason not to bound it.
 // =============================================================================
 
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -190,6 +191,44 @@ class ArtworkPaletteCache {
   // or dedupe against each other incorrectly.
   static final Map<String, Future<ArtworkPalette?>> _fastInFlight = {};
 
+  // PERF FIX ("Playlists tab lags/hangs hard on open"): every playlist
+  // tile without a custom cover mounts a PlaylistColorCover, whose
+  // initState() immediately fires two real PaletteGenerator decodes
+  // (fast + accurate) for its first song's artwork. With N playlists on
+  // screen at once (initial build + fast scroll-ahead), that's up to 2*N
+  // concurrent image decode+quantize operations racing on the UI thread
+  // at the exact moment the tab opens — this is what reads as "lag/hang
+  // bahut jyada" right when switching into Playlists. A small concurrency
+  // gate below caps how many of these run at once; everything past the
+  // cap just waits its turn in a FIFO queue instead of all firing
+  // simultaneously. Doesn't change what gets computed or cached — only
+  // when — so results are identical, just spread out instead of bursty.
+  static const int _maxConcurrent = 3;
+  static int _activeCount = 0;
+  static final List<Completer<void>> _waitQueue = [];
+
+  static Future<void> _acquireSlot() {
+    if (_activeCount < _maxConcurrent) {
+      _activeCount++;
+      return Future.value();
+    }
+    final completer = Completer<void>();
+    _waitQueue.add(completer);
+    return completer.future;
+  }
+
+  static void _releaseSlot() {
+    if (_waitQueue.isNotEmpty) {
+      // Hand the slot straight to the next waiter instead of
+      // decrementing — keeps _activeCount accurate without a gap where
+      // another caller could sneak in ahead of the queue.
+      final next = _waitQueue.removeAt(0);
+      next.complete();
+    } else {
+      _activeCount--;
+    }
+  }
+
   /// Quick, coarse average-color approximation — NOT the accurate
   /// PaletteGenerator extraction above. Used by full_player_screen.dart's
   /// cold-cache path to give the background SOME real tint the moment
@@ -211,6 +250,7 @@ class ArtworkPaletteCache {
   }
 
   static Future<ArtworkPalette?> _extractFast(String url) async {
+    await _acquireSlot();
     try {
       final provider = await _resolveArtworkProvider(url);
       if (provider == null) return null;
@@ -240,6 +280,8 @@ class ArtworkPaletteCache {
       );
     } catch (_) {
       return null;
+    } finally {
+      _releaseSlot();
     }
   }
 
@@ -288,6 +330,7 @@ class ArtworkPaletteCache {
 
   static Future<ArtworkPalette?> _extract(String url) async {
     if (url.isEmpty) return null;
+    await _acquireSlot();
     try {
       final provider = await _resolveArtworkProvider(url);
       if (provider == null) return null;
@@ -342,6 +385,8 @@ class ArtworkPaletteCache {
       );
     } catch (_) {
       return null;
+    } finally {
+      _releaseSlot();
     }
   }
 }
