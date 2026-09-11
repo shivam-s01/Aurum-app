@@ -66,6 +66,7 @@ class SourceProvider extends ChangeNotifier {
 
   MusicSource get source => _source;
   bool get isOnline => _source == MusicSource.online;
+  bool get hasNetwork => _hasNetwork;
 
   Future<void> init() async {
     // Determine real status immediately at startup — don't wait for the
@@ -98,12 +99,18 @@ class SourceProvider extends ChangeNotifier {
 
   /// Manually pick a source. Stays in effect until the user toggles again,
   /// or until a real connectivity loss forces Offline (see _applyResult).
-  void toggle() {
+  /// Returns true if the switch actually happened, false if it was
+  /// rejected (only possible case: trying to force Online with no real
+  /// network underneath) — callers use the return value to show feedback
+  /// (e.g. "Check your internet connection") instead of the tap silently
+  /// doing nothing, which is what happened before this returned anything.
+  bool toggle() {
     final next = isOnline ? MusicSource.offline : MusicSource.online;
     // Can't manually force Online with no real network underneath.
-    if (next == MusicSource.online && !_hasNetwork) return;
+    if (next == MusicSource.online && !_hasNetwork) return false;
     _manualOverride = true;
     _setSource(next, notify: true);
+    return true;
   }
 
   void _setSource(MusicSource next, {required bool notify}) {

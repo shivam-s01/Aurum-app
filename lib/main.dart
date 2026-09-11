@@ -354,8 +354,53 @@ class AurumApp extends StatelessWidget {
             // same song, same position — the moment connectivity
             // genuinely returns, instead of leaving a dead stream sitting
             // there until the user notices and taps play again.
-            context.read<SourceProvider>().onReconnected =
-                () => p.resumeAfterReconnect();
+            context.read<SourceProvider>().onReconnected = () {
+              p.resumeAfterReconnect();
+              // FEATURE ("data khule to You're back online, green,
+              // Spotify-level masterpiece" — 2026-09-11): fires exactly
+              // once per genuine offline->online transition (see
+              // SourceProvider._setSource's own previous/next check,
+              // the same edge-trigger the offline snackbar below
+              // relies on) — never on every connectivity poll, and
+              // never on a manual Online tap while already online.
+              // Styled as its own green success pill (not a default
+              // grey Material SnackBar like the informational ones
+              // below) since "reconnected" is a positive, reassuring
+              // event, not a warning.
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        margin: const EdgeInsets.only(right: 10),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Text(
+                        "You're back online",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF1DB954),
+                  duration: const Duration(seconds: 2, milliseconds: 500),
+                  behavior: SnackBarBehavior.floating,
+                  elevation: 6,
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              );
+            };
             // Auto-switch is driven by real connectivity (see
             // SourceProvider.init()). When it flips while a song is
             // playing, the previous source's playback (online stream URL

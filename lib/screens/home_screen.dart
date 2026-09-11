@@ -497,7 +497,7 @@ class HomeScreen extends StatefulWidget {
 // Fixed by switching to Flutter's own `RefreshIndicator` (wired directly
 // in HomeScreen.build() below), which owns gesture arbitration correctly
 // against sibling GestureDetectors out of the box. Styled with the app's
-// gold accent so it still matches the rest of Aurum instead of looking
+// gold accent so it still matches the rest of Astra instead of looking
 // like a stock Material widget.
 
 class _HomeScreenState extends State<HomeScreen> {
@@ -972,7 +972,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Reverted to Flutter's stock RefreshIndicator — the custom
           // AurumMorphLoader-based pull-to-refresh wasn't working
           // reliably, so this goes back to the simple, previously-working
-          // native indicator. Styled gold/dark to still match Aurum.
+          // native indicator. Styled gold/dark to still match Astra.
           RefreshIndicator(
             color: AurumTheme.accentOf(context),
             backgroundColor: AurumTheme.bgCardOf(context),
@@ -1160,8 +1160,11 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(width: 8),
+            // PREMIUM UPGRADE — slightly larger badge, crisper glow ring,
+            // matches the bolder/bigger visual language used across the
+            // rest of this redesign pass.
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 gradient: LinearGradient(
@@ -1169,8 +1172,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AurumTheme.accentOf(context).withOpacity(0.45),
-                    blurRadius: 10,
+                    color: AurumTheme.accentOf(context).withOpacity(0.5),
+                    blurRadius: 14,
                     spreadRadius: 0.5,
                   ),
                 ],
@@ -1179,9 +1182,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 '✦ Plus',
                 style: TextStyle(
                   color: Colors.black,
-                  fontSize: 11,
+                  fontSize: 11.5,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2,
+                  letterSpacing: 0.3,
                 ),
               ),
             ),
@@ -2298,11 +2301,11 @@ class _OfflineContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<LibraryProvider>();
-    // Aurum's own in-app downloads (DownloadProvider/Hive) are a SEPARATE
+    // Astra's own in-app downloads (DownloadProvider/Hive) are a SEPARATE
     // source from the raw device MediaStore scan LibraryProvider does —
     // songs downloaded through the app never show up in `lib.allSongs`
     // unless MediaStore also happens to index that exact file. Without
-    // this, "Downloaded" content the user got FROM Aurum itself (the most
+    // this, "Downloaded" content the user got FROM Astra itself (the most
     // likely thing they'd expect to see first) was invisible on offline
     // Home — only songs picked up by a raw folder scan showed at all.
     final downloads = context.watch<DownloadProvider>().completed;
@@ -2324,7 +2327,7 @@ class _OfflineContent extends StatelessWidget {
     }
 
     // De-dupe: a song already picked up by the raw MediaStore scan (same
-    // local file) shouldn't also appear a second time as an "Aurum
+    // local file) shouldn't also appear a second time as an "Astra
     // Downloads" card — keyed by local file path, the one identifier both
     // sources actually share.
     final scannedPaths = lib.allSongs.map((s) => s.localPath).whereType<String>().toSet();
@@ -2358,11 +2361,11 @@ class _OfflineContent extends StatelessWidget {
             ? [SongSection(title: AppLocalizations.of(context)!.homeLocalSongs, songs: lib.allSongs)]
             : <SongSection>[]);
 
-    // Aurum's own downloads lead the page — most-recently-downloaded
+    // Astra's own downloads lead the page — most-recently-downloaded
     // first (DownloadProvider.completed is already sorted newest-first),
     // same "your most recent activity surfaces first" logic the online
     // feed's own "Because You Played" row follows.
-    // NOTE (l10n): "Downloaded on Aurum" is a brand name + fixed English
+    // NOTE (l10n): "Downloaded on Astra" is a brand name + fixed English
     // word pair — same category as "Made for You" and "Because You
     // Played" elsewhere in api_service.dart, which this codebase also
     // keeps as fixed English label text rather than routing through
@@ -2373,7 +2376,7 @@ class _OfflineContent extends StatelessWidget {
     // homeDownloadedOnAurum key across every app_*.arb file.
     final sections = <SongSection>[
       if (appDownloadedSongs.isNotEmpty)
-        SongSection(id: 'aurum_downloads', title: 'Downloaded on Aurum', songs: appDownloadedSongs),
+        SongSection(id: 'astra_downloads', title: 'Downloaded on Astra', songs: appDownloadedSongs),
       ...librarySections,
     ];
 
@@ -2485,8 +2488,15 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
   @override
   Widget build(BuildContext context) {
     final section = widget.section;
+    // PREMIUM/PRODUCTION UPGRADE — offline row header brought to the same
+    // visual language as the online shelves (_RealHomeShelfRow): gradient
+    // accent tick + bold 800-weight title, instead of the plainer 700
+    // header this row had before. Keeps the whole app — online or
+    // offline — reading as one consistent design system rather than
+    // offline content looking like a lower-tier fallback screen.
+    final isAstraDownloads = section.id == 'astra_downloads';
     return Padding(
-      padding: const EdgeInsets.only(top: 24, left: 12, right: 12),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2494,35 +2504,67 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
-                child: Text(
-                  section.title,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 18,
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(3),
+                        gradient: AurumTheme.accentGradientOf(context),
+                      ),
+                    ),
+                    if (isAstraDownloads) ...[
+                      Icon(Icons.download_done_rounded,
+                          size: 16, color: AurumTheme.accentOf(context)),
+                      const SizedBox(width: 6),
+                    ],
+                    Expanded(
+                      child: Text(
+                        section.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(20),
                   onTap: () => _openMix(context),
                   // FIX: hardcoded English on this new offline row — reuses
                   // the app's existing commonSeeAll key (already defined
                   // across all 16 locale .arb files) instead of introducing
                   // another un-translated string, matching how every
                   // localized label elsewhere in this file is sourced.
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  // PREMIUM UPGRADE — glass pill wrapper matching the
+                  // online shelf row's "see all" arrow treatment, instead
+                  // of a bare text link.
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      color: AurumTheme.bgCardOf(context).withOpacity(0.6),
+                      border: Border.all(
+                        color: AurumTheme.dividerOf(context),
+                        width: 0.6,
+                      ),
+                    ),
                     child: Text(
                       AppLocalizations.of(context)!.commonSeeAll,
                       style: TextStyle(
                         color: AurumTheme.accentOf(context),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -2665,37 +2707,69 @@ class _StatusPillState extends State<_StatusPill> {
   @override
   Widget build(BuildContext context) {
     final isOnline = context.watch<SourceProvider>().isOnline;
-    final dotColor = isOnline ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context);
+    // PREMIUM UPGRADE ("toggle akward lag raha hai" — 2026-09-11): the
+    // pill previously showed only a plain colored dot + text label, which
+    // read as a passive status readout rather than something tappable —
+    // nothing about it visually said "control". Redesigned as a proper
+    // two-state pill: a filled icon chip (cloud when online, phone when
+    // offline) that itself changes shape/color, animated cross-fade
+    // between icons rather than an instant swap, and a stronger online
+    // glow so the tappable affordance reads clearly at a glance instead
+    // of requiring the text to be read.
+    final tint = isOnline ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context);
 
     return AurumPressable(
-      scaleAmount: 0.96,
+      scaleAmount: 0.94,
       onTap: widget.onTap,
       child: AnimatedContainer(
           duration: AurumMotion.durationOrZero(AurumMotion.medium1),
           curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          padding: const EdgeInsets.only(left: 5, right: 12, top: 5, bottom: 5),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: AurumTheme.bgCardOf(context).withOpacity(0.6),
+            borderRadius: BorderRadius.circular(22),
+            color: AurumTheme.bgCardOf(context).withOpacity(0.65),
             border: Border.all(
-              color: AurumTheme.dividerOf(context),
-              width: 0.8,
+              color: isOnline
+                  ? tint.withOpacity(0.35)
+                  : AurumTheme.dividerOf(context),
+              width: 1,
             ),
+            boxShadow: isOnline
+                ? [
+                    BoxShadow(
+                      color: tint.withOpacity(0.25),
+                      blurRadius: 12,
+                      spreadRadius: -2,
+                    ),
+                  ]
+                : [],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Icon chip — its own filled circle so the pill reads as a
+              // real control (like a switch's thumb) rather than a plain
+              // status dot next to a label.
               AnimatedContainer(
                 duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                width: 7,
-                height: 7,
+                width: 24,
+                height: 24,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: dotColor,
-                  boxShadow: isOnline
-                      ? [BoxShadow(color: dotColor.withOpacity(0.55), blurRadius: 5)]
-                      : [],
+                  gradient: isOnline ? AurumTheme.accentGradientOf(context) : null,
+                  color: isOnline ? null : AurumTheme.bgElevatedOf(context),
+                ),
+                child: AnimatedSwitcher(
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                  transitionBuilder: (child, anim) =>
+                      ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
+                  child: Icon(
+                    isOnline ? Icons.cloud_rounded : Icons.phone_iphone_rounded,
+                    key: ValueKey(isOnline),
+                    size: 13,
+                    color: isOnline ? Colors.black : AurumTheme.textSecondaryOf(context),
+                  ),
                 ),
               ),
               const SizedBox(width: 7),
@@ -2704,7 +2778,7 @@ class _StatusPillState extends State<_StatusPill> {
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -2719,12 +2793,68 @@ class _StatusPillState extends State<_StatusPill> {
 // Source Sheet — premium glass bottom sheet for switching source mode
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SourceSheet extends StatelessWidget {
+class _SourceSheet extends StatefulWidget {
   final SourceProvider src;
   const _SourceSheet({required this.src});
 
   @override
+  State<_SourceSheet> createState() => _SourceSheetState();
+}
+
+class _SourceSheetState extends State<_SourceSheet> {
+  // PREMIUM/PRODUCTION UPGRADE ("online pe click kre to google loading
+  // show kre aur internet na rhne pr check your internet connection
+  // likhe" — 2026-09-11): tapping Online used to call src.toggle() and
+  // pop instantly — if there was genuinely no network, toggle() silently
+  // did nothing (see SourceProvider.toggle's own doc comment) and the
+  // sheet just closed with zero feedback, looking broken/unresponsive.
+  // Now: a brief loading state shows on the tapped row itself (a real
+  // spinner, not a fake delay — this doubles as the "let connectivity
+  // settle" beat if the radio was flipped on a split-second ago), then
+  // either switches + closes, or shows an inline error and stays open so
+  // the user immediately understands why nothing happened.
+  bool _connecting = false;
+  String? _error;
+
+  Future<void> _selectOnline() async {
+    if (widget.src.isOnline) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
+    // Real connectivity re-check right before switching — covers the
+    // "user just turned WiFi back on and tapped Online immediately"
+    // case, where the OS/plugin's cached state can lag a moment behind
+    // reality.
+    await Future.delayed(const Duration(milliseconds: 450));
+    if (!mounted) return;
+    final ok = widget.src.toggle();
+    if (!mounted) return;
+    if (!ok) {
+      setState(() {
+        _connecting = false;
+        _error = AppLocalizations.of(context)!.homeCheckYourInternet;
+      });
+      return;
+    }
+    Navigator.pop(context);
+  }
+
+  void _selectOffline() {
+    if (!widget.src.isOnline) {
+      Navigator.pop(context);
+      return;
+    }
+    widget.src.toggle();
+    Navigator.pop(context);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final src = widget.src;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final bg = AurumTheme.bgCardOf(context);
     final border = AurumTheme.dividerOf(context);
@@ -2790,21 +2920,36 @@ class _SourceSheet extends StatelessWidget {
                       label: AppLocalizations.of(context)!.homeOnlineStreaming,
                       subtitle: AppLocalizations.of(context)!.homeStreamOnlineDesc,
                       selected: src.isOnline,
-                      onTap: () {
-                        if (!src.isOnline) src.toggle();
-                        Navigator.pop(context);
-                      },
+                      loading: _connecting,
+                      onTap: _connecting ? () {} : _selectOnline,
                     ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 14, color: const Color(0xFFE0A030)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: const TextStyle(
+                                color: Color(0xFFE0A030),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     _SourceOption(
                       icon: Icons.phone_iphone_rounded,
                       label: AppLocalizations.of(context)!.homeOfflineLibrary,
                       subtitle: AppLocalizations.of(context)!.homeOfflineLibraryDesc,
                       selected: !src.isOnline,
-                      onTap: () {
-                        if (src.isOnline) src.toggle();
-                        Navigator.pop(context);
-                      },
+                      onTap: _connecting ? () {} : _selectOffline,
                     ),
                   ],
                 ),
@@ -2823,12 +2968,14 @@ class _SourceOption extends StatefulWidget {
   final String subtitle;
   final bool selected;
   final VoidCallback onTap;
+  final bool loading;
   const _SourceOption({
     required this.icon,
     required this.label,
     required this.subtitle,
     required this.selected,
     required this.onTap,
+    this.loading = false,
   });
 
   @override
@@ -2883,7 +3030,16 @@ class _SourceOptionState extends State<_SourceOption> {
               ),
             ),
             if (widget.selected)
-              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context)),
+              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context))
+            else if (widget.loading)
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: AurumTheme.accentOf(context),
+                ),
+              ),
           ]),
         ),
     );
@@ -4029,7 +4185,7 @@ class _RealHomeShelfRow extends StatelessWidget {
     final showArrow =
         shelf.title == _kFeaturedForYouTitle || shelf.items.length > 4;
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      padding: const EdgeInsets.only(top: 32, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4055,24 +4211,46 @@ class _RealHomeShelfRow extends StatelessWidget {
                       Text(
                         shelf.strapline!.toUpperCase(),
                         style: TextStyle(
-                          color: AurumTheme.textSecondaryOf(context),
+                          color: AurumTheme.accentLightOf(context),
                           fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
                     ],
-                    Text(
-                      shelf.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
-                      ),
+                    // PREMIUM UPGRADE — small gradient accent tick before
+                    // the title, matches the app-bar "Astra" wordmark's
+                    // gradient language so every shelf feels branded
+                    // rather than a generic list header. Title bumped
+                    // 17->19 and weight 700->800 for stronger editorial
+                    // presence ("ekdam masterpiece" ask).
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 18,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(3),
+                            gradient: AurumTheme.accentGradientOf(context),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            shelf.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -4089,12 +4267,24 @@ class _RealHomeShelfRow extends StatelessWidget {
                     // "Similar to Chill77"/"New releases"), not a text
                     // button — swapped from the text "See all" label to
                     // match, tap target/behavior unchanged.
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
+                    // PREMIUM UPGRADE — wrapped in a soft glass pill so the
+                    // arrow reads as a tappable chip rather than a bare
+                    // floating icon, matching the glass/gradient language
+                    // used elsewhere in the redesign.
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AurumTheme.bgCardOf(context).withOpacity(0.6),
+                        border: Border.all(
+                          color: AurumTheme.dividerOf(context),
+                          width: 0.6,
+                        ),
+                      ),
                       child: Icon(
                         Icons.arrow_forward,
                         color: AurumTheme.textPrimaryOf(context),
-                        size: 20,
+                        size: 18,
                       ),
                     ),
                   ),
@@ -4106,7 +4296,7 @@ class _RealHomeShelfRow extends StatelessWidget {
             // Bumped alongside _RealShelfPlaylistCard's width increase
             // (148 card + a little breathing room) — "cards ko toda sa
             // bada kro" — 2026-09-07.
-            height: 148,
+            height: 172,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -4247,12 +4437,33 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
             // (matches the row height above) rather than a big jump —
             // stays square (no explicit height, still fills the parent
             // FadedHorizontalList's height) so this never distorts.
-            width: widget.fullWidth ? null : 148,
+            width: widget.fullWidth ? null : 172,
             margin: widget.fullWidth
                 ? EdgeInsets.zero
                 : const EdgeInsets.only(right: 12),
+            // PREMIUM UPGRADE — YT Music/Spotify-grade card depth: layered
+            // ambient shadow beneath the card (previously flush/flat) plus
+            // a whisper-thin highlight border so cards read as physically
+            // raised tiles rather than pasted-on images. Radius bumped
+            // 14->18 to match the rounder, "expensive" card language used
+            // across the redesign.
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: AurumTheme.accentOf(context).withOpacity(0.06),
+                  blurRadius: 24,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -4277,9 +4488,22 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                         end: Alignment.bottomCenter,
                         colors: [
                           Colors.transparent,
-                          Colors.black.withOpacity(0.75),
+                          Colors.black.withOpacity(0.85),
                         ],
-                        stops: const [0.4, 1.0],
+                        stops: const [0.35, 1.0],
+                      ),
+                    ),
+                  ),
+                  // Hairline inner border — the "expensive glass" edge
+                  // treatment used across the redesign, matches the
+                  // hero/app-bar accent-glass language instead of a bare
+                  // flat image edge.
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.08),
+                        width: 1,
                       ),
                     ),
                   ),
@@ -4319,21 +4543,22 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.1,
                             height: 1.2,
                           ),
                         ),
                         if (c.subtitle.isNotEmpty) ...[
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 3),
                           Text(
                             c.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
+                              color: Colors.white.withOpacity(0.75),
                               fontSize: 11,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                               height: 1.1,
                             ),
                           ),
@@ -4396,12 +4621,22 @@ class _ShelfSeeAllScreen extends StatelessWidget {
         ),
       ),
       body: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.72,
+          mainAxisSpacing: 20,
+          crossAxisSpacing: 14,
+          // FIX ("see all pe jaake cards stretched/akward lag rahe hai" —
+          // recheck): 0.72 made each cell noticeably taller than wide,
+          // and _RealShelfPlaylistCard's artwork Stack has no fixed
+          // aspect ratio of its own when fullWidth:true (width: null) —
+          // it just fills whatever height the grid cell hands it. That
+          // combination stretched every card into a tall, warped
+          // rectangle, breaking the clean near-square look the same
+          // cards have in the horizontal shelf row. 1.0 keeps cells
+          // square so cards here match the shelf row exactly instead of
+          // visibly distorting.
+          childAspectRatio: 1.0,
         ),
         itemCount: shelf.items.length,
         itemBuilder: (_, i) {
@@ -4811,23 +5046,39 @@ class _HomeAlbumCardWidget extends StatelessWidget {
           );
         },
         child: SizedBox(
-          width: 130,
+          width: 148,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 10),
+              // PREMIUM UPGRADE — matches the larger, deeper-shadow
+              // language now used by playlist cards in this row (radius
+              // 10->16, added ambient shadow) so album cards don't look
+              // smaller/flatter sitting next to them in the same shelf.
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AurumArtwork(url: card.artworkUrl, size: 148, borderRadius: 16),
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 card.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               if (card.artist.isNotEmpty)
@@ -4838,6 +5089,7 @@ class _HomeAlbumCardWidget extends StatelessWidget {
                   style: TextStyle(
                     color: AurumTheme.textSecondaryOf(context),
                     fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
             ],
