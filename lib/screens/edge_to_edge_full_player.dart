@@ -87,6 +87,57 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
 
   static const double _dismissThreshold = 140;
 
+  // FIX ("statusbar upar kabhi kabhi show ho jaata hai"): AnnotatedRegion
+  // in build() below only wins the status-bar style while nothing else
+  // calls SystemChrome.setSystemUIOverlayStyle imperatively afterwards.
+  // main.dart's top-level Consumer2 does exactly that on every app-level
+  // rebuild (theme swap, DynamicColorBuilder callback, locale change,
+  // etc.) — if one of those fires while this screen is open, the
+  // imperative call runs AFTER AnnotatedRegion already set its style for
+  // this frame and wins until this screen's own AnnotatedRegion happens
+  // to rebuild again, so the status bar can flash back to a solid/visible
+  // bar for a frame or more. Setting it imperatively here too — on open,
+  // and again on every dependency change — makes this screen's style win
+  // regardless of what main.dart does in the background, so it never
+  // shows a bar over the edge-to-edge artwork. Restored to whatever the
+  // app-level style should be on dispose so Home isn't left with the
+  // player's forced style after closing.
+  static const SystemUiOverlayStyle _immersiveStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+    systemStatusBarContrastEnforced: false,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
+    systemNavigationBarContrastEnforced: false,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setSystemUIOverlayStyle(_immersiveStyle);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-assert every time this screen's dependencies change (theme,
+    // locale, etc. all trigger this) so any imperative call main.dart
+    // made in between gets immediately overwritten again while this
+    // screen is still the one on screen.
+    SystemChrome.setSystemUIOverlayStyle(_immersiveStyle);
+  }
+
+  @override
+  void dispose() {
+    // Let main.dart's own Consumer2 recompute and reapply the correct
+    // app-level style for whatever screen is now on top (it runs on the
+    // very next build after this pops, so this doesn't need to guess the
+    // right theme-aware value itself).
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
+    super.dispose();
+  }
+
   void _handleDragUpdate(DragUpdateDetails d) {
     if (d.delta.dy <= 0 && _dragY == 0) return; // ignore upward drag start
     setState(() {
@@ -366,19 +417,34 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                             height: artHeight,
                             child: Hero(
                               tag: 'aurum_art_${song.id}',
-                              child: song.artworkUrl.isNotEmpty
-                                  ? CachedNetworkImage(
-                                      // Upgrades the list-sized artworkUrl
-                                      // to a sharper version for this
-                                      // full-width edge-to-edge hero image
-                                      // — see AurumArtwork.upgradeForFullPlayer.
-                                      imageUrl: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                                      fit: BoxFit.cover,
-                                      fadeInDuration: const Duration(milliseconds: 220),
-                                      errorWidget: (_, __, ___) =>
-                                          Container(color: AurumTheme.bgElevatedOf(context)),
-                                    )
-                                  : Container(color: AurumTheme.bgElevatedOf(context)),
+                              // FIX ("offline songs pe thumbnail load hi
+                              // nahi ho raha, online pe kabhi-kabhi"):
+                              // this used to call CachedNetworkImage
+                              // directly on song.artworkUrl (upgraded to
+                              // HD). CachedNetworkImage only understands
+                              // http(s) URLs — for an offline/downloaded
+                              // song artworkUrl is a content:// MediaStore
+                              // URI or a local file path, so it silently
+                              // failed every time (no fallback, straight
+                              // to the flat errorWidget). For online songs
+                              // it also had no retry: a slow connection or
+                              // a genuinely-missing HD tier just failed
+                              // once with no lower-quality fallback.
+                              // AurumArtwork already solves both — it
+                              // branches on content://, local file, and
+                              // network URL, and its network branch
+                              // (_RetryableNetworkImage) retries a failed
+                              // HD tier against a smaller guaranteed-to-
+                              // exist size instead of giving up. Passing
+                              // the HD-upgraded URL through it here gets
+                              // "try HD first" AND "gracefully degrade
+                              // instead of blank" for every song type.
+                              child: AurumArtwork(
+                                url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
+                                size: double.infinity,
+                                borderRadius: 0,
+                                fadeIn: true,
+                              ),
                             ),
                           ),
 
@@ -1256,11 +1322,16 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                     opacity: 0.35,
                     child: ImageFiltered(
                       imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
-                      child: CachedNetworkImage(
-                        imageUrl: widget.song.artworkUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
+                      // FIX: same offline-artwork gap as the main hero
+                      // artwork above — raw CachedNetworkImage can't read
+                      // content:// / local-file artworkUrl, so this went
+                      // blank for offline songs. AurumArtwork handles all
+                      // three source types with the right fallback.
+                      child: AurumArtwork(
+                        url: widget.song.artworkUrl,
+                        size: double.infinity,
+                        borderRadius: 0,
+                        isBlurredBackground: true,
                       ),
                     ),
                   ),
@@ -1290,18 +1361,14 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                                   tag: 'aurum_art_${widget.song.id}',
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(10),
-                                    child: widget.song.artworkUrl.isNotEmpty
-                                        ? CachedNetworkImage(
-                                            imageUrl: widget.song.artworkUrl,
-                                            width: 52,
-                                            height: 52,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Container(
-                                            width: 52,
-                                            height: 52,
-                                            color: AurumTheme.bgElevatedOf(context),
-                                          ),
+                                    // FIX: same offline-artwork gap — swapped
+                                    // to AurumArtwork so this thumbnail loads
+                                    // for local/content:// songs too.
+                                    child: AurumArtwork(
+                                      url: widget.song.artworkUrl,
+                                      size: 52,
+                                      borderRadius: 10,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 14),
@@ -1441,14 +1508,13 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: song.artworkUrl.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: song.artworkUrl,
-                              width: 64,
-                              height: 64,
-                              fit: BoxFit.cover,
-                            )
-                          : Container(width: 64, height: 64, color: AurumTheme.bgElevatedOf(context)),
+                      // FIX: same offline-artwork gap — AurumArtwork
+                      // handles content://, local file, and network URL.
+                      child: AurumArtwork(
+                        url: song.artworkUrl,
+                        size: 64,
+                        borderRadius: 12,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -1550,11 +1616,32 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                               // song by identity on every iteration instead
                               // of trusting a snapshot index avoids that
                               // entirely.
+                              // FIX (recheck): the previous version read
+                              // `player.queue.length`/`player.queue[i]`
+                              // fresh on every iteration while also
+                              // `await`-ing removeFromQueue() inside the
+                              // loop. If removeFromQueue() reassigns the
+                              // provider's queue to a new list (immutable
+                              // update, not an in-place mutation), the
+                              // loop's own `i` no longer lines up with the
+                              // just-shrunk live list on the next
+                              // iteration — same class of index-drift bug
+                              // as the one already fixed above for a
+                              // captured `data.current`, just reintroduced
+                              // one layer deeper. Snapshotting the queue
+                              // ONCE up front and walking that fixed
+                              // snapshot by identity avoids re-deriving
+                              // indices against a list that's changing out
+                              // from under the loop.
                               final player = context.read<PlayerProvider>();
                               final playingSong = player.currentSong;
-                              for (var i = player.queue.length - 1; i >= 0; i--) {
-                                if (!identical(player.queue[i], playingSong)) {
-                                  await player.removeFromQueue(i);
+                              final snapshot = List.of(player.queue);
+                              for (var i = snapshot.length - 1; i >= 0; i--) {
+                                if (identical(snapshot[i], playingSong)) continue;
+                                final liveIndex = player.queue
+                                    .indexWhere((s) => identical(s, snapshot[i]));
+                                if (liveIndex != -1) {
+                                  await player.removeFromQueue(liveIndex);
                                 }
                               }
                             },
@@ -1658,6 +1745,59 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       buildDefaultDragHandles: false,
                       itemCount: queue.length,
+                      // FIX ("ekdam YouTube level chahiye, drag mein koi
+                      // feedback nahi tha"): with no proxyDecorator, Flutter's
+                      // default reorder renders the dragged row completely
+                      // flat — same shadow, same scale, same color as every
+                      // static row. YouTube's Up Next visibly lifts the row
+                      // being dragged (soft shadow + slight scale-up) so your
+                      // eye never loses track of which item is moving,
+                      // especially once it's being carried past several other
+                      // rows during a fast drag.
+                      //
+                      // FIX (low-end perf): first pass used Material's
+                      // `elevation`, which on Android goes through
+                      // PhysicalModel — a real physical shadow layer that
+                      // Skia recomputes every single frame the drag is
+                      // active, plus a shape clip on top of that. Fine on a
+                      // flagship, but exactly the kind of per-frame GPU cost
+                      // that makes a drag feel janky on a low-end phone —
+                      // and a drag can run for several seconds if the user
+                      // carries a row a long way down the list, so the cost
+                      // isn't a one-off. Replaced with a plain
+                      // BoxDecoration + BoxShadow, which is a cheap paint-time
+                      // blur with no physical layer/clip — same soft-lift
+                      // look, a fraction of the per-frame cost. animation is
+                      // Flutter's own 0→1 lift progress for this row (t),
+                      // driven by the same reorder gesture — no extra
+                      // AnimationController needed either way.
+                      proxyDecorator: (child, index, animation) {
+                        return AnimatedBuilder(
+                          animation: animation,
+                          builder: (context, _) {
+                            final t = Curves.easeOut.transform(animation.value);
+                            return Transform.scale(
+                              scale: 1.0 + (0.03 * t),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: t == 0
+                                      ? const []
+                                      : [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.35 * t),
+                                            blurRadius: 16 * t,
+                                            offset: Offset(0, 6 * t),
+                                          ),
+                                        ],
+                                ),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: child,
+                        );
+                      },
                       onReorder: (oldIndex, newIndex) {
                         if (_reorderLocked) return;
                         AurumHaptics.light();
@@ -1695,14 +1835,13 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
-                                child: s.artworkUrl.isNotEmpty
-                                    ? CachedNetworkImage(
-                                        imageUrl: s.artworkUrl,
-                                        width: 52,
-                                        height: 52,
-                                        fit: BoxFit.cover,
-                                      )
-                                    : Container(width: 52, height: 52, color: AurumTheme.bgElevatedOf(context)),
+                                // FIX: same offline-artwork gap — AurumArtwork
+                                // handles content://, local file, and network URL.
+                                child: AurumArtwork(
+                                  url: s.artworkUrl,
+                                  size: 52,
+                                  borderRadius: 10,
+                                ),
                               ),
                               const SizedBox(width: 14),
                               Expanded(

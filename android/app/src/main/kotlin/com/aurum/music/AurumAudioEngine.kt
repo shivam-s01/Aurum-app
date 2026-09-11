@@ -458,9 +458,21 @@ class AurumAudioEngine(
                     eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                     audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig,
                 ) {
-                    android.util.Log.i("AurumAudioEngine", "[offload-check] AudioTrack init — offload=${audioTrackConfig.offload} " +
-                        "encoding=${audioTrackConfig.encoding} sampleRate=${audioTrackConfig.sampleRate} " +
-                        "channelConfig=${audioTrackConfig.channelConfig}")
+                    // FIX (recheck — "lightweight/low-end" pass): this used
+                    // to call android.util.Log.i(...) unconditionally, on
+                    // EVERY track init, in every build including release —
+                    // unlike _log() below (already gated on BuildConfig.DEBUG),
+                    // this one shipped to production and ran once per song
+                    // for the lifetime of the app. Small per-call cost, but
+                    // it's a real, avoidable release-build cost on exactly
+                    // the low-end devices this file otherwise goes out of
+                    // its way to protect (see isLowRamDevice/batterySaverActive
+                    // usage elsewhere). Gated the same way _log() already is.
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.i("AurumAudioEngine", "[offload-check] AudioTrack init — offload=${audioTrackConfig.offload} " +
+                            "encoding=${audioTrackConfig.encoding} sampleRate=${audioTrackConfig.sampleRate} " +
+                            "channelConfig=${audioTrackConfig.channelConfig}")
+                    }
                     AurumDiagnosticLog.logOffload(
                         audioTrackConfig.offload,
                         audioTrackConfig.encoding,
@@ -2421,7 +2433,23 @@ class AurumAudioEngine(
         mutable.add(to, song)
         queueSongs = mutable
         if (from < liveMediaIds.size) player.moveMediaItem(from, to)
-        if (currentIndex == from) currentIndex = to
+        // FIX: only the "dragged song IS the current song" case was handled
+        // (currentIndex == from -> to). Dragging a song across the current
+        // one without touching it directly — e.g. moving something from
+        // above the current song to below it, or vice versa — shifted
+        // queueSongs but left currentIndex stale, silently desyncing it
+        // from the song actually playing. ensureNextResolved() and other
+        // index-based lookups (queueSongs[currentIndex + 1]) would then
+        // buffer/report the wrong song after such a drag. Mirrors the same
+        // three-case fix already applied on the Dart side in
+        // PlayerProvider.moveQueueItem.
+        if (from == currentIndex) {
+            currentIndex = to
+        } else if (from < currentIndex && to >= currentIndex) {
+            currentIndex--
+        } else if (from > currentIndex && to <= currentIndex) {
+            currentIndex++
+        }
         onQueueChanged?.invoke()
         pushState()
     }
