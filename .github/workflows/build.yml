@@ -9,16 +9,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # needed so the auto-translate step can commit + push newly generated app_xx.arb files back to the branch
+      contents: write  # needed so the "Create Release" step can publish the built APK as a GitHub release
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Default GITHUB_TOKEN checkout is read-only for pushes back to
-          # the branch; persist-credentials keeps the token wired up so
-          # the later "git push" from the auto-translate step works
-          # without needing a separate PAT secret.
+          # persist-credentials/fetch-depth kept as-is — harmless even
+          # though this job no longer pushes commits of its own.
           persist-credentials: true
           fetch-depth: 0
 
@@ -46,32 +44,6 @@ jobs:
 
       - name: Get dependencies
         run: flutter pub get
-
-      - name: Auto-translate missing languages
-        # Adding a language is now a one-file change: add a Locale('xx')
-        # entry (+ name/flag) to lib/config/languages.dart and push.
-        # This step diffs that list against the .arb files already in
-        # lib/l10n/, and for anything missing, machine-translates
-        # app_en.arb into a new app_xx.arb before the build compiles the
-        # localization sources. Existing .arb files are never touched or
-        # overwritten — only genuinely missing languages are generated.
-        # See .github/scripts/auto_translate.py for full details.
-        run: python3 .github/scripts/auto_translate.py
-
-      - name: Commit auto-generated translations back to the branch
-        # So the generated .arb files land in git (not just in this
-        # run's ephemeral build), and the next build for an unchanged
-        # language list has nothing left to translate.
-        run: |
-          if [ -n "$(git status --porcelain lib/l10n/)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add lib/l10n/app_*.arb
-            git commit -m "chore: auto-generate translations for new language(s) [skip ci]"
-            git push
-          else
-            echo "No new translation files to commit."
-          fi
 
       - name: Analyze (safety gate — stops here on real errors)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
