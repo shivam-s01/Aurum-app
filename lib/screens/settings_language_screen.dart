@@ -28,6 +28,23 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
   // full-app rebuild right behind the first.
   String? _switchingTo;
 
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text.trim().toLowerCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _select(Locale? locale) async {
     if (_switchingTo != null) return; // already mid-switch, ignore
     AurumHaptics.selection();
@@ -48,11 +65,31 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
     setState(() => _switchingTo = null);
   }
 
+  bool _matchesQuery(String nativeName, String? englishName, String code) {
+    if (_query.isEmpty) return true;
+    if (nativeName.toLowerCase().contains(_query)) return true;
+    if (englishName != null && englishName.toLowerCase().contains(_query)) return true;
+    if (code.toLowerCase().contains(_query)) return true;
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final localeProvider = context.watch<LocaleProvider>();
     final currentCode = localeProvider.locale?.languageCode;
+
+    // "System default" only makes sense while browsing the full list —
+    // once someone's actively searching for a specific language, a row
+    // that isn't actually a language just adds noise above the results.
+    final showSystemDefault = _query.isEmpty;
+
+    final matches = kSupportedLocales.where((locale) {
+      final code = locale.languageCode;
+      final native = kLocaleDisplayNames[code] ?? code;
+      final english = kLocaleEnglishNames[code];
+      return _matchesQuery(native, english, code);
+    }).toList();
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
@@ -92,44 +129,162 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
               ),
             ),
           ),
-          AurumStaggerItem(
-            index: 0,
-            child: Container(
-            decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-            ),
-            child: Column(
-              children: [
-                _LanguageRow(
+          // Search field — pointless friction for a 4-item list, genuinely
+          // useful once there are 16+ languages in unfamiliar scripts;
+          // this is the same reason Spotify/Apple Music both put a search
+          // bar at the top of their language pickers instead of asking
+          // someone to scroll and visually scan for their script.
+          _LanguageSearchField(controller: _searchController),
+          const SizedBox(height: 16),
+          if (showSystemDefault) ...[
+            AurumStaggerItem(
+              index: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AurumTheme.bgCardOf(context),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+                ),
+                child: _LanguageRow(
+                  flag: null,
+                  fallbackIcon: Icons.smartphone_rounded,
                   label: l10n.settingsLanguageSystemDefault,
+                  sublabel: null,
                   selected: currentCode == null,
                   loading: _switchingTo == 'system',
                   enabled: _switchingTo == null,
                   onTap: () => _select(null),
                 ),
-                Divider(color: AurumTheme.dividerOf(context), height: 0.5, indent: 14, endIndent: 14),
-                ...List.generate(kSupportedLocales.length, (i) {
-                  final locale = kSupportedLocales[i];
-                  final isLast = i == kSupportedLocales.length - 1;
-                  return Column(
-                    children: [
-                      _LanguageRow(
-                        label: kLocaleDisplayNames[locale.languageCode] ?? locale.languageCode,
-                        selected: currentCode == locale.languageCode,
-                        loading: _switchingTo == locale.languageCode,
-                        enabled: _switchingTo == null,
-                        onTap: () => _select(locale),
-                      ),
-                      if (!isLast)
-                        Divider(color: AurumTheme.dividerOf(context), height: 0.5, indent: 14, endIndent: 14),
-                    ],
-                  );
-                }),
-              ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (matches.isEmpty)
+            _NoResults(query: _searchController.text.trim())
+          else
+            AurumStaggerItem(
+              index: showSystemDefault ? 1 : 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AurumTheme.bgCardOf(context),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+                ),
+                child: Column(
+                  children: List.generate(matches.length, (i) {
+                    final locale = matches[i];
+                    final code = locale.languageCode;
+                    final isLast = i == matches.length - 1;
+                    return Column(
+                      children: [
+                        _LanguageRow(
+                          flag: kLocaleFlags[code],
+                          fallbackIcon: Icons.translate_rounded,
+                          label: kLocaleDisplayNames[code] ?? code,
+                          sublabel: kLocaleEnglishNames[code],
+                          selected: currentCode == code,
+                          loading: _switchingTo == code,
+                          enabled: _switchingTo == null,
+                          onTap: () => _select(locale),
+                        ),
+                        if (!isLast)
+                          Divider(
+                              color: AurumTheme.dividerOf(context),
+                              height: 0.5,
+                              indent: 68,
+                              endIndent: 14),
+                      ],
+                    );
+                  }),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Rounded search field matching the app's other search surfaces — flat
+/// fill, hairline border, leading search glyph, and a clear (×) button
+/// that only appears once there's text to clear.
+class _LanguageSearchField extends StatelessWidget {
+  const _LanguageSearchField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 14),
+          Icon(Icons.search_rounded, color: AurumTheme.textMutedOf(context), size: 19),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14.5),
+              cursorColor: AurumTheme.accentOf(context),
+              decoration: InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: l10n.commonSearch,
+                hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14.5),
+              ),
             ),
           ),
+          AnimatedSwitcher(
+            duration: AurumMotion.durationOrZero(AurumMotion.short2),
+            transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+            child: controller.text.isEmpty
+                ? const SizedBox(key: ValueKey('empty'), width: 14)
+                : Padding(
+                    key: const ValueKey('clear'),
+                    padding: const EdgeInsets.only(right: 8),
+                    child: AurumPressable(
+                      onTap: () {
+                        AurumHaptics.light();
+                        controller.clear();
+                      },
+                      scaleAmount: 0.85,
+                      child: Icon(Icons.close_rounded,
+                          color: AurumTheme.textMutedOf(context), size: 18),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoResults extends StatelessWidget {
+  const _NoResults({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: [
+          Icon(Icons.travel_explore_rounded,
+              color: AurumTheme.textMutedOf(context).withValues(alpha: 0.5), size: 32),
+          const SizedBox(height: 12),
+          Text(
+            l10n.searchNoResultsFor(query),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13.5),
           ),
         ],
       ),
@@ -139,14 +294,23 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
 
 class _LanguageRow extends StatelessWidget {
   const _LanguageRow({
+    required this.flag,
+    required this.fallbackIcon,
     required this.label,
+    required this.sublabel,
     required this.selected,
     required this.onTap,
     this.loading = false,
     this.enabled = true,
   });
 
+  /// Real flag emoji (e.g. "🇮🇳") shown as the leading glyph. Null for
+  /// the "System default" row, which has no single flag to represent it
+  /// and instead falls back to [fallbackIcon].
+  final String? flag;
+  final IconData fallbackIcon;
   final String label;
+  final String? sublabel;
   final bool selected;
   final VoidCallback onTap;
   final bool loading;
@@ -157,21 +321,57 @@ class _LanguageRow extends StatelessWidget {
     return AurumPressable(
       onTap: enabled ? onTap : () {},
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
+            // Flag chip — a soft rounded square behind the emoji so every
+            // row has a consistent leading footprint (flags come in
+            // different natural aspect ratios; the container normalizes
+            // that the same way Spotify/Apple Music badge their language
+            // rows with a fixed-size leading glyph slot).
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AurumTheme.dividerOf(context).withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: flag != null
+                  ? Text(flag!, style: const TextStyle(fontSize: 18, height: 1.1))
+                  : Icon(fallbackIcon, size: 17, color: AurumTheme.textMutedOf(context)),
+            ),
+            const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: enabled
-                      ? AurumTheme.textPrimaryOf(context)
-                      : AurumTheme.textMutedOf(context),
-                  fontSize: 15,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: enabled
+                          ? AurumTheme.textPrimaryOf(context)
+                          : AurumTheme.textMutedOf(context),
+                      fontSize: 15,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                  if (sublabel != null) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      sublabel!,
+                      style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
+            const SizedBox(width: 8),
             AnimatedSwitcher(
               duration: AurumMotion.durationOrZero(AurumMotion.short2),
               transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
