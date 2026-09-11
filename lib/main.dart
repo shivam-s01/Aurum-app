@@ -69,6 +69,7 @@ import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
 import 'screens/app_lock_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'utils/aurum_transitions.dart';
 import 'utils/aurum_haptics.dart';
 import 'utils/aurum_motion.dart';
@@ -642,7 +643,7 @@ class AurumApp extends StatelessWidget {
             // plays, exactly once, exactly like Echo.
             home: _BlurShaderWarmup(
               child: AppLockScreen(
-                child: const MainShell(),
+                child: const _OnboardingGate(child: MainShell()),
               ),
             ),
             ); // closes MaterialApp
@@ -654,6 +655,61 @@ class AurumApp extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// _OnboardingGate
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Shows OnboardingScreen exactly once — on a device's genuine first launch
+// — then remembers 'onboarding_complete' in SharedPreferences forever after,
+// so every subsequent app open (including background-resume) goes straight
+// to `child` (MainShell) with zero extra delay or flicker.
+//
+// Reads the flag itself (rather than requiring main() to await it before
+// runApp()) so it never blocks the cold-start path documented above main()
+// — the flag check is a single fast SharedPreferences read that resolves
+// in the same frame or two it takes AppLockScreen above it to do the same.
+class _OnboardingGate extends StatefulWidget {
+  final Widget child;
+  const _OnboardingGate({required this.child});
+
+  @override
+  State<_OnboardingGate> createState() => _OnboardingGateState();
+}
+
+class _OnboardingGateState extends State<_OnboardingGate> {
+  bool? _done; // null = still checking, true/false = resolved
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    bool done = true; // fail-open: never trap a real user on an error
+    try {
+      final p = await SharedPreferences.getInstance();
+      done = p.getBool('onboarding_complete') ?? false;
+    } catch (_) {}
+    if (mounted) setState(() => _done = done);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done == null) {
+      // Same flat themed background as every other loading gap in the
+      // app (see AurumArtwork's placeholder doc comment) — never a
+      // white/blank frame while the SharedPreferences read resolves.
+      return Scaffold(backgroundColor: AurumTheme.bgOf(context));
+    }
+    if (_done == false) {
+      return OnboardingScreen(
+        onDone: () => setState(() => _done = true),
+      );
+    }
+    return widget.child;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _SplashOnEveryEntry

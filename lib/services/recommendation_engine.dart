@@ -450,6 +450,37 @@ class RecommendationEngine {
     _saveAll();
   }
 
+  /// Called once, right after the first-launch onboarding genre picker.
+  /// Gives every genre the user tapped a strong upfront boost so the very
+  /// first Home feed already leans toward their picks instead of starting
+  /// from a cold, all-neutral 0.5 baseline and only catching up after
+  /// several real plays. Genre keys match [SessionGenre]'s enum names
+  /// (e.g. "bollywood", "punjabi", "hiphop", "english", "lofi",
+  /// "devotional", "bhojpuri") — the same strings [detectGenre] already
+  /// returns elsewhere, so these blend seamlessly with organically-earned
+  /// weights as real listening data comes in.
+  static Future<void> applyOnboardingGenrePreferences(List<String> genres) async {
+    if (!_loaded) await load();
+    for (final g in genres) {
+      _boostGenre(g, delta: 0.35);
+    }
+    _saveAll();
+  }
+
+  /// Called once, right after the first-launch onboarding artist picker.
+  /// Same upfront-boost reasoning as [applyOnboardingGenrePreferences], but
+  /// for individual artist names (normalized the same way [_boostArtist]
+  /// already normalizes every organically-earned artist boost elsewhere,
+  /// so onboarding picks and real plays accumulate into the exact same
+  /// weight entries rather than silently diverging on casing/whitespace).
+  static Future<void> applyOnboardingArtistPreferences(List<String> artists) async {
+    if (!_loaded) await load();
+    for (final a in artists) {
+      _boostArtist(a, delta: 0.35);
+    }
+    _saveAll();
+  }
+
   // ---------------------------------------------------------------------------
   // SECTION 5: AFFINITY WEIGHT HELPERS
   // ---------------------------------------------------------------------------

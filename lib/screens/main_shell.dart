@@ -300,10 +300,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       if (!audio.isGranted) await Permission.storage.request();
     } catch (_) {}
 
+    // Battery-optimization-ignore system popup removed on request — never
+    // show it, at launch or anywhere else.
     if (!mounted) return;
-    try {
-      await Permission.ignoreBatteryOptimizations.request();
-    } catch (_) {}
 
     // OEM autostart/background-allow dialog (realme/OPPO/MIUI/Vivo/etc).
     // Battery-optimization exemption alone isn't enough on these skins —
