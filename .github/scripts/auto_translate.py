@@ -69,8 +69,8 @@ GOOGLE_CODE_OVERRIDES = {
     "zh": "zh-CN",
 }
 
-REQUEST_DELAY_SECONDS = 0.4
-MAX_RETRIES = 4
+REQUEST_DELAY_SECONDS = 2.0
+MAX_RETRIES = 3
 
 # A single CI run translating EVERY missing language at once (dozens of
 # languages x ~700 strings each) would take hours and risk hitting the
@@ -80,7 +80,25 @@ MAX_RETRIES = 4
 # batch — so kSupportedLocales can jump from 16 to 90 in one edit, and
 # the .arb files simply fill in over a few builds without anyone having
 # to babysit it or split the list themselves.
-MAX_LOCALES_PER_RUN = 8
+MAX_LOCALES_PER_RUN = 3
+
+# How many source strings get bundled into a single translate request.
+# The free endpoint has both a per-minute rate limit AND (separately) a
+# max request size — sending all ~700 strings as one request trips the
+# size limit, while sending each string as its own request (the
+# original approach) sends ~700 requests per language and reliably
+# triggers "429 Too Many Requests" well before a language finishes.
+# Batching ~40 strings per request cuts each language down to roughly
+# 18 requests, which comfortably avoids both limits in practice.
+STRINGS_PER_REQUEST = 40
+
+# A separator unlikely to ever appear inside a real UI string, used to
+# join multiple strings into one translate request and split the
+# translated result back apart afterward. Google's translator preserves
+# line breaks in "dt=t" responses, so newline-joining round-trips
+# reliably as long as no individual string itself contains a newline
+# (Aurum's .arb strings don't).
+BATCH_SEPARATOR = "\n"
 
 
 def extract_locale_codes(dart_source: str):
@@ -194,10 +212,11 @@ def restore_placeholders(translated: str, chunks):
 
 def google_translate_text(text: str, target: str) -> str:
     """
-    Calls the free translate.google.com client endpoint. Returns the
-    translated string, or the original text unchanged if every retry
-    fails (never raises — a failed string should not abort the whole
-    build; worst case that one string stays in English).
+    Calls the free translate.google.com client endpoint for a SINGLE
+    string. Used as a fallback for strings that can't safely go through
+    the batch path (e.g. a batch response came back with a different
+    number of lines than went in, so we re-translate that batch's
+    strings one at a time to recover safely).
     """
     if not text.strip():
         return text
@@ -214,45 +233,132 @@ def google_translate_text(text: str, target: str) -> str:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=20) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                # data[0] is a list of [translated_chunk, original_chunk, ...]
                 return "".join(seg[0] for seg in data[0] if seg[0])
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as e:
-            wait = attempt * 1.5
-            print(f"    retry {attempt}/{MAX_RETRIES} for target={target} after error: {e} (waiting {wait}s)")
+            wait = attempt * 3
+            print(f"      single-string retry {attempt}/{MAX_RETRIES} for target={target} after error: {e} (waiting {wait}s)")
             time.sleep(wait)
     print(f"    WARNING: giving up on one string for target={target}; leaving it in English")
     return text
 
 
+def google_translate_batch(texts, target: str):
+    """
+    Translates a LIST of already-placeholder-protected strings in one
+    request by joining them with BATCH_SEPARATOR, translating the whole
+    block, and splitting the result back apart on the same separator.
+    This is what keeps a language's total request count low (~18
+    requests instead of ~700), which is what actually avoids the free
+    endpoint's rate limit — per-request delay alone can't fix that if
+    the request *count* itself is what trips the limit.
+
+    Falls back to translating each string in the batch individually if
+    the batched response doesn't split back into exactly len(texts)
+    lines (rare, but can happen if the translator collapses or adds a
+    line break somewhere) — safer than risking misaligned translations.
+    """
+    non_empty_indices = [i for i, t in enumerate(texts) if t.strip()]
+    if not non_empty_indices:
+        return list(texts)
+
+    joined = BATCH_SEPARATOR.join(texts[i] for i in non_empty_indices)
+    params = {
+        "client": "gtx",
+        "sl": "en",
+        "tl": target,
+        "dt": "t",
+        "q": joined,
+    }
+    url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(params)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                translated_joined = "".join(seg[0] for seg in data[0] if seg[0])
+                parts = translated_joined.split(BATCH_SEPARATOR)
+                if len(parts) == len(non_empty_indices):
+                    result = list(texts)
+                    for idx, part in zip(non_empty_indices, parts):
+                        result[idx] = part
+                    return result
+                # Line count mismatch — fall through to per-string retry
+                # for just this batch rather than trusting a misaligned
+                # split (which would silently scramble translations).
+                print(f"    batch line-count mismatch for target={target} "
+                      f"(sent {len(non_empty_indices)}, got {len(parts)}) — "
+                      f"falling back to per-string translation for this batch")
+                break
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as e:
+            wait = attempt * 3
+            print(f"    batch retry {attempt}/{MAX_RETRIES} for target={target} after error: {e} (waiting {wait}s)")
+            time.sleep(wait)
+    else:
+        print(f"    WARNING: batch failed entirely for target={target}; falling back to per-string translation")
+
+    # Fallback path: translate this batch's strings one at a time.
+    result = list(texts)
+    for i in non_empty_indices:
+        result[i] = google_translate_text(texts[i], target)
+        time.sleep(REQUEST_DELAY_SECONDS)
+    return result
+
+
 def translate_value(key: str, value: str, target: str) -> str:
-    # @@locale and metadata keys are handled by the caller, never here.
+    """Single-string path — kept for the batch-fallback case only."""
     protected, chunks = protect_placeholders(value)
     translated = google_translate_text(protected, target)
-    restored = restore_placeholders(translated, chunks)
-    time.sleep(REQUEST_DELAY_SECONDS)
-    return restored
+    return restore_placeholders(translated, chunks)
 
 
 def build_arb_for_locale(template: dict, code: str) -> dict:
     google_target = GOOGLE_CODE_OVERRIDES.get(code, code)
     out = {"@@locale": code}
-    total = sum(1 for k in template if not k.startswith("@") and k != "@@locale")
-    done = 0
+
+    # Split the template into translatable entries vs. metadata (which
+    # is copied through untouched) first, so we know up front exactly
+    # which keys need a network round-trip.
+    translatable_keys = []
+    translatable_values = []
     for key, value in template.items():
         if key == "@@locale":
             continue
         if key.startswith("@"):
-            # Metadata blocks (descriptions, placeholder type info) are
-            # dev-facing only and never shown in the UI — copy as-is,
-            # no need to translate or even touch them.
             out[key] = value
             continue
-        out[key] = translate_value(key, value, google_target)
-        done += 1
-        if done % 50 == 0 or done == total:
-            print(f"    [{code}] {done}/{total} strings translated")
+        translatable_keys.append(key)
+        translatable_values.append(value)
+
+    total = len(translatable_keys)
+    print(f"    [{code}] {total} strings to translate, in batches of {STRINGS_PER_REQUEST} "
+          f"(~{-(-total // STRINGS_PER_REQUEST)} requests)")
+
+    # Protect placeholders in every string up front so the batched
+    # request only ever contains plain prose — same protection as
+    # before, just applied to the whole batch at once.
+    protected_values = []
+    all_chunks = []
+    for value in translatable_values:
+        protected, chunks = protect_placeholders(value)
+        protected_values.append(protected)
+        all_chunks.append(chunks)
+
+    done = 0
+    for batch_start in range(0, total, STRINGS_PER_REQUEST):
+        batch_end = min(batch_start + STRINGS_PER_REQUEST, total)
+        batch_texts = protected_values[batch_start:batch_end]
+        translated_batch = google_translate_batch(batch_texts, google_target)
+        for offset, translated in enumerate(translated_batch):
+            i = batch_start + offset
+            restored = restore_placeholders(translated, all_chunks[i])
+            out[translatable_keys[i]] = restored
+        done = batch_end
+        print(f"    [{code}] {done}/{total} strings translated")
+        time.sleep(REQUEST_DELAY_SECONDS)
+
     return out
 
 
