@@ -1200,40 +1200,47 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
     // so it will fire even if something later in this same build() throws
     // — telling us definitively whether build() is even being *entered*
     // for this tab, and with what raw data, before whatever breaks.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!context.mounted) return;
-      String rawInfo;
-      try {
-        rawInfo = 'raw=${followedProvider.followed.length} '
-            'isLoading=${followedProvider.isLoading}';
-      } catch (e) {
-        rawInfo = 'ERROR reading followed.length: $e';
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text('ArtistsTab build() entered — $rawInfo'),
-        ),
-      );
-    });
+    // RECHECK FIX: this diagnostic previously fired unconditionally in
+    // EVERY build (release included) — now gated behind kDebugMode so a
+    // production install never shows debug SnackBars to real users.
+    if (kDebugMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        String rawInfo;
+        try {
+          rawInfo = 'raw=${followedProvider.followed.length} '
+              'isLoading=${followedProvider.isLoading}';
+        } catch (e) {
+          rawInfo = 'ERROR reading followed.length: $e';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 10),
+            content: Text('ArtistsTab build() entered — $rawInfo'),
+          ),
+        );
+      });
+    }
     if (followedProvider.isLoading) {
       // DEBUG VISIBILITY (temporary, NOT gated behind kDebugMode this
       // time — the previous kDebugMode-only SnackBar never fired on a
       // release build, which is exactly the build this is being tested
       // on, so it told us nothing). Shows unconditionally so we can see
       // the real state on the actual installed build.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            duration: Duration(seconds: 8),
-            content: Text(
-              'ArtistsTab: STUCK in isLoading=true branch — '
-              'Hive box never finished opening for this provider instance.',
+      if (kDebugMode) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              duration: Duration(seconds: 8),
+              content: Text(
+                'ArtistsTab: STUCK in isLoading=true branch — '
+                'Hive box never finished opening for this provider instance.',
+              ),
             ),
-          ),
-        );
-      });
+          );
+        });
+      }
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -1278,16 +1285,35 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
     }).toList();
     final ordered = _newestFirst ? base : base.reversed.toList();
     final top = ordered.isNotEmpty ? ordered.first : null;
-    // DEBUG VISIBILITY (temporary — "artist follow ho raha hai lekin
-    // Library > Artists tab mein nahi dikh raha", still unconfirmed after
-    // the redesign): the old debugPrint below only reaches logcat, which
-    // isn't reachable on this device — converting the same info into an
-    // on-screen SnackBar so the real raw counts are visible without any
-    // tooling. Shows the RAW Hive count (before the dedupe/validation
-    // filter above) next to the FILTERED count — if raw > 0 but filtered
-    // == 0, the filter itself is wrongly rejecting valid entries; if raw
-    // == 0, the write from ArtistScreen never reached this same provider
-    // instance/box at all. Remove once the real cause is confirmed.
+    // DEBUG VISIBILITY (temporary, ungated): previous round confirmed
+    // raw=45/isLoading=false but the screen still renders nothing at
+    // all — no hero card, no rows, no "No artists saved yet" empty
+    // state either. That last part is the key clue: if `ordered` were
+    // genuinely empty, the SliverFillRemaining empty-state branch further
+    // down would have painted something. Seeing literally nothing means
+    // either `ordered` isn't actually empty (so we're in the SliverList
+    // branch) and something inside _TopArtistAndCountRow/_AurumArtistRow
+    // is throwing during build/layout/paint — which a release build shows
+    // as nothing at all instead of a red error screen — or somehow
+    // `ordered` IS empty despite raw=45, meaning every single entry is
+    // failing the id.isEmpty/name.isEmpty filter above. This SnackBar
+    // shows the FILTERED count (ordered.length) next to the raw count
+    // already shown at the top of build(), which tells us definitively
+    // which of those two it is.
+    if (kDebugMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 10),
+            content: Text(
+              'ArtistsTab: raw=${followedProvider.followed.length} '
+              'filtered(ordered)=${ordered.length} top=${top?['name']}',
+            ),
+          ),
+        );
+      });
+    }
     if (kDebugMode) {
       debugPrint('[ArtistsTab] rebuild â€” isLoading=${followedProvider.isLoading} '
           'followed.length=${base.length} names=${base.map((m) => m['name']).toList()}');
@@ -1314,10 +1340,40 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-              child: _TopArtistAndCountRow(
-                top: top,
-                totalCount: ordered.length,
-              ),
+              // FIX (release build: entire Artists tab renders as a
+              // completely blank Scaffold — no hero card, no list, no
+              // empty state — despite raw=45/filtered>0 confirmed via the
+              // diagnostics above): a SliverToBoxAdapter's child throwing
+              // during build doesn't just fail that one sliver — it can
+              // take down the whole CustomScrollView's layout pass,
+              // since Sliver layout is a single coordinated protocol
+              // across all slivers in the list. That matches this exact
+              // symptom far better than a plain list-item crash would
+              // (which should still let the AppBar/tab-chip row above it
+              // paint normally). Wrapping the builder in try/catch turns
+              // a crash here into a visible error card instead of an
+              // invisible one that silently blanks everything below it.
+              child: Builder(builder: (context) {
+                try {
+                  return _TopArtistAndCountRow(
+                    top: top,
+                    totalCount: ordered.length,
+                  );
+                } catch (e) {
+                  return Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(
+                      'Hero card error: $e',
+                      style: const TextStyle(
+                          color: Colors.redAccent, fontSize: 11),
+                    ),
+                  );
+                }
+              }),
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 18)),
@@ -1370,10 +1426,42 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
-                (context, i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _AurumArtistRow(artist: ordered[i]),
-                ),
+                (context, i) {
+                  // FIX (release build renders a totally blank Artists
+                  // tab despite raw=45/filtered>0 confirmed via the
+                  // diagnostics above): a build()-time exception thrown
+                  // by any single row (e.g. a malformed imageUrl value
+                  // reaching AurumArtwork/ClipOval in a way debug mode
+                  // tolerates but release mode's stripped error handling
+                  // does not) takes down this entire SliverList's layout
+                  // pass with no visible error — release builds have no
+                  // red screen, so the whole list just renders nothing.
+                  // Isolating each row's build in its own try/catch means
+                  // one bad entry degrades to a single error placeholder
+                  // row instead of hiding every followed artist.
+                  try {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _AurumArtistRow(artist: ordered[i]),
+                    );
+                  } catch (e) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Text(
+                          'Row error for "${ordered[i]['name']}": $e',
+                          style: const TextStyle(
+                              color: Colors.redAccent, fontSize: 11),
+                        ),
+                      ),
+                    );
+                  }
+                },
                 childCount: ordered.length,
               ),
             ),

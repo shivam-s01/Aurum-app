@@ -212,13 +212,21 @@ class AurumAudioEngine(
     private val streamCacheInitialized: Boolean
         get() = _streamCache != null
 
+    // RECHECK FIX: this used to be a non-nullable `SimpleCache` getter, so
+    // the ONLY way to survive a construction failure was to hand back some
+    // other SimpleCache — meaning a fallback dir that was ALSO locked (rare,
+    // but real: e.g. two engines falling back around the same moment) had
+    // nowhere left to go except throw, crashing the app exactly like the
+    // original bug. Nullable return lets a total failure mean "no on-disk
+    // cache this session" instead of "crash" — createCacheDataSourceFactory()
+    // below already handles a null cache by streaming straight from the
+    // network with no caching layer, so playback itself never breaks even
+    // in that worst case.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private val streamCache: SimpleCache
+    private val streamCache: SimpleCache?
         get() = _streamCache ?: synchronized(this) {
             _streamCache ?: run {
-                val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
                 val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
-                val databaseProvider = StandaloneDatabaseProvider(context)
                 // SAFETY NET (crash log: "IllegalStateException: Another
                 // SimpleCache instance uses the folder"): the real fix is
                 // release() below now actually releasing streamCache, so
@@ -234,11 +242,29 @@ class AurumAudioEngine(
                 // sharing the main cache's previously-downloaded bytes for
                 // this one session) rather than the app crashing outright.
                 try {
-                    SimpleCache(cacheDir, evictor, databaseProvider).also { _streamCache = it }
+                    val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
+                    SimpleCache(cacheDir, evictor, StandaloneDatabaseProvider(context))
+                        .also { _streamCache = it }
                 } catch (e: IllegalStateException) {
-                    val fallbackDir = java.io.File(context.cacheDir, "aurum_stream_cache_fallback")
-                    val fallbackDb = StandaloneDatabaseProvider(context)
-                    SimpleCache(fallbackDir, evictor, fallbackDb).also { _streamCache = it }
+                    try {
+                        // Unique per attempt (timestamp + identity suffix)
+                        // instead of one fixed fallback name, so a second
+                        // engine falling back at the same time can't collide
+                        // with THIS one either.
+                        val fallbackDir = java.io.File(
+                            context.cacheDir,
+                            "aurum_stream_cache_fallback_" +
+                                "${System.currentTimeMillis()}_${System.identityHashCode(this)}"
+                        )
+                        SimpleCache(fallbackDir, evictor, StandaloneDatabaseProvider(context))
+                            .also { _streamCache = it }
+                    } catch (e2: Exception) {
+                        // Both attempts failed — genuinely unrecoverable disk
+                        // issue. Return null: caller streams without a local
+                        // cache instead of the whole engine construction
+                        // crashing the app.
+                        null
+                    }
                 }
             }
         }
@@ -318,10 +344,18 @@ class AurumAudioEngine(
 
     // Wraps the upstream factory with the disk cache. Every read first
     // checks streamCache; only genuinely missing bytes hit the network.
+    // RECHECK FIX: streamCache is now nullable (see its getter's comment) —
+    // if it's null (both primary AND fallback construction genuinely
+    // failed), fall back to the plain upstream factory with no caching
+    // layer at all rather than crashing on a non-null `.setCache()` call.
+    // Playback still works either way; only the disk-cache speedup is lost.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun createCacheDataSourceFactory() = CacheDataSource.Factory()
-        .setCache(streamCache)
-        .setUpstreamDataSourceFactory(createUpstreamFactory())
+    private fun createCacheDataSourceFactory(): androidx.media3.datasource.DataSource.Factory {
+        val cache = streamCache ?: return createUpstreamFactory()
+        return CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(createUpstreamFactory())
+    }
 
     private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
 
@@ -3087,7 +3121,11 @@ class AurumAudioEngine(
         // playback never started.
         if (streamCacheInitialized) {
             try {
-                streamCache.release()
+                // RECHECK FIX: streamCache is nullable now — `?.` avoids a
+                // compile error and is also a safe no-op in the (already
+                // rare) case _streamCache somehow ended up null despite the
+                // initialized flag.
+                streamCache?.release()
             } catch (e: Exception) {
                 // Best-effort — a failure here should never prevent the
                 // rest of teardown/app close from completing.
