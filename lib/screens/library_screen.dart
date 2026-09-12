@@ -1222,9 +1222,32 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
     }).toList();
     final ordered = _newestFirst ? base : base.reversed.toList();
     final top = ordered.isNotEmpty ? ordered.first : null;
+    // DEBUG VISIBILITY (temporary — "artist follow ho raha hai lekin
+    // Library > Artists tab mein nahi dikh raha", still unconfirmed after
+    // the redesign): the old debugPrint below only reaches logcat, which
+    // isn't reachable on this device — converting the same info into an
+    // on-screen SnackBar so the real raw counts are visible without any
+    // tooling. Shows the RAW Hive count (before the dedupe/validation
+    // filter above) next to the FILTERED count — if raw > 0 but filtered
+    // == 0, the filter itself is wrongly rejecting valid entries; if raw
+    // == 0, the write from ArtistScreen never reached this same provider
+    // instance/box at all. Remove once the real cause is confirmed.
     if (kDebugMode) {
       debugPrint('[ArtistsTab] rebuild â€” isLoading=${followedProvider.isLoading} '
           'followed.length=${base.length} names=${base.map((m) => m['name']).toList()}');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        final raw = followedProvider.followed;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(
+              'ArtistsTab: raw=${raw.length} filtered=${base.length}\n'
+              'raw ids: ${raw.map((m) => "${m['id']}/${m['name']}").toList()}',
+            ),
+          ),
+        );
+      });
     }
 
     return CustomScrollView(

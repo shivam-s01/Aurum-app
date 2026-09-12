@@ -4108,42 +4108,36 @@ class ApiService {
   }
 
   /// Best-quality thumbnail URL out of a card/row's `thumbnail` field.
-  ///
-  /// BUG FIX ("album/song thumbnails missing on artist page + inside
-  /// albums" — root cause): this used to read ONLY
-  /// renderer['thumbnail']['musicThumbnailRenderer']['thumbnail']
-  /// ['thumbnails'], modeled on a musicResponsiveListItemRenderer (song
-  /// row) shape. But musicTwoRowItemRenderer — the card type used for
-  /// EVERY album/single/playlist tile (artist page Albums/Singles shelf,
-  /// album's own "More by artist"/"Other versions" shelves, search album
-  /// cards) — commonly wraps its thumbnail in
-  /// ['thumbnail']['croppedSquareThumbnailRenderer']['thumbnail']
-  /// ['thumbnails'] instead (verified against ytmusicapi's own
-  /// navigation.py constants: THUMBNAIL_RENDERER uses musicThumbnailRenderer
-  /// for song/artist rows, THUMBNAIL_CROPPED uses
-  /// croppedSquareThumbnailRenderer for album/playlist-style cards). The
-  /// old fixed path silently returned '' for every card using the cropped
-  /// wrapper — which is exactly the album-card and (via the header-stamp
-  /// this feeds) in-album song thumbnails going missing, despite
-  /// _fetchYtAlbumSongsWithArtwork's OWN header-thumbnail read already
-  /// correctly trying both wrappers. Rather than hard-code a second fixed
-  /// path (InnerTube has shown at least 3 different wrapper names across
-  /// this codebase's own call sites: musicThumbnailRenderer,
-  /// croppedSquareThumbnailRenderer, and thumbnailRenderer), this now
-  /// walks the ENTIRE `thumbnail` subtree (via [_findThumbnailsList]) for
-  /// a `thumbnails` list under ANY key — the same shape-agnostic approach
-  /// _findRenderers already uses elsewhere in this file for renderer
-  /// lookups — so a future InnerTube wrapper-name change can't silently
-  /// zero out artwork here again.
+  /// Tries musicThumbnailRenderer (song/artist rows) then
+  /// croppedSquareThumbnailRenderer (album/single/playlist cards) — see
+  /// the revert note inside the function for why this checks exactly
+  /// these two keys instead of a generic recursive search.
   static String _ytmThumbnailUrl(Map<String, dynamic>? renderer) {
+    // FIX (2026-09-12, "thumbnail wapas nahi aa raha, pehle aata tha" —
+    // regression from the generic recursive version below): that version
+    // walked the ENTIRE `thumbnail` subtree for a `thumbnails` list under
+    // ANY key, with no way to tell which match is the actual cover art
+    // when a card's thumbnail subtree nests more than one thumbnails-
+    // shaped list (which happens in practice) — Map key iteration order
+    // then decided which one won, so it could silently return the wrong
+    // or an empty list instead of the real artwork. That's what broke
+    // previously-working thumbnails.
+    //
+    // Correct fix: check the two wrapper keys InnerTube actually uses,
+    // in an explicit, deterministic order — matching ytmusicapi's own
+    // navigation.py constants (THUMBNAIL_RENDERER = musicThumbnailRenderer
+    // for song/artist rows; THUMBNAIL_CROPPED = croppedSquareThumbnailRenderer
+    // for the musicTwoRowItemRenderer album/single/playlist cards this is
+    // most often called on) — no ambiguity, no silent wrong match.
     if (renderer == null) return '';
     final thumbField = renderer['thumbnail'];
     if (thumbField is! Map) return '';
-    // NOTE: can't reuse _findRenderers directly here — it matches Map
-    // values by key, but 'thumbnails' holds a List, not a Map. Same
-    // recursive, shape-agnostic intent, just for a List-valued key.
-    final thumbs = _findThumbnailsList(thumbField);
-    if (thumbs == null || thumbs.isEmpty) return '';
+    final thumbs = (thumbField['musicThumbnailRenderer']?['thumbnail']
+                ?['thumbnails'] as List?) ??
+        (thumbField['croppedSquareThumbnailRenderer']?['thumbnail']
+                ?['thumbnails'] as List?) ??
+        const [];
+    if (thumbs.isEmpty) return '';
     final best = thumbs.last;
     final rawUrl = (best is Map ? (best['url'] ?? '') : '').toString();
     if (rawUrl.isEmpty) return '';
@@ -4151,28 +4145,6 @@ class ApiService {
     // so artist avatars/artwork stay sharp on larger UI (artist header,
     // full player, etc.) instead of visibly upscaled thumbnails.
     return rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
-  }
-
-  /// Recursively finds the first non-empty `thumbnails` List anywhere
-  /// under [node] — used by [_ytmThumbnailUrl] to stay agnostic to which
-  /// wrapper key (musicThumbnailRenderer, croppedSquareThumbnailRenderer,
-  /// or any future InnerTube variant) sits between the card and its
-  /// actual thumbnails array.
-  static List? _findThumbnailsList(dynamic node) {
-    if (node is Map) {
-      final direct = node['thumbnails'];
-      if (direct is List && direct.isNotEmpty) return direct;
-      for (final value in node.values) {
-        final found = _findThumbnailsList(value);
-        if (found != null) return found;
-      }
-    } else if (node is List) {
-      for (final value in node) {
-        final found = _findThumbnailsList(value);
-        if (found != null) return found;
-      }
-    }
-    return null;
   }
 
   static String _flexColumnText(Map<String, dynamic> item, int index) {
@@ -7262,13 +7234,28 @@ class ApiService {
       final resolved = <({String channelId, String name})>[];
       for (final json in searchResponses) {
         if (json == null) continue;
+        // BUGFIX ("36 seeds -> resolved=5" — home artist row nearly
+        // empty): this used to check `resolved.isNotEmpty` (the list
+        // accumulated across ALL seeds so far) to decide when to stop
+        // scanning THIS seed's items. Once the very first seed resolved
+        // successfully, that condition was permanently true for every
+        // remaining seed — so from the second seed onward, the outer loop
+        // broke after just ONE item regardless of whether that item's
+        // artist was already seen/duplicate (continue'd without adding).
+        // A seed whose first song happened to share an artist already
+        // resolved by an earlier seed (very common — same singer across
+        // many seed songs) contributed nothing at all, even though its
+        // later items may have had a brand-new artist. Track success
+        // per-seed instead.
+        var foundForThisSeed = false;
         for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
           for (final run in _artistRunsInSubtitle(item)) {
             if (!seen.add(run.channelId)) continue;
             resolved.add((channelId: run.channelId, name: _cleanText(run.name)));
+            foundForThisSeed = true;
             break; // one artist per seed's first song result is enough
           }
-          if (resolved.isNotEmpty && resolved.last.channelId.isNotEmpty) break;
+          if (foundForThisSeed) break;
         }
         if (resolved.length >= limit) break;
       }
@@ -7349,13 +7336,22 @@ class ApiService {
       final resolved = <({String channelId, String name})>[];
       for (final json in searchResponses) {
         if (json == null) continue;
+        // BUGFIX ("36 seeds -> resolved=5" — home artist row nearly
+        // empty): same root cause as the sibling seed-resolver above —
+        // `resolved.isNotEmpty` was checked globally instead of per-seed,
+        // so once any earlier seed resolved successfully, every later
+        // seed's scan broke after its first item even when that item's
+        // artist was a duplicate that got `continue`'d without being
+        // added. Track success per-seed instead.
+        var foundForThisSeed = false;
         for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
           for (final run in _artistRunsInSubtitle(item)) {
             if (!seen.add(run.channelId)) continue;
             resolved.add((channelId: run.channelId, name: _cleanText(run.name)));
+            foundForThisSeed = true;
             break; // one artist per seed's first song result is enough
           }
-          if (resolved.isNotEmpty && resolved.last.channelId.isNotEmpty) break;
+          if (foundForThisSeed) break;
         }
         if (resolved.length >= limit) break;
       }
