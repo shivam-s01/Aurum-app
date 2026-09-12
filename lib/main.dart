@@ -43,6 +43,7 @@ import 'package:provider/provider.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/diagnostic_log_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/native_engine_bridge.dart';
 import 'services/notification_service.dart';
@@ -97,6 +98,63 @@ final RouteObserver<ModalRoute<void>> aurumRouteObserver =
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // GLOBAL CRASH-VISIBILITY FIX ("Library > Artists tab totally blank in
+  // release build, no error, no empty state — despite per-widget try/catch
+  // guards added in library_screen.dart"): those guards only wrapped the
+  // WIDGET CONSTRUCTOR call site (e.g. `return _TopArtistAndCountRow(...)`),
+  // not that widget's own build() method — Flutter calls a widget's build()
+  // separately, later, as part of normal element-tree building, which is
+  // OUTSIDE any try/catch wrapped around the constructor call. So if the
+  // actual exception happens inside _TopArtistAndCountRow.build() (or
+  // _AurumArtistRow.build(), or any nested child's build()), those local
+  // guards never catch it — and Flutter's default release-mode ErrorWidget
+  // renders as a bare grey box with NO text (error details are stripped in
+  // release/profile builds by default), which inside a Sliver can easily
+  // end up looking like literally nothing at all.
+  //
+  // Overriding ErrorWidget.builder here catches ANY widget's build()
+  // exception ANYWHERE in the app — regardless of nesting depth — and
+  // renders the actual exception text, in every build mode including
+  // release. This is what finally surfaces the real crash reason instead
+  // of a silent blank screen.
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      color: const Color(0xFF7A0000),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Text(
+            details.exceptionAsString(),
+            style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+        ),
+      ),
+    );
+  };
+
+  // SECOND SAFETY NET: ErrorWidget.builder above only fires for exceptions
+  // thrown during a widget's build() call. Two other classes of crash can
+  // STILL produce a silent blank screen in a release build without it:
+  //   1. Exceptions during LAYOUT/PAINT (a RenderObject computing size —
+  //      Flutter reports these via FlutterError.onError, not ErrorWidget).
+  //   2. Uncaught async errors (inside a Future/microtask, e.g. a
+  //      notifyListeners() callback or an addPostFrameCallback body).
+  // Both are captured here and written into the SAME on-device diagnostic
+  // log file already used for native crashes/ANRs (Settings > Diagnostic
+  // Logs already knows how to read/share this file — no adb needed). This
+  // is the fallback for the rare case a crash isn't a plain build()
+  // exception: if the screen is ever blank with no red box, this log will
+  // still have the real reason.
+  final previousOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    DiagnosticLogService.logNetworkError(
+      'flutter_error',
+      details.exceptionAsString(),
+    );
+    previousOnError?.call(details);
+  };
 
   // THE fix for "background playback/notification unreliable on Android
   // 13+": AndroidManifest.xml already declares POST_NOTIFICATIONS, but
@@ -258,6 +316,13 @@ Future<void> main() async {
   } catch (_) {}
   }, (error, stack) {
     debugPrint('[Aurum] Uncaught error: $error\n$stack');
+    // Same on-device log as the ErrorWidget/FlutterError.onError hooks
+    // above — an uncaught async error (Future/microtask, e.g. inside a
+    // notifyListeners listener or a bare `..init()` cascade) never reaches
+    // either of those, so debugPrint alone would be invisible on a release
+    // APK with no adb attached. This guarantees it's still recoverable via
+    // Settings > Diagnostic Logs.
+    DiagnosticLogService.logNetworkError('uncaught_zone_error', '$error');
   });
 }
 
