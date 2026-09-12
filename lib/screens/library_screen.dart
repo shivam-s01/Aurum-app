@@ -1185,11 +1185,44 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   @override
   Widget build(BuildContext context) {
     final followedProvider = context.watch<FollowedArtistsProvider>();
+    // DEBUG VISIBILITY (temporary — "Artists tab blank despite totalSaved>0
+    // confirmed via the follow-toggle SnackBar"): if this tab renders as a
+    // silent black void with no error and no "No artists saved yet" text,
+    // the leading theory is isLoading stuck true (this early-return path
+    // is JUST a thin ~2px AurumM3Loader bar centered on an otherwise empty
+    // black screen — visually indistinguishable from "nothing rendered"
+    // at a glance). This makes that state impossible to mistake for a
+    // silent failure. Remove once confirmed either way.
     if (followedProvider.isLoading) {
-      return const Center(
+      if (kDebugMode) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              duration: Duration(seconds: 6),
+              content: Text(
+                'ArtistsTab: STUCK in isLoading=true branch — '
+                'Hive box never finished opening for this provider instance.',
+              ),
+            ),
+          );
+        });
+      }
+      return Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 48),
-          child: AurumM3Loader(),
+          padding: const EdgeInsets.symmetric(horizontal: 48),
+          child: kDebugMode
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Loading artists…',
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context))),
+                    const SizedBox(height: 12),
+                    const AurumM3Loader(),
+                  ],
+                )
+              : const AurumM3Loader(),
         ),
       );
     }

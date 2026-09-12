@@ -203,12 +203,45 @@ class AurumAudioEngine(
     // cache would.
     // ─────────────────────────────────────────────────────────────────
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private val streamCache: SimpleCache by lazy {
-        val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
-        val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
-        val databaseProvider = StandaloneDatabaseProvider(context)
-        SimpleCache(cacheDir, evictor, databaseProvider)
-    }
+    private var _streamCache: SimpleCache? = null
+
+    // Tracks whether streamCache has actually been touched this session —
+    // see release()'s matching comment for why release() needs this
+    // instead of just reading `streamCache` directly (that would
+    // force-initialize a cache that was never used, on every teardown).
+    private val streamCacheInitialized: Boolean
+        get() = _streamCache != null
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val streamCache: SimpleCache
+        get() = _streamCache ?: synchronized(this) {
+            _streamCache ?: run {
+                val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
+                val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
+                val databaseProvider = StandaloneDatabaseProvider(context)
+                // SAFETY NET (crash log: "IllegalStateException: Another
+                // SimpleCache instance uses the folder"): the real fix is
+                // release() below now actually releasing streamCache, so
+                // this lock should never still be held by the time a new
+                // AurumAudioEngine is constructed in the same process. But
+                // if some future code path ever creates a second engine
+                // without going through release() first, this construction
+                // throwing used to bring down the entire app before
+                // playback could even start. Falling back to a fresh
+                // SimpleCache is impossible while the old one is genuinely
+                // still alive, so retry against a throwaway per-attempt
+                // subfolder instead — playback still works (just without
+                // sharing the main cache's previously-downloaded bytes for
+                // this one session) rather than the app crashing outright.
+                try {
+                    SimpleCache(cacheDir, evictor, databaseProvider).also { _streamCache = it }
+                } catch (e: IllegalStateException) {
+                    val fallbackDir = java.io.File(context.cacheDir, "aurum_stream_cache_fallback")
+                    val fallbackDb = StandaloneDatabaseProvider(context)
+                    SimpleCache(fallbackDir, evictor, fallbackDb).also { _streamCache = it }
+                }
+            }
+        }
 
     // Live network throughput estimate, fed by every ExoPlayer HTTP
     // transfer via .setTransferListener() below. Used by Smart Saver
@@ -3032,5 +3065,33 @@ class AurumAudioEngine(
         _outputManager?.release()
         _castManager?.release()
         player.release()
+        // FIX (crash log: "IllegalStateException: Another SimpleCache
+        // instance uses the folder: .../aurum_stream_cache"): streamCache
+        // holds an on-disk lock (a .lock file inside its cache dir) for as
+        // long as the SimpleCache object is alive — release() never called
+        // it, so that lock outlived this entire AurumAudioEngine instance.
+        // Next time MainActivity.configureFlutterEngine ran (app reopened
+        // after being backgrounded/killed, or a fast re-attach during
+        // Activity recreation) a brand-new AurumAudioEngine's streamCache
+        // tried to open the SAME folder — Media3 refuses a second
+        // SimpleCache on one folder while the first's lock is still held,
+        // so construction throws immediately and crashes before the
+        // engine (and the whole Flutter engine attach) can finish.
+        //
+        // Only release if playback actually happened this session
+        // (streamCacheInitialized flag — set the first time streamCache is
+        // touched, see the getter override below) — otherwise reading
+        // `streamCache` here would force-initialize (then immediately
+        // tear down) a cache that was never used, wasting disk I/O on
+        // every single release() call including normal ones where
+        // playback never started.
+        if (streamCacheInitialized) {
+            try {
+                streamCache.release()
+            } catch (e: Exception) {
+                // Best-effort — a failure here should never prevent the
+                // rest of teardown/app close from completing.
+            }
+        }
     }
 }

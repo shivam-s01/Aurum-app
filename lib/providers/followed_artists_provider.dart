@@ -44,8 +44,61 @@ class FollowedArtistsProvider extends ChangeNotifier {
 
   Future<void> init() async {
     if (_boxReady.isCompleted) return;
-    _box = await Hive.openBox<Map>(_boxName);
-    _boxReady.complete(_box);
+    // FIX ("Library > Artists tab permanently blank, no error, follow
+    // itself confirmed working via debug SnackBar"): this used to be a
+    // bare `await Hive.openBox<Map>(...)` with no try/catch, called as
+    // an un-awaited `..init()` cascade from main.dart's ChangeNotifierProvider
+    // create callback. If openBox ever throws for ANY reason — a box file
+    // corrupted by a crash mid-write, a disk-full write error, a stale
+    // box left in an incompatible on-disk format by a previous app
+    // version — that exception had nowhere to go: it wasn't caught here,
+    // and nothing downstream awaits init() either, so it vanished into an
+    // unhandled Future error. _isLoading stayed true forever, which
+    // permanently stuck _AurumArtistsTab in its "loading" early-return —
+    // just a thin ~2px AurumM3Loader bar on an otherwise black screen,
+    // indistinguishable at a glance from nothing having rendered at all.
+    // Meanwhile toggleFollow() awaits _boxReady.future for its actual
+    // write, so a follow tap while in this state would also hang
+    // silently rather than ever completing.
+    //
+    // The safe self-heal: if opening the box fails, delete whatever's on
+    // disk under this name and try exactly once more with a fresh box.
+    // A single corrupted local cache of "which artists you followed" is
+    // safe to lose and rebuild empty (SyncService re-populates it from
+    // the cloud on next pull) — that's a far better outcome than the
+    // entire tab being permanently unusable until a manual app
+    // reinstall.
+    try {
+      _box = await Hive.openBox<Map>(_boxName);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[FollowedArtists] openBox failed, deleting and '
+            'retrying once: $e');
+      }
+      try {
+        await Hive.deleteBoxFromDisk(_boxName);
+        _box = await Hive.openBox<Map>(_boxName);
+      } catch (e2) {
+        // Still failing — give up gracefully rather than hang forever.
+        // isLoading flips to false with an empty/null box so the UI at
+        // least shows "No artists saved yet" instead of staying stuck.
+        if (kDebugMode) {
+          debugPrint('[FollowedArtists] retry also failed: $e2');
+        }
+      }
+    }
+    // _box may still be null here if both attempts above failed (e.g.
+    // disk genuinely unwritable) — every read in this class already
+    // null-safely falls back to empty/false in that case (see
+    // `followed`/`isFollowing` above), so the app stays usable, just
+    // without persistence, rather than crashing or hanging.
+    if (!_boxReady.isCompleted) {
+      if (_box != null) {
+        _boxReady.complete(_box);
+      } else {
+        _boxReady.completeError('FollowedArtistsProvider box unavailable');
+      }
+    }
     _isLoading = false;
     notifyListeners();
   }
@@ -76,7 +129,15 @@ class FollowedArtistsProvider extends ChangeNotifier {
     // Artists tab also now filters out any such entries defensively).
     final key = artistId.trim();
     if (key.isEmpty) return;
-    final box = _box ?? await _boxReady.future;
+    // If the box genuinely never opened (both attempts in init() failed),
+    // _boxReady.future rejects — treat that as a no-op save instead of
+    // letting the error surface as an unhandled exception on a button tap.
+    Box<Map>? box;
+    try {
+      box = _box ?? await _boxReady.future;
+    } catch (_) {
+      return;
+    }
     if (box.containsKey(key)) {
       await box.delete(key);
       if (kDebugMode) {
@@ -116,7 +177,12 @@ class FollowedArtistsProvider extends ChangeNotifier {
     final key = artistId.trim();
     if (key.isEmpty) return;
     if (isFollowing(key)) return;
-    final box = _box ?? await _boxReady.future;
+    Box<Map>? box;
+    try {
+      box = _box ?? await _boxReady.future;
+    } catch (_) {
+      return;
+    }
     await box.put(key, {
       'id': key,
       'name': name,
@@ -127,7 +193,12 @@ class FollowedArtistsProvider extends ChangeNotifier {
 
   /// Wipes all followed artists — local only, called on sign-out.
   Future<void> clearAll() async {
-    final box = _box ?? await _boxReady.future;
+    Box<Map>? box;
+    try {
+      box = _box ?? await _boxReady.future;
+    } catch (_) {
+      return;
+    }
     await box.clear();
     notifyListeners();
   }
