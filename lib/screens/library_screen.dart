@@ -254,7 +254,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildTabBody(BuildContext context) {
     switch (_tab) {
       case _LibTab.library:
-        return const _AurumLibraryOverviewTab();
+        // FIX (self-recheck — "See all" under "Your Artists" used to push
+        // a WHOLE SECOND LibraryScreen via Navigator, but this screen has
+        // no back button/AppBar and no MiniPlayerSlot (see the big FIX
+        // comment on this State's own build() above — LibraryScreen is
+        // documented as ALWAYS the root tab, never pushed). Pushing it
+        // stranded the user on a screen with no visible way back and no
+        // mini player. Passing a callback that just flips this SAME
+        // State's own _tab is the correct fix — no navigation at all,
+        // since Artists is already one of this screen's own tabs.
+        return _AurumLibraryOverviewTab(
+          onSeeAllArtists: () => setState(() => _tab = _LibTab.artists),
+        );
       case _LibTab.playlists:
         return const _AurumPlaylistsTab();
       case _LibTab.songs:
@@ -803,8 +814,13 @@ class _AurumSongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFav = context.watch<FavoritesProvider>().isFavorite(song.id);
+    // FIX (same class of bug already fixed in _AurumArtistRow below —
+    // hardcoded Colors.white instead of a theme-aware surface color made
+    // rows unreadable on dark/AMOLED theme, where the row's own text is
+    // also light. Proactively fixing here too since it's the exact same
+    // pattern, not yet separately reported for Songs).
     return Material(
-      color: Colors.white.withOpacity(0.55),
+      color: AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -1578,8 +1594,20 @@ class _AurumArtistRow extends StatelessWidget {
     final name = (artist['name'] ?? '').toString();
     final imageUrl = (artist['imageUrl'] ?? '').toString();
 
+    // FIX ("artist follow karne pr Library mein show nhi hote" — root
+    // cause): this row's background was hardcoded `Colors.white.withOpacity(0.55)`
+    // instead of a theme-aware surface color. On Aurum's default dark/AMOLED
+    // theme the row text/icons (AurumTheme.textPrimaryOf, accentOf) are also
+    // light, so a near-opaque WHITE pill behind light text made every
+    // followed-artist row unreadable/near-invisible — it looked like nothing
+    // rendered, even though the provider/data layer was already saving and
+    // returning entries correctly (confirmed by the raw/filtered debug
+    // counts elsewhere in this tab). Every other row/card in this screen
+    // (playlist rows, hero cards, etc.) already uses AurumTheme.bgSurfaceOf/
+    // bgElevatedOf so it adapts to dark/AMOLED/light/dynamic — this was the
+    // one place still hardcoded, almost certainly a stray copy-paste.
     return Material(
-      color: Colors.white.withOpacity(0.55),
+      color: AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -2129,8 +2157,11 @@ class _AurumAlbumRow extends StatelessWidget {
     final artworkUrl = (album['artworkUrl'] ?? '').toString();
     final isMix = album['isMix'] == true;
 
+    // FIX (same class of bug already fixed in _AurumArtistRow — hardcoded
+    // Colors.white instead of a theme-aware surface color made rows
+    // unreadable on dark/AMOLED theme).
     return Material(
-      color: Colors.white.withOpacity(0.55),
+      color: AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -2200,7 +2231,12 @@ class _AurumAlbumRow extends StatelessWidget {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class _AurumLibraryOverviewTab extends StatefulWidget {
-  const _AurumLibraryOverviewTab();
+  // Lets the parent _LibraryScreenState switch its own _tab to Artists —
+  // see the FIX comment on _buildTabBody's _LibTab.library case above for
+  // why this replaced a Navigator.push to a second LibraryScreen.
+  const _AurumLibraryOverviewTab({required this.onSeeAllArtists});
+
+  final VoidCallback onSeeAllArtists;
 
   @override
   State<_AurumLibraryOverviewTab> createState() => _AurumLibraryOverviewTabState();
@@ -2213,6 +2249,11 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
     final downloads = context.watch<DownloadProvider>();
     final recentlyPlayed = context.watch<RecentlyPlayedProvider>();
     final playlists = context.watch<PlaylistProvider>();
+    // FEATURE ("Laibry mai Laibry option ke playlist ke niche artist
+    // section bhe laga do, see all pr sb artist follow page pr le
+    // jaye"): same FollowedArtistsProvider the dedicated Artists tab
+    // already reads from — no new data source, just a preview row here.
+    final followedArtists = context.watch<FollowedArtistsProvider>();
 
     final likedCount = favorites.favorites.length;
     final downloadedCount = downloads.completed.length;
@@ -2222,6 +2263,16 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
         ? 'Your Library'
         : (recent.first.album.isNotEmpty ? recent.first.album : recent.first.title);
     final previewPlaylists = playlists.playlists.take(2).toList();
+    // Same de-dupe/validity filter the Artists tab itself applies to
+    // FollowedArtistsProvider.followed, so this preview row never shows a
+    // malformed/duplicate entry the real tab would have hidden anyway.
+    final seenPreviewArtistIds = <String>{};
+    final previewArtists = followedArtists.followed.where((m) {
+      final aid = (m['id'] ?? '').toString();
+      final aname = (m['name'] ?? '').toString();
+      if (aid.isEmpty || aname.isEmpty) return false;
+      return seenPreviewArtistIds.add(aid);
+    }).take(8).toList();
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -2364,7 +2415,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
           )
         else
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 26),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Padding(
@@ -2375,7 +2426,133 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
               ),
             ),
           ),
+        // FEATURE — "Your Artists" preview section, playlists ke niche.
+        // "See all" calls widget.onSeeAllArtists (passed in from
+        // _LibraryScreenState) which just flips this same screen's own
+        // _tab to Artists — no navigation, since Artists is already one
+        // of this screen's own tabs. Same FollowedArtistsProvider data
+        // the dedicated Artists tab itself reads from.
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                Text(
+                  'Your Artists',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: widget.onSeeAllArtists,
+                  behavior: HitTestBehavior.opaque,
+                  child: Text(
+                    'See all',
+                    style: TextStyle(
+                      color: AurumTheme.accentOf(context),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (previewArtists.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+              child: GestureDetector(
+                onTap: widget.onSeeAllArtists,
+                child: _AurumEmptyState(
+                  icon: Icons.person_rounded,
+                  title: 'No artists saved yet',
+                  subtitle: 'Follow an artist to see them here.',
+                ),
+              ),
+            ),
+          )
+        else
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 110),
+              child: SizedBox(
+                height: 128,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: previewArtists.length,
+                  itemBuilder: (context, i) => Padding(
+                    padding: const EdgeInsets.only(right: 14),
+                    child: _AurumArtistPreviewCard(artist: previewArtists[i]),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
+    );
+  }
+}
+
+// â”€â”€ Compact circular artist card used by the Library-overview "Your
+// Artists" preview row above. Deliberately theme-aware (bgSurfaceOf/
+// textPrimaryOf/accentOf) — the exact hardcoded-white bug fixed in
+// _AurumArtistRow above is the one thing this must NOT repeat. â”€â”€
+class _AurumArtistPreviewCard extends StatelessWidget {
+  final Map<String, dynamic> artist;
+  const _AurumArtistPreviewCard({required this.artist});
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (artist['id'] ?? '').toString();
+    final name = (artist['name'] ?? '').toString();
+    final imageUrl = (artist['imageUrl'] ?? '').toString();
+
+    return SizedBox(
+      width: 84,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            AurumHaptics.selection();
+            AurumDepthRoute.to(context, ArtistScreen(artistId: id, artistName: name));
+          },
+          child: Column(
+            children: [
+              ClipOval(
+                child: imageUrl.isEmpty
+                    ? Container(
+                        width: 72,
+                        height: 72,
+                        color: AurumTheme.bgSurfaceOf(context),
+                        child: Icon(Icons.person_rounded,
+                            color: AurumTheme.accentOf(context), size: 30),
+                      )
+                    : AurumArtwork(url: imageUrl, size: 72, borderRadius: 36),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                name.isEmpty ? 'Unknown' : name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2860,8 +3037,12 @@ class _AurumPlaylistRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX (same class of bug already fixed in _AurumArtistRow — hardcoded
+    // Colors.white instead of a theme-aware surface color made rows
+    // unreadable on dark/AMOLED theme). This is the Library-overview
+    // preview row AND the dedicated Playlists tab row — same class.
     return Material(
-      color: Colors.white.withOpacity(0.55),
+      color: AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),

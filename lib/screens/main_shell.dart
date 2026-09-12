@@ -469,6 +469,27 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // FIX (root cause of "keyboard khulte hi search bar/header/pura tab
+      // host upar tak khisak/squeeze ho jaata hai", found while rechecking
+      // search_screen.dart's own keyboard-padding fix): this OUTER
+      // Scaffold — the one actually holding the bottomNavigationBar
+      // (nav bar + mini player) and the IndexedStack of all three tabs —
+      // was left at Flutter's default resizeToAvoidBottomInset (true).
+      // SearchScreen's OWN inner Scaffold already sets this to false, but
+      // that only stops that inner Scaffold from resizing a SECOND time —
+      // it does nothing about this outer one. Because SearchScreen's
+      // TextField lives inside THIS Scaffold's body (via the IndexedStack),
+      // it was still this outer Scaffold that shrank its `body` to avoid
+      // the keyboard, squeezing the entire tab host — header and search
+      // bar included — from the bottom every time the keyboard opened.
+      // Setting it to false here means neither Scaffold ever resizes for
+      // the keyboard; SearchScreen's own explicit
+      // `viewInsets.bottom` padding on just its results list (see
+      // search_screen.dart) is what actually reserves the right amount of
+      // space now, with header/search bar/background staying completely
+      // fixed regardless of keyboard state — nothing shifts or resizes
+      // anywhere in the tab host.
+      resizeToAvoidBottomInset: false,
       // extendBody: true — lets page content (HomeScreen/SearchScreen/
       // LibraryScreen) scroll underneath the floating nav bar/mini player
       // instead of stopping short and leaving a solid-colored gap behind

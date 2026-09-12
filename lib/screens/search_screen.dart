@@ -983,17 +983,34 @@ class _SearchScreenState extends State<SearchScreen>
           // bar, notch) is still respected as before — only the bottom
           // reservation is turned off.
           bottom: false,
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(
+          // FIX ("keyboard khulte hi search bar/header bhi upar tak
+          // uchal jaata hai, ek pill jaisa upar aata hai"): the keyboard
+          // bottom-inset padding used to wrap this ENTIRE Column
+          // (header + search bar + filter chips + results), not just the
+          // scrollable results area. A Column with a fixed-height parent
+          // and extra bottom padding doesn't grow — it just repositions
+          // everything inside it to fit the shrunken remaining space, so
+          // the header and search bar (which have nothing to do with the
+          // keyboard) got dragged upward by the full keyboard height too.
+          // That upward-shifted search bar, sitting right under the
+          // status bar, is the "pill jaisa upar aa raha hai" being
+          // reported. Only the scrollable results list actually needs
+          // keyboard-height padding (so its last item isn't hidden behind
+          // the keyboard) — header/search bar/filter chips should stay
+          // fixed at the top regardless of keyboard state. Moving the
+          // padding down to wrap only the Expanded results child fixes
+          // this without touching anything else.
+          child: Column(
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
               _buildFilterChips(context),
               Expanded(
-                child:
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom,
+                  ),
+                  child:
                     // FIX (nav bar showed solid/opaque on Search but
                     // transparent on Home): this used to be
                     // `ColoredBox(color: AurumTheme.bgOf(context))`
@@ -1045,9 +1062,9 @@ class _SearchScreenState extends State<SearchScreen>
                         child: _buildBody(context),
                       ),
                     ),
+                ),
               ),
             ],
-          ),
           ),
         ),
       ),
