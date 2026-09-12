@@ -135,4 +135,19 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">apple.com</domain>
     </domain-config>
+
+    <!-- FIX: onboarding's real (IP-based) country detection — replacing
+         the old device-locale-only detection, which was reporting the
+         wrong country (e.g. UK instead of India) because locale reflects
+         the phone's language setting, not its actual network location.
+         Same class of bug as everything else in this file: these two
+         IP-geolocation providers were not whitelisted, so with
+         cleartextTrafficPermitted="false" the request would be silently
+         blocked before detection could even try. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">ipapi.co</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">ipwho.is</domain>
+    </domain-config>
 </network-security-config>

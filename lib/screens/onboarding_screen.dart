@@ -43,6 +43,7 @@
 
 import 'dart:io' show Platform;
 import 'dart:async';
+import 'dart:convert' show jsonDecode;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -129,6 +130,47 @@ const Map<String, List<String>> _kCountryGenrePriority = {
 const List<String> _kDefaultGenrePriority = [
   'bollywood', 'punjabi', 'hiphop', 'english', 'lofi', 'devotional', 'bhojpuri', 'other',
 ];
+
+/// Builds the live-search query fed into ApiService.searchArtists() for
+/// one genre + the onboarding-selected country. This is the fix for
+/// artist picks not actually matching the chosen country/genre: the old
+/// version always used the same generic template ("<genre> <country>
+/// artists"), which is a weak signal for a free-text search backend and
+/// often let globally-popular-but-unrelated artists leak in. This adds
+/// genre-native phrasing per major market (e.g. Bollywood -> "playback
+/// singers", K-Pop -> "idol groups") so the query itself is much more
+/// specific to what the user actually picked.
+String _buildArtistSearchSeed({
+  required String genreSeed,
+  String? countryName,
+}) {
+  // Genre-native descriptor overrides, keyed by genre seed text — only
+  // added where a more specific regional phrase meaningfully narrows the
+  // search versus the generic "<genre> artists" template.
+  const nativePhrase = <String, String>{
+    'bollywood': 'bollywood playback singers',
+    'punjabi': 'punjabi singers',
+    'bhojpuri': 'bhojpuri singers',
+    'devotional bhakti': 'devotional bhajan singers',
+    'j-pop': 'j-pop idols and bands',
+    'japanese r&b': 'japanese r&b artists',
+    'anime songs': 'anime theme song artists',
+    'k-pop': 'k-pop idol groups',
+    'afrobeats': 'afrobeats artists',
+    'latin': 'latin music artists',
+    'country music': 'country music singers',
+  };
+
+  final phrase = nativePhrase[genreSeed] ?? '$genreSeed artists';
+
+  if (countryName == null) return phrase;
+
+  // "top <phrase> from <country>" reads as a much stronger locality
+  // signal to a text-search backend than bolting "<country> artists" on
+  // the end, and avoids the country name being mis-parsed as part of an
+  // artist/song title.
+  return 'top $phrase from $countryName';
+}
 
 /// Returns [_kOnboardingGenres] re-ordered so the country's priority
 /// genres come first (in that priority order), followed by everything
@@ -370,13 +412,16 @@ _Country? _countryByCode(String? code) {
   return null;
 }
 
-/// Detects the user's likely country instantly from the device's system
-/// locale (e.g. "en_IN" -> IN, "ja_JP" -> JP) — NOT GPS/network location,
-/// so this is synchronous-fast (no permission prompt, no network round
-/// trip, resolves in the same frame the screen builds). This is a
-/// best-effort hint only: the user can always override it from the same
-/// searchable country list, since locale doesn't always match where
-/// someone actually is.
+/// Detects the user's likely country from the device's system locale
+/// (e.g. "en_IN" -> IN, "ja_JP" -> JP) — NOT GPS/network location, so
+/// this is synchronous-fast (no permission prompt, no network round
+/// trip). This is now used ONLY as a last-resort fallback (see
+/// _detectCountryReal below) because locale is frequently wrong: a lot
+/// of devices report a generic "en_GB"/"en_US" locale regardless of
+/// where the phone actually is (e.g. "English (UK)" chosen purely as a
+/// language preference, or OEM firmware defaults), which is exactly the
+/// "I'm in India but it shows UK" bug this file used to have when locale
+/// was the ONLY signal.
 _Country? _detectCountryFromLocale() {
   try {
     if (kIsWeb) return null;
@@ -388,6 +433,79 @@ _Country? _detectCountryFromLocale() {
     return _countryByCode(region);
   } catch (_) {
     return null;
+  }
+}
+
+/// REAL country detection — the actual fix for the "I'm in India but it
+/// shows UK" bug. Locale-only detection was the root cause: it reflects
+/// the device's *language* setting, not where the SIM/network/user
+/// actually is, so a phone set to "English (UK)" as a language would
+/// misreport a country on the other side of the planet.
+///
+/// This resolves the real network-visible country the same way
+/// Spotify/YouTube Music do it — via IP geolocation — with a short race
+/// across a couple of free, no-key providers for reliability, and only
+/// falls back to locale if every network attempt fails (e.g. no
+/// internet yet during onboarding). Each provider is capped so a slow/
+/// dead endpoint can never hang the UI — worst case this resolves to
+/// locale (or null, showing the manual list) within ~3.2s.
+Future<_Country?> _detectCountryReal() async {
+  final client = ApiService.httpClient;
+
+  Future<_Country?> viaIpApiCo() async {
+    final res = await client
+        .get(Uri.parse('https://ipapi.co/country/'))
+        .timeout(const Duration(seconds: 3));
+    if (res.statusCode != 200) return null;
+    final code = res.body.trim().toUpperCase();
+    if (code.length != 2) return null;
+    return _countryByCode(code);
+  }
+
+  Future<_Country?> viaIpwhois() async {
+    final res = await client
+        .get(Uri.parse('https://ipwho.is/?fields=success,country_code'))
+        .timeout(const Duration(seconds: 3));
+    if (res.statusCode != 200) return null;
+    final json = jsonDecode(res.body) as Map<String, dynamic>;
+    if (json['success'] != true) return null;
+    final code = (json['country_code'] as String?)?.toUpperCase();
+    return _countryByCode(code);
+  }
+
+  // Race both network sources concurrently and take a majority vote when
+  // they agree, otherwise trust whichever one actually resolved — a
+  // network-IP signal is already far more reliable than locale on its
+  // own. NOTE: a raw-IP-based third source (e.g. Cloudflare's
+  // 1.1.1.1/cdn-cgi/trace) was deliberately left out here — this app's
+  // network_security_config.xml only whitelists traffic by *domain*, and
+  // a bare IP literal can't be expressed as a <domain-config> entry, so
+  // that call would be silently blocked exactly like the Worker/YouTube
+  // domains were before those got added. Two domain-based providers
+  // (both whitelisted below) keep this reliable without hitting that
+  // trap again. This whole race is capped at 3.5s total.
+  final attempts = <Future<_Country?>>[
+    viaIpApiCo().catchError((_) => null),
+    viaIpwhois().catchError((_) => null),
+  ];
+
+  try {
+    final results = await Future.wait(attempts)
+        .timeout(const Duration(milliseconds: 3500), onTimeout: () => const []);
+    final codes = results.whereType<_Country>().map((c) => c.code).toList();
+    if (codes.isEmpty) return _detectCountryFromLocale();
+
+    // Majority vote when both agree; otherwise just trust whichever one
+    // answered since either is already a real network signal.
+    final counts = <String, int>{};
+    for (final c in codes) {
+      counts[c] = (counts[c] ?? 0) + 1;
+    }
+    final winner =
+        counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+    return _countryByCode(winner) ?? _detectCountryFromLocale();
+  } catch (_) {
+    return _detectCountryFromLocale();
   }
 }
 
@@ -410,17 +528,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final Set<String> _selectedArtists = {}; // artist names
 
   bool _detectedAutomatically = false;
+  // True only while the user has explicitly tapped "Auto-Detect" and the
+  // real (network) detection is in flight — drives the scanning/loading-
+  // bar animation on the Country step. Detection no longer runs
+  // automatically on open: the user is shown a choice (Auto-Detect vs.
+  // search manually) first, and nothing fires until they pick one.
+  bool _detecting = false;
+  // True only when the user tapped Auto-Detect and it came back empty
+  // (no network, or every provider failed) — surfaced as a small inline
+  // notice above the manual list instead of silently dropping the user
+  // into search with zero explanation of what just happened.
+  bool _detectionFailed = false;
 
   @override
   void initState() {
     super.initState();
-    // Instant, synchronous, no I/O — safe to run right in initState so
-    // the Country step already shows a detected pick on first frame.
-    final detected = _detectCountryFromLocale();
-    if (detected != null) {
-      _selectedCountry = detected;
-      _detectedAutomatically = true;
-    }
+    // Intentionally NOT calling _runDetection() here anymore — see the
+    // _detecting comment above. The Country step now opens on a neutral
+    // choice screen; detection only starts if/when the user taps
+    // "Auto-Detect" (wired via _CountryStep.onAutoDetect below).
+  }
+
+  Future<void> _runDetection() async {
+    setState(() {
+      _detecting = true;
+      _detectionFailed = false;
+    });
+    // Real, accurate detection: IP-based geolocation (what actually
+    // reflects where the user is), with locale only as a last-resort
+    // fallback if every network attempt fails. This replaces the old
+    // locale-only detection, which is why it used to show "UK" for
+    // someone in India — locale reflects the phone's language setting,
+    // not its actual location.
+    final detected = await _detectCountryReal();
+    if (!mounted) return;
+    setState(() {
+      _detecting = false;
+      if (detected != null) {
+        _selectedCountry = detected;
+        _detectedAutomatically = true;
+      } else {
+        _detectionFailed = true;
+      }
+    });
   }
 
   void _goToStep(int step) {
@@ -471,9 +621,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 key: const ValueKey('country'),
                 selected: _selectedCountry,
                 autoDetected: _detectedAutomatically && _selectedCountry != null,
+                detecting: _detecting,
+                detectionFailed: _detectionFailed,
+                onAutoDetect: _runDetection,
                 onSelect: (c) => setState(() {
                   _selectedCountry = c;
                   _detectedAutomatically = false;
+                  _detecting = false;
+                  _detectionFailed = false;
                 }),
                 onNext: () => _goToStep(1),
               ),
@@ -511,6 +666,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 class _CountryStep extends StatefulWidget {
   final _Country? selected;
   final bool autoDetected;
+  final bool detecting;
+  final bool detectionFailed;
+  final VoidCallback onAutoDetect;
   final ValueChanged<_Country> onSelect;
   final VoidCallback onNext;
 
@@ -518,6 +676,9 @@ class _CountryStep extends StatefulWidget {
     super.key,
     required this.selected,
     required this.autoDetected,
+    required this.detecting,
+    required this.detectionFailed,
+    required this.onAutoDetect,
     required this.onSelect,
     required this.onNext,
   });
@@ -534,7 +695,7 @@ class _CountryStepState extends State<_CountryStep> {
   void didUpdateWidget(covariant _CountryStep oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Once the user has picked manually, keep the list open.
-    if (!widget.autoDetected) _showManualList = true;
+    if (!widget.autoDetected && !widget.detecting) _showManualList = true;
   }
 
   @override
@@ -547,6 +708,14 @@ class _CountryStepState extends State<_CountryStep> {
             .toList();
 
     final showDetectedBanner = widget.autoDetected && widget.selected != null && !_showManualList;
+    final showScanning = widget.detecting && !_showManualList;
+    // FIX ("no country pre-selected on open, give a real choice"):
+    // detection no longer auto-fires on open, so by default nothing has
+    // happened yet — neither a detected country nor a manual search.
+    // That neutral state now shows the two-option choice screen
+    // (Auto-Detect vs. search manually) instead of jumping straight into
+    // either flow.
+    final showChoice = !showScanning && !showDetectedBanner && !_showManualList;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
@@ -575,7 +744,21 @@ class _CountryStepState extends State<_CountryStep> {
             ),
           ),
           const SizedBox(height: 20),
-          if (showDetectedBanner) ...[
+          if (showChoice) ...[
+            Expanded(
+              child: _CountryChoiceView(
+                accent: accent,
+                onAutoDetect: widget.onAutoDetect,
+                onSearchManually: () => setState(() => _showManualList = true),
+              ),
+            ),
+          ] else if (showScanning) ...[
+            _ScanningLocationCard(
+              accent: accent,
+              onChooseManually: () => setState(() => _showManualList = true),
+            ),
+            const Spacer(),
+          ] else if (showDetectedBanner) ...[
             _DetectedCountryCard(
               country: widget.selected!,
               accent: accent,
@@ -583,6 +766,35 @@ class _CountryStepState extends State<_CountryStep> {
             ),
             const Spacer(),
           ] else ...[
+            if (widget.detectionFailed) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: AurumTheme.bgCardOf(context),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AurumTheme.dividerOf(context)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        size: 18, color: AurumTheme.textMutedOf(context)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Couldn't detect automatically — pick your country below.",
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: AurumTheme.textMutedOf(context),
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             _SearchField(
               hint: 'Search countries',
               onChanged: (v) => setState(() => _query = v),
@@ -651,28 +863,497 @@ class _CountryStepState extends State<_CountryStep> {
             ),
           ],
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: widget.onNext,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accent,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          // The bottom button only makes sense once a real choice has
+          // been resolved (a country picked, or the user is browsing the
+          // manual list and can Skip). On the neutral choice screen,
+          // "Auto-Detect" and "Search manually" are already the two
+          // actions available, so the button is hidden there.
+          if (!showChoice)
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: showScanning ? null : widget.onNext,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accent,
+                  foregroundColor: Colors.black,
+                  disabledBackgroundColor: accent.withValues(alpha: 0.35),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 0,
                 ),
-                elevation: 0,
-              ),
-              child: Text(
-                widget.selected == null ? 'Skip for now' : 'Continue',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                child: Text(
+                  showScanning
+                      ? 'Detecting...'
+                      : widget.selected == null
+                          ? 'Skip for now'
+                          : 'Continue',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Country choice screen — the neutral first state shown when the Country
+// step opens: nothing is pre-selected and nothing runs automatically.
+// The user picks one of two explicit actions:
+//   - "Auto-Detect My Country" -> triggers the real (IP-based) network
+//     detection with the scanning/loading-bar animation.
+//   - "Search Manually" -> opens the same searchable 195-country list
+//     used everywhere else in this step.
+// This replaces the old behavior where detection fired the instant the
+// screen opened with no user action at all.
+// ─────────────────────────────────────────────────────────────────────────────
+class _CountryChoiceView extends StatelessWidget {
+  final Color accent;
+  final VoidCallback onAutoDetect;
+  final VoidCallback onSearchManually;
+
+  const _CountryChoiceView({
+    required this.accent,
+    required this.onAutoDetect,
+    required this.onSearchManually,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.public_rounded, color: accent.withValues(alpha: 0.7), size: 56),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              AurumHaptics.medium();
+              onAutoDetect();
+            },
+            icon: const Icon(Icons.my_location_rounded, size: 20),
+            label: const Text(
+              'Auto-Detect My Country',
+              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              elevation: 0,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Takes 1-3 seconds — uses your network,\nnot GPS.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            color: AurumTheme.textMutedOf(context),
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(child: Divider(color: AurumTheme.dividerOf(context))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'OR',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AurumTheme.textMutedOf(context),
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: AurumTheme.dividerOf(context))),
+          ],
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              AurumHaptics.selection();
+              onSearchManually();
+            },
+            icon: Icon(Icons.search_rounded, size: 20, color: AurumTheme.textPrimaryOf(context)),
+            label: Text(
+              'Search Manually',
+              style: TextStyle(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w600,
+                color: AurumTheme.textPrimaryOf(context),
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: AurumTheme.dividerOf(context)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scanning card — shown while real (network) country detection is in
+// flight. A radar-style sweep + expanding pulse rings around a location
+// pin, entirely built from AnimationControllers/CustomPainter (no new
+// packages, no image/Lottie assets), so it's cheap on low-end devices
+// and starts rendering the instant the Country step builds. This is what
+// makes detection feel deliberate/"real" instead of an instant, opaque
+// guess — the user sees an actual scan happen while the IP lookup races
+// in the background.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ScanningLocationCard extends StatefulWidget {
+  final Color accent;
+  final VoidCallback onChooseManually;
+
+  const _ScanningLocationCard({
+    required this.accent,
+    required this.onChooseManually,
+  });
+
+  @override
+  State<_ScanningLocationCard> createState() => _ScanningLocationCardState();
+}
+
+class _ScanningLocationCardState extends State<_ScanningLocationCard>
+    with TickerProviderStateMixin {
+  late final AnimationController _sweep; // continuous radar rotation
+  late final AnimationController _pulse; // continuous expanding rings
+  late final AnimationController _entrance; // one-shot card entrance
+  late final AnimationController _progress; // drives the loading bar fill
+  late final AnimationController _shimmer; // moving glow inside the bar
+
+  static const List<String> _statusMessages = [
+    'Scanning your network...',
+    'Pinpointing your region...',
+    'Almost there...',
+  ];
+  int _statusIndex = 0;
+  Timer? _statusTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..forward();
+
+    _sweep = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+
+    // Loading bar fill: eases up to ~92% on its own over the real network
+    // detection's worst-case window (~3.5s, see _detectCountryReal) so it
+    // reads as genuine progress rather than a fake instant-complete bar —
+    // then _CountryStepState jumps it to 100% the moment detection
+    // actually resolves (see the `key` swap on this widget / didUpdateWidget
+    // in the parent, which disposes this state once detecting flips to
+    // false, so the bar is never left visibly stuck under 100%).
+    _progress = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3400),
+    )..forward();
+
+    // Continuous moving highlight inside the filled portion of the bar —
+    // the "cool" shimmer sweep, independent of actual fill progress.
+    _shimmer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+
+    // Cycle the status line every ~1.1s so a slower network lookup still
+    // reads as active progress rather than a stuck spinner.
+    _statusTimer = Timer.periodic(const Duration(milliseconds: 1100), (_) {
+      if (!mounted) return;
+      setState(() => _statusIndex = (_statusIndex + 1) % _statusMessages.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sweep.dispose();
+    _pulse.dispose();
+    _entrance.dispose();
+    _progress.dispose();
+    _shimmer.dispose();
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cardBg = AurumTheme.bgCardOf(context);
+    final border = AurumTheme.dividerOf(context);
+
+    return AnimatedBuilder(
+      animation: _entrance,
+      builder: (context, child) {
+        final t = Curves.easeOutCubic.transform(_entrance.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * 14),
+            child: child,
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: border, width: 1),
+        ),
+        child: Column(
+          children: [
+            SizedBox(
+              width: 120,
+              height: 120,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_sweep, _pulse]),
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _RadarPainter(
+                      sweepAngle: _sweep.value * 2 * 3.14159265,
+                      pulseValue: _pulse.value,
+                      accent: widget.accent,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.location_on_rounded,
+                        color: widget.accent,
+                        size: 28,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              child: Text(
+                _statusMessages[_statusIndex],
+                key: ValueKey(_statusIndex),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AurumTheme.textPrimaryOf(context),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Finding the country closest to your\nactual network for accurate results.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: AurumTheme.textMutedOf(context),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 18),
+            // Animated loading bar — eased fill + a moving shimmer
+            // highlight riding on top of the filled portion, both purely
+            // CustomPaint (no packages), so it stays cheap and matches
+            // the accent color automatically.
+            SizedBox(
+              width: double.infinity,
+              height: 6,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_progress, _shimmer]),
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _LoadingBarPainter(
+                      // Ease toward 92%, never claiming 100% until the
+                      // real network result actually lands.
+                      fill: Curves.easeOutCubic.transform(_progress.value) * 0.92,
+                      shimmer: _shimmer.value,
+                      accent: widget.accent,
+                      track: border,
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: widget.onChooseManually,
+              style: TextButton.styleFrom(
+                foregroundColor: widget.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+              child: const Text(
+                'Choose manually instead',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Paints the loading bar: a rounded track, an eased accent-colored fill,
+/// and a soft moving highlight band that sweeps left-to-right across the
+/// filled portion on a short loop — the "shimmer" that makes the bar read
+/// as actively working rather than a static filled rectangle.
+class _LoadingBarPainter extends CustomPainter {
+  final double fill; // 0..1 how much of the bar is filled
+  final double shimmer; // 0..1 position of the moving highlight
+  final Color accent;
+  final Color track;
+
+  _LoadingBarPainter({
+    required this.fill,
+    required this.shimmer,
+    required this.accent,
+    required this.track,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = Radius.circular(size.height / 2);
+
+    // Track (full-width, faint).
+    final trackPaint = Paint()..color = track.withValues(alpha: 0.5);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, radius),
+      trackPaint,
+    );
+
+    final fillWidth = size.width * fill.clamp(0.0, 1.0);
+    if (fillWidth <= 0) return;
+
+    final fillRect = Rect.fromLTWH(0, 0, fillWidth, size.height);
+    final fillRRect = RRect.fromRectAndRadius(fillRect, radius);
+
+    // Base fill.
+    canvas.save();
+    canvas.clipRRect(fillRRect);
+    canvas.drawRect(fillRect, Paint()..color = accent.withValues(alpha: 0.85));
+
+    // Moving shimmer highlight, clipped to the filled region so it never
+    // spills onto the empty track.
+    final shimmerCenter = fillWidth * shimmer;
+    final shimmerWidth = size.width * 0.35;
+    final shimmerRect = Rect.fromLTWH(
+      shimmerCenter - shimmerWidth / 2,
+      0,
+      shimmerWidth,
+      size.height,
+    );
+    final shimmerPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.0),
+          Colors.white.withValues(alpha: 0.55),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+      ).createShader(shimmerRect);
+    canvas.drawRect(shimmerRect, shimmerPaint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _LoadingBarPainter oldDelegate) {
+    return oldDelegate.fill != fill ||
+        oldDelegate.shimmer != shimmer ||
+        oldDelegate.accent != accent ||
+        oldDelegate.track != track;
+  }
+}
+
+/// Paints the radar: a soft rotating conic sweep wedge, two expanding
+/// pulse rings, and a static faint outer ring — all in the accent color
+/// so it matches the app's dynamic theme automatically. Pure CustomPaint,
+/// no assets, cheap enough to run continuously at 60fps.
+class _RadarPainter extends CustomPainter {
+  final double sweepAngle;
+  final double pulseValue;
+  final Color accent;
+
+  _RadarPainter({
+    required this.sweepAngle,
+    required this.pulseValue,
+    required this.accent,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = size.width / 2;
+
+    // Static faint outer + mid rings for depth.
+    final ringPaint = Paint()
+      ..color = accent.withValues(alpha: 0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    canvas.drawCircle(center, maxRadius * 0.98, ringPaint);
+    canvas.drawCircle(center, maxRadius * 0.66, ringPaint);
+    canvas.drawCircle(center, maxRadius * 0.34, ringPaint);
+
+    // Two staggered expanding pulse rings (fade out as they grow).
+    for (final offset in [0.0, 0.5]) {
+      final progress = (pulseValue + offset) % 1.0;
+      final radius = maxRadius * (0.25 + progress * 0.75);
+      final opacity = (1.0 - progress).clamp(0.0, 1.0) * 0.35;
+      final pulsePaint = Paint()
+        ..color = accent.withValues(alpha: opacity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(center, radius, pulsePaint);
+    }
+
+    // Rotating radar sweep — a conic gradient wedge fading to
+    // transparent, like a classic radar scan line.
+    final sweepRect = Rect.fromCircle(center: center, radius: maxRadius);
+    final sweepPaint = Paint()
+      ..shader = SweepGradient(
+        startAngle: 0,
+        endAngle: 3.14159265 / 2, // 90-degree bright wedge
+        colors: [
+          accent.withValues(alpha: 0.0),
+          accent.withValues(alpha: 0.35),
+        ],
+        transform: GradientRotation(sweepAngle),
+      ).createShader(sweepRect);
+    canvas.drawCircle(center, maxRadius, sweepPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarPainter oldDelegate) {
+    return oldDelegate.sweepAngle != sweepAngle ||
+        oldDelegate.pulseValue != pulseValue ||
+        oldDelegate.accent != accent;
   }
 }
 
@@ -1114,44 +1795,151 @@ class _ArtistStepState extends State<_ArtistStep> {
 
   Future<void> _loadArtists() async {
     try {
+      // FIX ("40 artists minimum"): genre count was capped at 4 and each
+      // genre query capped at limit:10 — worst case that's a hard 40-item
+      // ceiling BEFORE de-duplication even runs, so overlapping results
+      // between genres routinely left the picker well under 40. Now:
+      // pull from every selected genre (not just the first 4) and ask
+      // each query for more (limit: 16) so there's enough raw supply
+      // even after duplicates are dropped and the merge cap (60) still
+      // comfortably clears the 40-artist floor in the common case.
       final genreList = widget.genres.isNotEmpty
           ? _kOnboardingGenres.where((g) => widget.genres.contains(g.key)).toList()
-          : _genreOrderFor(widget.country?.code).take(3).toList();
+          : _genreOrderFor(widget.country?.code).take(4).toList();
 
       final countryName = widget.country?.name;
 
-      // One live search per selected genre (capped to keep first-launch
-      // snappy), each scoped with the country name so results skew toward
-      // artists relevant to that genre IN that region rather than a
-      // single generic global query. Runs concurrently.
-      final queries = genreList.take(4).map((g) {
-        final seed = countryName != null
-            ? '${g.searchSeed} $countryName artists'
-            : '${g.searchSeed} artists';
-        return ApiService.searchArtists(seed, limit: 8)
-            .timeout(const Duration(seconds: 5))
-            .catchError((_) => <ArtistSimple>[]);
+      // FIX: the old query was a single loose string like "pop United
+      // Kingdom artists" — that's a free-text search with no real filter
+      // behind it, so a country/genre combo with thin native coverage
+      // would silently backfill with generically popular but unrelated
+      // artists. Two changes here:
+      //   1. Query phrasing is now genre-aware and region-native where we
+      //      know it (e.g. Bollywood + India -> "bollywood playback
+      //      singers India", not just "bollywood India artists"), which
+      //      biases the underlying search much more tightly.
+      //   2. Every result is tagged with which genre query produced it,
+      //      and results are taken round-robin across genres (instead of
+      //      genre-1's results filling the whole grid) so the picker
+      //      visibly reflects every genre + the chosen country, not just
+      //      whichever query happened to return the most matches.
+      final queries = genreList.map((g) {
+        final seed = _buildArtistSearchSeed(
+          genreSeed: g.searchSeed,
+          countryName: countryName,
+        );
+        return ApiService.searchArtists(seed, limit: 16)
+            .timeout(const Duration(seconds: 4))
+            .catchError((_) => <ArtistSimple>[])
+            .then((list) => MapEntry(g.key, list));
       }).toList();
 
-      final results = await Future.wait(queries)
-          .timeout(const Duration(seconds: 7), onTimeout: () => <List<ArtistSimple>>[]);
+      final results = await Future.wait(queries).timeout(
+        const Duration(seconds: 6),
+        onTimeout: () => <MapEntry<String, List<ArtistSimple>>>[],
+      );
 
+      // Round-robin merge across genre buckets so the grid represents
+      // every selected genre/country combo fairly instead of one query's
+      // results dominating.
       final merged = <ArtistSimple>[];
       final seenNames = <String>{};
-      for (final list in results) {
-        for (final a in list) {
-          if (a.name.isEmpty) continue;
-          if (seenNames.add(a.name.toLowerCase())) merged.add(a);
+      final buckets = results.map((e) => e.value).toList();
+      var addedAny = true;
+      var col = 0;
+      while (addedAny && merged.length < 60) {
+        addedAny = false;
+        for (final bucket in buckets) {
+          if (col < bucket.length) {
+            final a = bucket[col];
+            if (a.name.isNotEmpty && seenNames.add(a.name.toLowerCase())) {
+              merged.add(a);
+            }
+            addedAny = true;
+          }
         }
+        col++;
+      }
+
+      // FIX: if the genre-scoped queries still come back under the
+      // 40-artist floor (e.g. only 1-2 genres picked, or a niche
+      // genre+country combo with thin native coverage), top up with the
+      // general home-artist pool BEFORE giving up — this is what
+      // actually guarantees "at least 40 artists" instead of silently
+      // showing whatever the genre queries happened to return.
+      //
+      // IMPORTANT: fetchHomeArtists() is a curated pool that's India-
+      // centric (Bollywood/Punjabi/Pop/Retro) — it has no country
+      // parameter. Using it to top up for a non-Indian country would be
+      // a jarring mismatch (a US/Japan user suddenly seeing Arijit
+      // Singh/Diljit Dosanjh). So this top-up only fires for India (or
+      // when no country was picked/detected at all, where there's no
+      // better default). Every other country instead widens its OWN
+      // genre search net first (see the extra queries below) rather
+      // than falling back to a mismatched pool.
+      final countryCode = widget.country?.code;
+      final isIndiaOrUnset = countryCode == null || countryCode == 'IN';
+
+      if (merged.length < 40 && isIndiaOrUnset) {
+        try {
+          final topUp = await ApiService.fetchHomeArtists()
+              .timeout(const Duration(seconds: 4));
+          for (final a in topUp) {
+            if (merged.length >= 40) break;
+            if (a.name.isEmpty) continue;
+            if (seenNames.add(a.name.toLowerCase())) merged.add(a);
+          }
+        } catch (_) {}
+      }
+
+      // For every OTHER country, if still under the floor, widen the net
+      // with additional genre queries beyond the ones already tried
+      // (the full country-appropriate genre priority list, not just
+      // what the user picked) — this keeps every top-up artist at least
+      // genre/region-relevant instead of falling back to an unrelated
+      // curated pool.
+      if (merged.length < 40 && !isIndiaOrUnset) {
+        try {
+          final triedKeys = genreList.map((g) => g.key).toSet();
+          final extraGenres = _genreOrderFor(countryCode)
+              .where((g) => !triedKeys.contains(g.key))
+              .take(4)
+              .toList();
+
+          final extraQueries = extraGenres.map((g) {
+            final seed = _buildArtistSearchSeed(
+              genreSeed: g.searchSeed,
+              countryName: countryName,
+            );
+            return ApiService.searchArtists(seed, limit: 16)
+                .timeout(const Duration(seconds: 4))
+                .catchError((_) => <ArtistSimple>[]);
+          }).toList();
+
+          final extraResults = await Future.wait(extraQueries).timeout(
+            const Duration(seconds: 6),
+            onTimeout: () => <List<ArtistSimple>>[],
+          );
+
+          for (final list in extraResults) {
+            for (final a in list) {
+              if (merged.length >= 40) break;
+              if (a.name.isEmpty) continue;
+              if (seenNames.add(a.name.toLowerCase())) merged.add(a);
+            }
+          }
+        } catch (_) {}
       }
 
       // Fallback: if genre-scoped search came back thin (e.g. no genres
       // picked and country search too narrow), fall back to the general
       // home-artist pool so this step is never empty for no good reason.
+      // Covers the "topUp above wasn't enough either" case too, e.g.
+      // fetchHomeArtists() itself returned an overlapping/small set.
       if (merged.length < 6) {
         try {
           final fallback = await ApiService.fetchHomeArtists()
-              .timeout(const Duration(seconds: 5));
+              .timeout(const Duration(seconds: 4));
           for (final a in fallback) {
             if (a.name.isEmpty) continue;
             if (seenNames.add(a.name.toLowerCase())) merged.add(a);

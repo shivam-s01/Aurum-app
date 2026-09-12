@@ -763,6 +763,12 @@ class ApiService {
       ..idleTimeout = const Duration(seconds: 3)
       ..maxConnectionsPerHost = 6,
   );
+
+  /// Public read-only access to the shared, tuned HTTP client above — for
+  /// small one-off external calls (e.g. onboarding's IP-geolocation
+  /// lookup) that want the same sane connection/idle timeouts without
+  /// spinning up a brand-new client instance.
+  static http.Client get httpClient => _client;
   static final YoutubeExplode _yt     = YoutubeExplode();
 
   // ===========================================================================
