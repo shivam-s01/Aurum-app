@@ -122,15 +122,26 @@ class HomeFeedCache {
   // (reads back empty, exactly like a fresh install) WITHOUT needing a
   // migration — _hydrateFromCache() finding nothing simply falls through
   // to a real fetch immediately, same as any other cold start with no
-  // cache yet. One-time effect per device (first launch after this update
-  // writes a v2 entry, which behaves normally — timed freshness, instant
+  // cache yet.
+  //
+  // BUMPED AGAIN v2 -> v3 ("home page pe artist hi nahi aa rahe" —
+  // 2026-09-12, same day as the Worker-removal fix on
+  // fetchYtMusicHomeArtists): identical reasoning as the v1->v2 bump
+  // above — any device that had already cached a v2 artist list (from
+  // before the Home artist row stopped calling the Worker and switched
+  // to InnerTube-only) gets that cache invalidated once, so it can never
+  // keep showing stale/empty data from the old Worker-backed path.
+  // One-time effect per device (first launch after this update writes a
+  // v3 entry, which behaves normally — timed freshness, instant
   // hydration — from then on).
-  static const _artistsKey = 'home_feed_cache_artists_v2';
+  static const _artistsKey = 'home_feed_cache_artists_v3';
   static const _savedAtKey = 'home_feed_cache_saved_at_ms';
-  // Paired with _artistsKey's bump — an old v1 timestamp must not be read
-  // as if it were a v2 cache's freshness marker (that would report the
-  // brand-new-but-empty v2 cache as "fresh" and skip the fetch entirely).
-  static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms_v2';
+  // Paired with _artistsKey's bump — an old v1/v2 timestamp must not be
+  // read as if it were the v3 cache's freshness marker (that would
+  // report the brand-new-but-empty v3 cache as "fresh" and skip the
+  // fetch entirely).
+  static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms_v3';
+
 
   // TIME-BASED FRESHNESS (restored 2026-09): the previous "never expire on
   // its own" behavior meant _loadOnline()/_loadArtists() — and therefore

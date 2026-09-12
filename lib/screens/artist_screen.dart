@@ -406,12 +406,29 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       ? Icons.person_remove_rounded
                       : Icons.person_add_alt_1_rounded,
                   active: isFollowing,
-                  onTap: () {
+                  onTap: () async {
                     AurumHaptics.medium();
-                    followed.toggleFollow(
+                    // DEBUG VISIBILITY (temporary — no adb/logcat access on
+                    // this device): shows the exact id being saved and the
+                    // resulting box count directly on-screen via SnackBar,
+                    // so a real save failure or an id mismatch is visible
+                    // without any tooling. Safe to remove once confirmed.
+                    final wasFollowing = followed.isFollowing(artist.id);
+                    await followed.toggleFollow(
                       artistId: artist.id,
                       name: artist.name,
                       imageUrl: artist.imageUrl,
+                    );
+                    if (!context.mounted) return;
+                    final nowFollowing = followed.isFollowing(artist.id);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        duration: const Duration(seconds: 4),
+                        content: Text(
+                          'id="${artist.id}" was=$wasFollowing now=$nowFollowing '
+                          'totalSaved=${followed.followed.length}',
+                        ),
+                      ),
                     );
                   },
                 ),

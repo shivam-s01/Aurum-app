@@ -723,8 +723,35 @@ class _HomeScreenState extends State<HomeScreen> {
         // so the cache always reflects the fullest list this session saw.
         unawaited(HomeFeedCache.saveArtists(artists));
       });
-    } catch (_) {
+      // DEBUG VISIBILITY (temporary — no adb/logcat access on this
+      // device): reports the final artist count once the whole fetch
+      // completes, so an empty "Popular Artists" row shows exactly what
+      // came back (0 = the fetch genuinely returned nothing; the caller
+      // never even hit the exception path) instead of guessing. Safe to
+      // remove once the artist-row issue is confirmed fixed.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text('Artist fetch: ${_homeArtists.length} artists — ${ApiService.lastArtistFetchDebug}'),
+          ),
+        );
+      }
+    } catch (e) {
       if (mounted) setState(() => _artistsLoading = false);
+      // DEBUG VISIBILITY (temporary — no adb/logcat access on this
+      // device): shows the actual exception on-screen instead of
+      // silently swallowing it, so a real crash here is visible without
+      // any tooling. Safe to remove once the artist-row issue is
+      // confirmed fixed.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text('Artist load error: $e'),
+          ),
+        );
+      }
     }
   }
 

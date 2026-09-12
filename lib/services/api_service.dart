@@ -720,6 +720,13 @@ class YtHomeArtist {
 
 class ApiService {
 
+  /// DEBUG VISIBILITY (temporary — no adb/logcat access on this device):
+  /// records which branch fetchYtMusicHomeArtists/_fetchYtMusicArtistsDirect
+  /// took most recently, so home_screen.dart's debug SnackBar can show
+  /// *why* the Popular Artists row came back empty instead of just "0".
+  /// Safe to remove once the artist-row issue is confirmed fixed.
+  static String lastArtistFetchDebug = '(not run yet)';
+
   /// Flip to true right before you start restarting/redeploying the
   /// Cloudflare Worker, false the moment it's back. While true, every
   /// song skips Stage 1 (Worker) instantly and goes straight to
@@ -4100,13 +4107,43 @@ class ApiService {
     return (browseId: browseId, isArtist: pageType == 'MUSIC_PAGE_TYPE_ARTIST');
   }
 
-  /// Best-quality thumbnail URL out of a standard YT Music
-  /// musicThumbnailRenderer.thumbnail.thumbnails list (largest is last).
+  /// Best-quality thumbnail URL out of a card/row's `thumbnail` field.
+  ///
+  /// BUG FIX ("album/song thumbnails missing on artist page + inside
+  /// albums" — root cause): this used to read ONLY
+  /// renderer['thumbnail']['musicThumbnailRenderer']['thumbnail']
+  /// ['thumbnails'], modeled on a musicResponsiveListItemRenderer (song
+  /// row) shape. But musicTwoRowItemRenderer — the card type used for
+  /// EVERY album/single/playlist tile (artist page Albums/Singles shelf,
+  /// album's own "More by artist"/"Other versions" shelves, search album
+  /// cards) — commonly wraps its thumbnail in
+  /// ['thumbnail']['croppedSquareThumbnailRenderer']['thumbnail']
+  /// ['thumbnails'] instead (verified against ytmusicapi's own
+  /// navigation.py constants: THUMBNAIL_RENDERER uses musicThumbnailRenderer
+  /// for song/artist rows, THUMBNAIL_CROPPED uses
+  /// croppedSquareThumbnailRenderer for album/playlist-style cards). The
+  /// old fixed path silently returned '' for every card using the cropped
+  /// wrapper — which is exactly the album-card and (via the header-stamp
+  /// this feeds) in-album song thumbnails going missing, despite
+  /// _fetchYtAlbumSongsWithArtwork's OWN header-thumbnail read already
+  /// correctly trying both wrappers. Rather than hard-code a second fixed
+  /// path (InnerTube has shown at least 3 different wrapper names across
+  /// this codebase's own call sites: musicThumbnailRenderer,
+  /// croppedSquareThumbnailRenderer, and thumbnailRenderer), this now
+  /// walks the ENTIRE `thumbnail` subtree (via [_findThumbnailsList]) for
+  /// a `thumbnails` list under ANY key — the same shape-agnostic approach
+  /// _findRenderers already uses elsewhere in this file for renderer
+  /// lookups — so a future InnerTube wrapper-name change can't silently
+  /// zero out artwork here again.
   static String _ytmThumbnailUrl(Map<String, dynamic>? renderer) {
-    final thumbs = renderer?['thumbnail']?['musicThumbnailRenderer']
-            ?['thumbnail']?['thumbnails'] as List? ??
-        const [];
-    if (thumbs.isEmpty) return '';
+    if (renderer == null) return '';
+    final thumbField = renderer['thumbnail'];
+    if (thumbField is! Map) return '';
+    // NOTE: can't reuse _findRenderers directly here — it matches Map
+    // values by key, but 'thumbnails' holds a List, not a Map. Same
+    // recursive, shape-agnostic intent, just for a List-valued key.
+    final thumbs = _findThumbnailsList(thumbField);
+    if (thumbs == null || thumbs.isEmpty) return '';
     final best = thumbs.last;
     final rawUrl = (best is Map ? (best['url'] ?? '') : '').toString();
     if (rawUrl.isEmpty) return '';
@@ -4114,6 +4151,28 @@ class ApiService {
     // so artist avatars/artwork stay sharp on larger UI (artist header,
     // full player, etc.) instead of visibly upscaled thumbnails.
     return rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+  }
+
+  /// Recursively finds the first non-empty `thumbnails` List anywhere
+  /// under [node] — used by [_ytmThumbnailUrl] to stay agnostic to which
+  /// wrapper key (musicThumbnailRenderer, croppedSquareThumbnailRenderer,
+  /// or any future InnerTube variant) sits between the card and its
+  /// actual thumbnails array.
+  static List? _findThumbnailsList(dynamic node) {
+    if (node is Map) {
+      final direct = node['thumbnails'];
+      if (direct is List && direct.isNotEmpty) return direct;
+      for (final value in node.values) {
+        final found = _findThumbnailsList(value);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final value in node) {
+        final found = _findThumbnailsList(value);
+        if (found != null) return found;
+      }
+    }
+    return null;
   }
 
   static String _flexColumnText(Map<String, dynamic> item, int index) {
@@ -7097,66 +7156,56 @@ class ApiService {
   // artist entries instead of the playlist ones — see the Worker's
   // parseYtMusicHomeArtistShelves() for the split. channelId (YouTube's
   // own stable per-artist id) is kept as-is and fed straight into
-  // ArtistSimple.id by fetchHomeArtistsCombined() below, so artist-chip
-  // navigation and list keys are anchored to a real, collision-proof
-  // identifier instead of a name string.
-  //
-  // TIMEOUT TIGHTENED (10s -> 4s) + DIRECT FALLBACK ADDED
-  // ("worker slow ho tab bhi production-level artist data ready rahe"):
-  // fetchHomeArtistsCombined() below runs this concurrently with the
-  // Saavn-sourced fetchHomeArtists() via Future.wait — that call only
-  // finishes as slow as its SLOWEST leg, so a 10s worker timeout meant a
-  // fully healthy Saavn leg could still sit blocked for up to 10s behind
-  // a struggling Worker. Cut to 4s so a slow/degraded Worker fails fast
-  // instead of stalling the whole home-artist load.
-  //
-  // On top of the shorter timeout, this now also has its own fallback
-  // that never depends on the Worker at all: if the Worker call times
-  // out, errors, or comes back empty/degraded, _fetchYtMusicArtistsDirect
-  // below hits YT Music's InnerTube search API directly from the client
-  // (same _ytmApiKey already used by _resolveYtChannelId) using a small
-  // set of high-recognition seed queries. This mirrors the Worker's own
-  // search-seed fallback logic, just runs client-side so a Worker outage
-  // or slowdown can never take real YT artist data off the home screen —
-  // only total loss of internet would.
+  // ═══════════════════════════════════════════════════════════════════
+  // WORKER REMOVED ENTIRELY, HOME-ARTISTS-ROW ONLY ("workers se mat lo,
+  // InnerTube se seedha lo, server down ho sakta hai" — 2026-09-12): this
+  // used to hit the Cloudflare Worker's /api/yt-music-home-artists route
+  // first, falling back to _fetchYtMusicArtistsDirect only on
+  // failure/degraded/empty. That still meant a Worker outage (or the
+  // Worker returning wrong song-thumbnail images instead of real artist
+  // avatars) directly hit the home screen every time it happened. Now
+  // this calls _fetchYtMusicArtistsDirectExpanded — a SEPARATE function
+  // from _fetchYtMusicArtistsDirect (below), which stays completely
+  // unchanged (still its original fixed 8-seed pool) because
+  // _fetchSeedArtistReleases elsewhere in this file also depends on it
+  // for the Home Albums/Singles row and must not be affected by this fix
+  // in any way. _fetchYtMusicArtistsDirectExpanded has its own larger,
+  // shuffled seed pool sized for filling a `limit`-up-to-40 artist strip
+  // — scoped to only this one call site.
   // ═══════════════════════════════════════════════════════════════════
   static Future<List<YtHomeArtist>> fetchYtMusicHomeArtists(
       {int limit = 12}) async {
-    try {
-      final uri = Uri.parse('$_saavn/api/yt-music-home-artists?limit=$limit');
-      final resp = await http.get(uri).timeout(const Duration(seconds: 4));
-      if (resp.statusCode != 200) {
-        _log('[fetchYtMusicHomeArtists] HTTP ${resp.statusCode}, falling back to direct YT');
-        return _fetchYtMusicArtistsDirect(limit: limit);
-      }
-      final data = jsonDecode(resp.body);
-      if (data['success'] != true) {
-        return _fetchYtMusicArtistsDirect(limit: limit);
-      }
-      final results = (data['data']?['results'] as List?) ?? [];
-      final parsed = results
-          .map<YtHomeArtist?>((r) {
-            final channelId = (r['channelId'] ?? '').toString();
-            final name = _cleanText((r['name'] ?? '').toString());
-            final image = (r['image'] ?? '').toString();
-            if (channelId.isEmpty || name.isEmpty || image.isEmpty) return null;
-            return YtHomeArtist(channelId: channelId, name: name, imageUrl: image);
-          })
-          .whereType<YtHomeArtist>()
-          .toList();
+    return _fetchYtMusicArtistsDirectExpanded(limit: limit);
+  }
 
-      // Worker responded but had nothing usable (e.g. its own degraded
-      // static-fallback list, or a genuinely empty shelf) — try direct
-      // as a second attempt rather than accepting a thin/generic result.
-      if (parsed.isEmpty || data['degraded'] == true) {
-        final direct = await _fetchYtMusicArtistsDirect(limit: limit);
-        return direct.isNotEmpty ? direct : parsed;
-      }
-      return parsed;
-    } catch (e) {
-      _log('[fetchYtMusicHomeArtists] error: $e, falling back to direct YT');
-      return _fetchYtMusicArtistsDirect(limit: limit);
-    }
+  /// Same guaranteed-real-photo 2-stage InnerTube approach as
+  /// _fetchYtMusicArtistsDirect below (search -> resolve channelId ->
+  /// browse channel header for its real circular avatar), but with a much
+  /// larger, shuffled seed pool so it can fill a `limit`-up-to-40 artist
+  /// strip on its own with no Worker involved at all. Used ONLY by
+  /// fetchYtMusicHomeArtists (the Home "Popular Artists" row) — kept as
+  /// its own function, deliberately not sharing _fetchYtMusicArtistsDirect's
+  /// smaller fixed pool, so this change can never affect
+  /// _fetchSeedArtistReleases (Home Albums/Singles row) or any other
+  /// caller of _fetchYtMusicArtistsDirect.
+  static Future<List<YtHomeArtist>> _fetchYtMusicArtistsDirectExpanded(
+      {int limit = 12}) async {
+    const seedPool = [
+      'Arijit Singh', 'Diljit Dosanjh', 'Shreya Ghoshal', 'Anirudh Ravichander',
+      'Pritam', 'AP Dhillon', 'Sony Music India', 'T-Series',
+      'Jubin Nautiyal', 'Neha Kakkar', 'Atif Aslam', 'Sonu Nigam',
+      'Armaan Malik', 'Darshan Raval', 'B Praak', 'Vishal Mishra',
+      'Badshah', 'Guru Randhawa', 'Hardy Sandhu', 'Jassie Gill',
+      'Anuv Jain', 'Prateek Kuhad', 'Ritviz', 'A.R. Rahman',
+      'Amit Trivedi', 'Shankar Mahadevan', 'Sunidhi Chauhan', 'Udit Narayan',
+      'Kishore Kumar', 'Mohd Rafi', 'Lata Mangeshkar', 'Asha Bhosle',
+      'Shaan', 'KK Singer', 'Alka Yagnik', 'Sachin-Jigar',
+    ];
+    final rng = math.Random(DateTime.now().difference(DateTime(2026, 1, 1)).inHours);
+    final seeds = (List<String>.from(seedPool)..shuffle(rng))
+        .take(math.min(seedPool.length, limit + 8))
+        .toList();
+    return _resolveAndBrowseArtistSeeds(seeds, limit: limit, debugTag: 'direct-expanded');
   }
 
   /// Direct-from-client YT Music artist fetch, bypassing the Worker
@@ -7180,6 +7229,13 @@ class ApiService {
   /// Two InnerTube calls per seed instead of one, but each seed already
   /// runs in parallel with the others, and the result is a guaranteed
   /// real photo instead of a wrong one or a blank placeholder.
+  ///
+  /// UNCHANGED (2026-09-12): this function, its fixed 8-seed pool, and
+  /// its behavior are exactly as they were before the Home-artists-row
+  /// Worker-removal fix — _fetchSeedArtistReleases (Home Albums/Singles
+  /// row) also calls this and must see zero behavior change from that
+  /// fix. All Worker-removal / expanded-pool logic lives only in
+  /// _fetchYtMusicArtistsDirectExpanded above, a separate function.
   static Future<List<YtHomeArtist>> _fetchYtMusicArtistsDirect(
       {int limit = 12}) async {
     const seeds = [
@@ -7268,6 +7324,92 @@ class ApiService {
       return out;
     } catch (e) {
       _log('[_fetchYtMusicArtistsDirect] error: $e');
+      return const [];
+    }
+  }
+
+  /// Shared search->resolve->browse logic used by
+  /// _fetchYtMusicArtistsDirectExpanded (Home artists row) ONLY. Kept
+  /// entirely separate from _fetchYtMusicArtistsDirect above so this new
+  /// path can never change that function's behavior for its own callers
+  /// (_fetchSeedArtistReleases / Home Albums+Singles row).
+  static Future<List<YtHomeArtist>> _resolveAndBrowseArtistSeeds(
+    List<String> seeds, {
+    required int limit,
+    required String debugTag,
+  }) async {
+    try {
+      // Stage 1: one search per seed -> that seed's real artist channelId.
+      final searchResponses = await Future.wait(seeds.map(
+        (q) => _ytmSearchRaw(q, params: _ytmSongsFilterParam,
+            timeout: const Duration(seconds: 4)),
+      ));
+
+      final seen = <String>{};
+      final resolved = <({String channelId, String name})>[];
+      for (final json in searchResponses) {
+        if (json == null) continue;
+        for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
+          for (final run in _artistRunsInSubtitle(item)) {
+            if (!seen.add(run.channelId)) continue;
+            resolved.add((channelId: run.channelId, name: _cleanText(run.name)));
+            break; // one artist per seed's first song result is enough
+          }
+          if (resolved.isNotEmpty && resolved.last.channelId.isNotEmpty) break;
+        }
+        if (resolved.length >= limit) break;
+      }
+
+      // Stage 2: browse each resolved channelId for its own real header
+      // photo — run in parallel.
+      final browseResponses = await Future.wait(resolved.map(
+        (r) => _ytmBrowseRaw(r.channelId, timeout: const Duration(seconds: 6)),
+      ));
+
+      final out = <YtHomeArtist>[];
+      for (var i = 0; i < resolved.length; i++) {
+        final data = browseResponses[i];
+        if (data == null) continue;
+        final header = data['header'];
+        final headerRenderer = header is Map
+            ? (header['musicImmersiveHeaderRenderer'] ??
+                header['musicVisualHeaderRenderer'] ??
+                header['musicHeaderRenderer'])
+            : null;
+        if (headerRenderer is! Map) continue;
+
+        final thumbs = (headerRenderer['thumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            (headerRenderer['foregroundThumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        if (thumbs.isEmpty) continue; // No real photo — skip, don't guess.
+        final rawUrl = (thumbs.last['url'] ?? '').toString();
+        if (rawUrl.isEmpty) continue;
+        final imageUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+
+        final headerNameRuns = (headerRenderer['title']?['runs'] as List?) ?? const [];
+        final headerName = headerNameRuns.isNotEmpty
+            ? _cleanText(headerNameRuns
+                    .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+                    .join())
+                .replaceAll(RegExp(r'\s*-\s*Topic\s*$', caseSensitive: false), '')
+                .trim()
+            : '';
+
+        out.add(YtHomeArtist(
+          channelId: resolved[i].channelId,
+          name: headerName.isNotEmpty ? headerName : resolved[i].name,
+          imageUrl: imageUrl,
+        ));
+        if (out.length >= limit) break;
+      }
+      lastArtistFetchDebug =
+          '$debugTag: ${seeds.length} seeds -> resolved=${resolved.length} -> out=${out.length}';
+      return out;
+    } catch (e) {
+      lastArtistFetchDebug = '$debugTag threw: $e';
+      _log('[_resolveAndBrowseArtistSeeds/$debugTag] error: $e');
       return const [];
     }
   }
