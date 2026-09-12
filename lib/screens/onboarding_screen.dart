@@ -21,7 +21,7 @@
 //     regardless of connection state) — but re-ordered per selected
 //     country so the most locally-relevant genres surface first (e.g.
 //     India -> Bollywood/Punjabi first, US -> Pop/Hip-Hop first, Japan ->
-//     J-Pop/Anime first). See _genreOrderFor() below.
+//     J-Pop/Anime first). See genreOrderFor() below.
 //   STEP 3 — Artists: REAL, live-searched artists via
 //     ApiService.searchArtists() — one query per selected genre, scoped
 //     with the selected country's name so results skew toward locally
@@ -41,12 +41,9 @@
 //     'onboarding_country_name' SharedPreferences strings.
 // =============================================================================
 
-import 'dart:io' show Platform;
 import 'dart:async';
-import 'dart:convert' show jsonDecode;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -55,459 +52,7 @@ import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Genre data
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _OnboardingGenre {
-  final String key;   // matches SessionGenre enum name where possible;
-                       // international genres use new descriptive keys —
-                       // RecommendationEngine's genre-weight map takes any
-                       // string key, so these blend in safely alongside the
-                       // original India-centric set.
-  final String label;
-  final IconData icon;
-  // One or two short, genre-representative search terms used to scope the
-  // live artist search for this genre (see _ArtistStep._loadArtists below).
-  final String searchSeed;
-  const _OnboardingGenre(this.key, this.label, this.icon, this.searchSeed);
-}
-
-const List<_OnboardingGenre> _kOnboardingGenres = [
-  _OnboardingGenre('bollywood', 'Bollywood', Icons.movie_filter_rounded, 'bollywood'),
-  _OnboardingGenre('punjabi', 'Punjabi', Icons.celebration_rounded, 'punjabi'),
-  _OnboardingGenre('hiphop', 'Hip-Hop', Icons.graphic_eq_rounded, 'hip hop'),
-  _OnboardingGenre('english', 'English Pop', Icons.language_rounded, 'pop'),
-  _OnboardingGenre('lofi', 'Lo-Fi / Chill', Icons.nightlight_round, 'lofi chill'),
-  _OnboardingGenre('devotional', 'Devotional', Icons.self_improvement_rounded, 'devotional bhakti'),
-  _OnboardingGenre('bhojpuri', 'Bhojpuri', Icons.music_note_rounded, 'bhojpuri'),
-  _OnboardingGenre('rnb', 'R&B', Icons.mic_external_on_rounded, 'r&b'),
-  _OnboardingGenre('rock', 'Rock', Icons.electric_bolt_rounded, 'rock'),
-  _OnboardingGenre('country', 'Country', Icons.landscape_rounded, 'country music'),
-  _OnboardingGenre('jpop', 'J-Pop', Icons.flare_rounded, 'j-pop'),
-  _OnboardingGenre('jrnb', 'J-R&B', Icons.spa_rounded, 'japanese r&b'),
-  _OnboardingGenre('anime', 'Anime', Icons.animation_rounded, 'anime songs'),
-  _OnboardingGenre('kpop', 'K-Pop', Icons.star_rounded, 'k-pop'),
-  _OnboardingGenre('latin', 'Latin', Icons.local_fire_department_rounded, 'latin'),
-  _OnboardingGenre('afrobeats', 'Afrobeats', Icons.public_rounded, 'afrobeats'),
-  _OnboardingGenre('edm', 'EDM / Dance', Icons.equalizer_rounded, 'edm dance'),
-  _OnboardingGenre('indie', 'Indie', Icons.explore_rounded, 'indie'),
-  _OnboardingGenre('classical', 'Classical', Icons.piano_rounded, 'classical'),
-  _OnboardingGenre('other', 'Something Else', Icons.explore_rounded, 'popular'),
-];
-
-/// Country-code -> ordered list of genre keys (from _kOnboardingGenres)
-/// that are most locally relevant, first. Any genre key not present here
-/// simply falls to the end in its original catalog order — so this map
-/// only needs to cover the *priority* genres per region, not every genre.
-///
-/// Kept intentionally small and maintainable: a handful of major markets
-/// plus one sensible default. Add more country codes here any time —
-/// nothing else needs to change.
-const Map<String, List<String>> _kCountryGenrePriority = {
-  'IN': ['bollywood', 'punjabi', 'english', 'hiphop', 'indie', 'devotional', 'bhojpuri', 'lofi'],
-  'US': ['english', 'hiphop', 'rnb', 'rock', 'country', 'edm', 'latin', 'indie'],
-  'GB': ['english', 'hiphop', 'edm', 'rock', 'indie', 'rnb'],
-  'JP': ['jpop', 'rock', 'jrnb', 'anime', 'hiphop', 'indie'],
-  'KR': ['kpop', 'hiphop', 'english', 'rnb', 'indie'],
-  'PK': ['bollywood', 'english', 'hiphop', 'indie'],
-  'BD': ['bollywood', 'english', 'devotional', 'indie'],
-  'CA': ['english', 'hiphop', 'rnb', 'rock', 'country', 'edm'],
-  'AU': ['english', 'hiphop', 'edm', 'rock', 'indie'],
-  'BR': ['latin', 'hiphop', 'english', 'edm', 'rock'],
-  'MX': ['latin', 'english', 'hiphop', 'edm'],
-  'NG': ['afrobeats', 'hiphop', 'english', 'rnb'],
-  'ZA': ['afrobeats', 'english', 'hiphop', 'edm'],
-  'FR': ['english', 'hiphop', 'edm', 'rock', 'indie'],
-  'DE': ['edm', 'english', 'hiphop', 'rock'],
-  'AE': ['bollywood', 'english', 'hiphop', 'punjabi'],
-  'SA': ['english', 'hiphop', 'edm'],
-};
-
-/// Default priority used when the selected/detected country has no
-/// explicit entry above — mirrors the original catalog order.
-const List<String> _kDefaultGenrePriority = [
-  'bollywood', 'punjabi', 'hiphop', 'english', 'lofi', 'devotional', 'bhojpuri', 'other',
-];
-
-/// Builds the live-search query fed into ApiService.searchArtists() for
-/// one genre + the onboarding-selected country. This is the fix for
-/// artist picks not actually matching the chosen country/genre: the old
-/// version always used the same generic template ("<genre> <country>
-/// artists"), which is a weak signal for a free-text search backend and
-/// often let globally-popular-but-unrelated artists leak in. This adds
-/// genre-native phrasing per major market (e.g. Bollywood -> "playback
-/// singers", K-Pop -> "idol groups") so the query itself is much more
-/// specific to what the user actually picked.
-String _buildArtistSearchSeed({
-  required String genreSeed,
-  String? countryName,
-}) {
-  // Genre-native descriptor overrides, keyed by genre seed text — only
-  // added where a more specific regional phrase meaningfully narrows the
-  // search versus the generic "<genre> artists" template.
-  const nativePhrase = <String, String>{
-    'bollywood': 'bollywood playback singers',
-    'punjabi': 'punjabi singers',
-    'bhojpuri': 'bhojpuri singers',
-    'devotional bhakti': 'devotional bhajan singers',
-    'j-pop': 'j-pop idols and bands',
-    'japanese r&b': 'japanese r&b artists',
-    'anime songs': 'anime theme song artists',
-    'k-pop': 'k-pop idol groups',
-    'afrobeats': 'afrobeats artists',
-    'latin': 'latin music artists',
-    'country music': 'country music singers',
-  };
-
-  final phrase = nativePhrase[genreSeed] ?? '$genreSeed artists';
-
-  if (countryName == null) return phrase;
-
-  // "top <phrase> from <country>" reads as a much stronger locality
-  // signal to a text-search backend than bolting "<country> artists" on
-  // the end, and avoids the country name being mis-parsed as part of an
-  // artist/song title.
-  return 'top $phrase from $countryName';
-}
-
-/// Returns [_kOnboardingGenres] re-ordered so the country's priority
-/// genres come first (in that priority order), followed by everything
-/// else in its original catalog order. Pure, cheap, no I/O.
-List<_OnboardingGenre> _genreOrderFor(String? countryCode) {
-  final priority = _kCountryGenrePriority[countryCode] ?? _kDefaultGenrePriority;
-  final byKey = {for (final g in _kOnboardingGenres) g.key: g};
-  final ordered = <_OnboardingGenre>[];
-  final used = <String>{};
-  for (final key in priority) {
-    final g = byKey[key];
-    if (g != null && used.add(g.key)) ordered.add(g);
-  }
-  for (final g in _kOnboardingGenres) {
-    if (used.add(g.key)) ordered.add(g);
-  }
-  return ordered;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Country data — 195 countries, ISO 3166-1 alpha-2 code + name. Flag is
-// computed at runtime from the code via Unicode regional indicator symbols
-// (see _Country.flag below) — no image assets or extra packages needed.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _Country {
-  final String code;
-  final String name;
-  const _Country(this.code, this.name);
-
-  String get flag =>
-      String.fromCharCodes(code.codeUnits.map((c) => 0x1F1E6 + (c - 65)));
-}
-
-const List<_Country> _kCountries = [
-  _Country('AF', 'Afghanistan'),
-  _Country('AL', 'Albania'),
-  _Country('DZ', 'Algeria'),
-  _Country('AD', 'Andorra'),
-  _Country('AO', 'Angola'),
-  _Country('AG', 'Antigua and Barbuda'),
-  _Country('AR', 'Argentina'),
-  _Country('AM', 'Armenia'),
-  _Country('AU', 'Australia'),
-  _Country('AT', 'Austria'),
-  _Country('AZ', 'Azerbaijan'),
-  _Country('BS', 'Bahamas'),
-  _Country('BH', 'Bahrain'),
-  _Country('BD', 'Bangladesh'),
-  _Country('BB', 'Barbados'),
-  _Country('BY', 'Belarus'),
-  _Country('BE', 'Belgium'),
-  _Country('BZ', 'Belize'),
-  _Country('BJ', 'Benin'),
-  _Country('BT', 'Bhutan'),
-  _Country('BO', 'Bolivia'),
-  _Country('BA', 'Bosnia and Herzegovina'),
-  _Country('BW', 'Botswana'),
-  _Country('BR', 'Brazil'),
-  _Country('BN', 'Brunei'),
-  _Country('BG', 'Bulgaria'),
-  _Country('BF', 'Burkina Faso'),
-  _Country('BI', 'Burundi'),
-  _Country('CV', 'Cabo Verde'),
-  _Country('KH', 'Cambodia'),
-  _Country('CM', 'Cameroon'),
-  _Country('CA', 'Canada'),
-  _Country('CF', 'Central African Republic'),
-  _Country('TD', 'Chad'),
-  _Country('CL', 'Chile'),
-  _Country('CN', 'China'),
-  _Country('CO', 'Colombia'),
-  _Country('KM', 'Comoros'),
-  _Country('CG', 'Congo'),
-  _Country('CD', 'Congo (DRC)'),
-  _Country('CR', 'Costa Rica'),
-  _Country('CI', 'Cote d\'Ivoire'),
-  _Country('HR', 'Croatia'),
-  _Country('CU', 'Cuba'),
-  _Country('CY', 'Cyprus'),
-  _Country('CZ', 'Czechia'),
-  _Country('DK', 'Denmark'),
-  _Country('DJ', 'Djibouti'),
-  _Country('DM', 'Dominica'),
-  _Country('DO', 'Dominican Republic'),
-  _Country('EC', 'Ecuador'),
-  _Country('EG', 'Egypt'),
-  _Country('SV', 'El Salvador'),
-  _Country('GQ', 'Equatorial Guinea'),
-  _Country('ER', 'Eritrea'),
-  _Country('EE', 'Estonia'),
-  _Country('SZ', 'Eswatini'),
-  _Country('ET', 'Ethiopia'),
-  _Country('FJ', 'Fiji'),
-  _Country('FI', 'Finland'),
-  _Country('FR', 'France'),
-  _Country('GA', 'Gabon'),
-  _Country('GM', 'Gambia'),
-  _Country('GE', 'Georgia'),
-  _Country('DE', 'Germany'),
-  _Country('GH', 'Ghana'),
-  _Country('GR', 'Greece'),
-  _Country('GD', 'Grenada'),
-  _Country('GT', 'Guatemala'),
-  _Country('GN', 'Guinea'),
-  _Country('GW', 'Guinea-Bissau'),
-  _Country('GY', 'Guyana'),
-  _Country('HT', 'Haiti'),
-  _Country('HN', 'Honduras'),
-  _Country('HU', 'Hungary'),
-  _Country('IS', 'Iceland'),
-  _Country('IN', 'India'),
-  _Country('ID', 'Indonesia'),
-  _Country('IR', 'Iran'),
-  _Country('IQ', 'Iraq'),
-  _Country('IE', 'Ireland'),
-  _Country('IL', 'Israel'),
-  _Country('IT', 'Italy'),
-  _Country('JM', 'Jamaica'),
-  _Country('JP', 'Japan'),
-  _Country('JO', 'Jordan'),
-  _Country('KZ', 'Kazakhstan'),
-  _Country('KE', 'Kenya'),
-  _Country('KI', 'Kiribati'),
-  _Country('KP', 'North Korea'),
-  _Country('KR', 'South Korea'),
-  _Country('KW', 'Kuwait'),
-  _Country('KG', 'Kyrgyzstan'),
-  _Country('LA', 'Laos'),
-  _Country('LV', 'Latvia'),
-  _Country('LB', 'Lebanon'),
-  _Country('LS', 'Lesotho'),
-  _Country('LR', 'Liberia'),
-  _Country('LY', 'Libya'),
-  _Country('LI', 'Liechtenstein'),
-  _Country('LT', 'Lithuania'),
-  _Country('LU', 'Luxembourg'),
-  _Country('MG', 'Madagascar'),
-  _Country('MW', 'Malawi'),
-  _Country('MY', 'Malaysia'),
-  _Country('MV', 'Maldives'),
-  _Country('ML', 'Mali'),
-  _Country('MT', 'Malta'),
-  _Country('MH', 'Marshall Islands'),
-  _Country('MR', 'Mauritania'),
-  _Country('MU', 'Mauritius'),
-  _Country('MX', 'Mexico'),
-  _Country('FM', 'Micronesia'),
-  _Country('MD', 'Moldova'),
-  _Country('MC', 'Monaco'),
-  _Country('MN', 'Mongolia'),
-  _Country('ME', 'Montenegro'),
-  _Country('MA', 'Morocco'),
-  _Country('MZ', 'Mozambique'),
-  _Country('MM', 'Myanmar'),
-  _Country('NA', 'Namibia'),
-  _Country('NR', 'Nauru'),
-  _Country('NP', 'Nepal'),
-  _Country('NL', 'Netherlands'),
-  _Country('NZ', 'New Zealand'),
-  _Country('NI', 'Nicaragua'),
-  _Country('NE', 'Niger'),
-  _Country('NG', 'Nigeria'),
-  _Country('MK', 'North Macedonia'),
-  _Country('NO', 'Norway'),
-  _Country('OM', 'Oman'),
-  _Country('PK', 'Pakistan'),
-  _Country('PW', 'Palau'),
-  _Country('PS', 'Palestine'),
-  _Country('PA', 'Panama'),
-  _Country('PG', 'Papua New Guinea'),
-  _Country('PY', 'Paraguay'),
-  _Country('PE', 'Peru'),
-  _Country('PH', 'Philippines'),
-  _Country('PL', 'Poland'),
-  _Country('PT', 'Portugal'),
-  _Country('QA', 'Qatar'),
-  _Country('RO', 'Romania'),
-  _Country('RU', 'Russia'),
-  _Country('RW', 'Rwanda'),
-  _Country('KN', 'Saint Kitts and Nevis'),
-  _Country('LC', 'Saint Lucia'),
-  _Country('VC', 'Saint Vincent and the Grenadines'),
-  _Country('WS', 'Samoa'),
-  _Country('SM', 'San Marino'),
-  _Country('ST', 'Sao Tome and Principe'),
-  _Country('SA', 'Saudi Arabia'),
-  _Country('SN', 'Senegal'),
-  _Country('RS', 'Serbia'),
-  _Country('SC', 'Seychelles'),
-  _Country('SL', 'Sierra Leone'),
-  _Country('SG', 'Singapore'),
-  _Country('SK', 'Slovakia'),
-  _Country('SI', 'Slovenia'),
-  _Country('SB', 'Solomon Islands'),
-  _Country('SO', 'Somalia'),
-  _Country('ZA', 'South Africa'),
-  _Country('SS', 'South Sudan'),
-  _Country('ES', 'Spain'),
-  _Country('LK', 'Sri Lanka'),
-  _Country('SD', 'Sudan'),
-  _Country('SR', 'Suriname'),
-  _Country('SE', 'Sweden'),
-  _Country('CH', 'Switzerland'),
-  _Country('SY', 'Syria'),
-  _Country('TW', 'Taiwan'),
-  _Country('TJ', 'Tajikistan'),
-  _Country('TZ', 'Tanzania'),
-  _Country('TH', 'Thailand'),
-  _Country('TL', 'Timor-Leste'),
-  _Country('TG', 'Togo'),
-  _Country('TO', 'Tonga'),
-  _Country('TT', 'Trinidad and Tobago'),
-  _Country('TN', 'Tunisia'),
-  _Country('TR', 'Turkey'),
-  _Country('TM', 'Turkmenistan'),
-  _Country('TV', 'Tuvalu'),
-  _Country('UG', 'Uganda'),
-  _Country('UA', 'Ukraine'),
-  _Country('AE', 'United Arab Emirates'),
-  _Country('GB', 'United Kingdom'),
-  _Country('US', 'United States'),
-  _Country('UY', 'Uruguay'),
-  _Country('UZ', 'Uzbekistan'),
-  _Country('VU', 'Vanuatu'),
-  _Country('VA', 'Vatican City'),
-  _Country('VE', 'Venezuela'),
-  _Country('VN', 'Vietnam'),
-  _Country('YE', 'Yemen'),
-  _Country('ZM', 'Zambia'),
-  _Country('ZW', 'Zimbabwe'),
-];
-
-_Country? _countryByCode(String? code) {
-  if (code == null) return null;
-  for (final c in _kCountries) {
-    if (c.code == code) return c;
-  }
-  return null;
-}
-
-/// Detects the user's likely country from the device's system locale
-/// (e.g. "en_IN" -> IN, "ja_JP" -> JP) — NOT GPS/network location, so
-/// this is synchronous-fast (no permission prompt, no network round
-/// trip). This is now used ONLY as a last-resort fallback (see
-/// _detectCountryReal below) because locale is frequently wrong: a lot
-/// of devices report a generic "en_GB"/"en_US" locale regardless of
-/// where the phone actually is (e.g. "English (UK)" chosen purely as a
-/// language preference, or OEM firmware defaults), which is exactly the
-/// "I'm in India but it shows UK" bug this file used to have when locale
-/// was the ONLY signal.
-_Country? _detectCountryFromLocale() {
-  try {
-    if (kIsWeb) return null;
-    final raw = Platform.localeName; // e.g. "en_IN", "ja_JP", "en_US.UTF-8"
-    final cleaned = raw.split('.').first; // strip encoding suffix if present
-    final parts = cleaned.split(RegExp(r'[_-]'));
-    if (parts.length < 2) return null;
-    final region = parts[1].toUpperCase();
-    return _countryByCode(region);
-  } catch (_) {
-    return null;
-  }
-}
-
-/// REAL country detection — the actual fix for the "I'm in India but it
-/// shows UK" bug. Locale-only detection was the root cause: it reflects
-/// the device's *language* setting, not where the SIM/network/user
-/// actually is, so a phone set to "English (UK)" as a language would
-/// misreport a country on the other side of the planet.
-///
-/// This resolves the real network-visible country the same way
-/// Spotify/YouTube Music do it — via IP geolocation — with a short race
-/// across a couple of free, no-key providers for reliability, and only
-/// falls back to locale if every network attempt fails (e.g. no
-/// internet yet during onboarding). Each provider is capped so a slow/
-/// dead endpoint can never hang the UI — worst case this resolves to
-/// locale (or null, showing the manual list) within ~3.2s.
-Future<_Country?> _detectCountryReal() async {
-  final client = ApiService.httpClient;
-
-  Future<_Country?> viaIpApiCo() async {
-    final res = await client
-        .get(Uri.parse('https://ipapi.co/country/'))
-        .timeout(const Duration(seconds: 3));
-    if (res.statusCode != 200) return null;
-    final code = res.body.trim().toUpperCase();
-    if (code.length != 2) return null;
-    return _countryByCode(code);
-  }
-
-  Future<_Country?> viaIpwhois() async {
-    final res = await client
-        .get(Uri.parse('https://ipwho.is/?fields=success,country_code'))
-        .timeout(const Duration(seconds: 3));
-    if (res.statusCode != 200) return null;
-    final json = jsonDecode(res.body) as Map<String, dynamic>;
-    if (json['success'] != true) return null;
-    final code = (json['country_code'] as String?)?.toUpperCase();
-    return _countryByCode(code);
-  }
-
-  // Race both network sources concurrently and take a majority vote when
-  // they agree, otherwise trust whichever one actually resolved — a
-  // network-IP signal is already far more reliable than locale on its
-  // own. NOTE: a raw-IP-based third source (e.g. Cloudflare's
-  // 1.1.1.1/cdn-cgi/trace) was deliberately left out here — this app's
-  // network_security_config.xml only whitelists traffic by *domain*, and
-  // a bare IP literal can't be expressed as a <domain-config> entry, so
-  // that call would be silently blocked exactly like the Worker/YouTube
-  // domains were before those got added. Two domain-based providers
-  // (both whitelisted below) keep this reliable without hitting that
-  // trap again. This whole race is capped at 3.5s total.
-  final attempts = <Future<_Country?>>[
-    viaIpApiCo().catchError((_) => null),
-    viaIpwhois().catchError((_) => null),
-  ];
-
-  try {
-    final results = await Future.wait(attempts)
-        .timeout(const Duration(milliseconds: 3500), onTimeout: () => const []);
-    final codes = results.whereType<_Country>().map((c) => c.code).toList();
-    if (codes.isEmpty) return _detectCountryFromLocale();
-
-    // Majority vote when both agree; otherwise just trust whichever one
-    // answered since either is already a real network signal.
-    final counts = <String, int>{};
-    for (final c in codes) {
-      counts[c] = (counts[c] ?? 0) + 1;
-    }
-    final winner =
-        counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
-    return _countryByCode(winner) ?? _detectCountryFromLocale();
-  } catch (_) {
-    return _detectCountryFromLocale();
-  }
-}
+import '../config/region_catalog.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root screen — steps through Country -> Genres -> Artists
@@ -523,7 +68,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int _step = 0; // 0 = country, 1 = genres, 2 = artists
-  _Country? _selectedCountry;
+  Country? _selectedCountry;
   final Set<String> _selectedGenres = {};
   final Set<String> _selectedArtists = {}; // artist names
 
@@ -560,7 +105,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // locale-only detection, which is why it used to show "UK" for
     // someone in India — locale reflects the phone's language setting,
     // not its actual location.
-    final detected = await _detectCountryReal();
+    final detected = await detectCountryReal();
     if (!mounted) return;
     setState(() {
       _detecting = false;
@@ -664,12 +209,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 // STEP 1 — Country picker (auto-detected + manual, with search)
 // ─────────────────────────────────────────────────────────────────────────────
 class _CountryStep extends StatefulWidget {
-  final _Country? selected;
+  final Country? selected;
   final bool autoDetected;
   final bool detecting;
   final bool detectionFailed;
   final VoidCallback onAutoDetect;
-  final ValueChanged<_Country> onSelect;
+  final ValueChanged<Country> onSelect;
   final VoidCallback onNext;
 
   const _CountryStep({
@@ -694,16 +239,24 @@ class _CountryStepState extends State<_CountryStep> {
   @override
   void didUpdateWidget(covariant _CountryStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Once the user has picked manually, keep the list open.
-    if (!widget.autoDetected && !widget.detecting) _showManualList = true;
+    // Only force the manual list open on a genuine transition out of
+    // detecting (detection finished — success or failure). Checking the
+    // current state alone (old buggy check) fired on ANY rebuild while
+    // still in the neutral/choice state, forcing _showManualList = true
+    // before the user ever tapped anything — which is why "Auto-Detect"
+    // never appeared.
+    final justFinishedDetecting = oldWidget.detecting && !widget.detecting;
+    if (justFinishedDetecting && widget.detectionFailed) {
+      _showManualList = true;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final accent = AurumTheme.accentOf(context);
     final filtered = _query.isEmpty
-        ? _kCountries
-        : _kCountries
+        ? kCountries
+        : kCountries
             .where((c) => c.name.toLowerCase().contains(_query.toLowerCase()))
             .toList();
 
@@ -1069,7 +622,7 @@ class _ScanningLocationCardState extends State<_ScanningLocationCard>
     )..repeat();
 
     // Loading bar fill: eases up to ~92% on its own over the real network
-    // detection's worst-case window (~3.5s, see _detectCountryReal) so it
+    // detection's worst-case window (~3.5s, see detectCountryReal) so it
     // reads as genuine progress rather than a fake instant-complete bar —
     // then _CountryStepState jumps it to 100% the moment detection
     // actually resolves (see the `key` swap on this widget / didUpdateWidget
@@ -1369,7 +922,7 @@ class _RadarPainter extends CustomPainter {
 //   4. The "DETECTED AUTOMATICALLY" label and country name fade/slide in
 //      last, in a quick stagger, finishing the whole sequence in ~650ms.
 class _DetectedCountryCard extends StatefulWidget {
-  final _Country country;
+  final Country country;
   final Color accent;
   final VoidCallback onChangeTap;
 
@@ -1619,7 +1172,7 @@ class _DetectedCountryCardState extends State<_DetectedCountryCard>
 // STEP 2 — Genre picker (with search), re-ordered by selected country
 // ─────────────────────────────────────────────────────────────────────────────
 class _GenreStep extends StatefulWidget {
-  final _Country? country;
+  final Country? country;
   final Set<String> selected;
   final ValueChanged<String> onToggle;
   final VoidCallback onBack;
@@ -1644,7 +1197,7 @@ class _GenreStepState extends State<_GenreStep> {
   @override
   Widget build(BuildContext context) {
     final accent = AurumTheme.accentOf(context);
-    final ordered = _genreOrderFor(widget.country?.code);
+    final ordered = genreOrderFor(widget.country?.code);
     final filtered = _query.isEmpty
         ? ordered
         : ordered
@@ -1762,7 +1315,7 @@ class _GenreStepState extends State<_GenreStep> {
 // STEP 3 — Artist picker — LIVE search results, scoped by country + genres
 // ─────────────────────────────────────────────────────────────────────────────
 class _ArtistStep extends StatefulWidget {
-  final _Country? country;
+  final Country? country;
   final Set<String> genres;
   final Set<String> selected;
   final ValueChanged<String> onToggle;
@@ -1804,16 +1357,25 @@ class _ArtistStepState extends State<_ArtistStep> {
       // even after duplicates are dropped and the merge cap (60) still
       // comfortably clears the 40-artist floor in the common case.
       final genreList = widget.genres.isNotEmpty
-          ? _kOnboardingGenres.where((g) => widget.genres.contains(g.key)).toList()
-          : _genreOrderFor(widget.country?.code).take(4).toList();
+          ? kOnboardingGenres.where((g) => widget.genres.contains(g.key)).toList()
+          : genreOrderFor(widget.country?.code).take(4).toList();
 
       final countryName = widget.country?.name;
+      final countryCode = widget.country?.code;
+      // Computed once up front (also reused by the top-up logic below):
+      // whether Saavn's India-only catalog is a safe source for this
+      // country. See searchArtistsRegionScoped's doc comment — Saavn has
+      // no artist-type filter and no country awareness, so racing it in
+      // for a non-Indian query let mismatched Indian results win the
+      // race purely on speed, which is why picks looked completely
+      // unrelated to the chosen country/genre.
+      final isIndiaOrUnset = countryCode == null || countryCode == 'IN';
 
       // FIX: the old query was a single loose string like "pop United
       // Kingdom artists" — that's a free-text search with no real filter
       // behind it, so a country/genre combo with thin native coverage
       // would silently backfill with generically popular but unrelated
-      // artists. Two changes here:
+      // artists. Changes here:
       //   1. Query phrasing is now genre-aware and region-native where we
       //      know it (e.g. Bollywood + India -> "bollywood playback
       //      singers India", not just "bollywood India artists"), which
@@ -1823,12 +1385,17 @@ class _ArtistStepState extends State<_ArtistStep> {
       //      genre-1's results filling the whole grid) so the picker
       //      visibly reflects every genre + the chosen country, not just
       //      whichever query happened to return the most matches.
+      //   3. Saavn is only raced in for India/unset — see isIndiaOrUnset
+      //      above. Every other country now searches YT Music's
+      //      artist-type-filtered shelves only, which is what actually
+      //      fixes results matching the picked country/genre.
       final queries = genreList.map((g) {
-        final seed = _buildArtistSearchSeed(
+        final seed = buildArtistSearchSeed(
           genreSeed: g.searchSeed,
           countryName: countryName,
         );
-        return ApiService.searchArtists(seed, limit: 16)
+        return ApiService.searchArtistsRegionScoped(seed,
+                limit: 16, includeSaavn: isIndiaOrUnset)
             .timeout(const Duration(seconds: 4))
             .catchError((_) => <ArtistSimple>[])
             .then((list) => MapEntry(g.key, list));
@@ -1877,8 +1444,7 @@ class _ArtistStepState extends State<_ArtistStep> {
       // better default). Every other country instead widens its OWN
       // genre search net first (see the extra queries below) rather
       // than falling back to a mismatched pool.
-      final countryCode = widget.country?.code;
-      final isIndiaOrUnset = countryCode == null || countryCode == 'IN';
+      // (countryCode / isIndiaOrUnset already computed above.)
 
       if (merged.length < 40 && isIndiaOrUnset) {
         try {
@@ -1901,17 +1467,18 @@ class _ArtistStepState extends State<_ArtistStep> {
       if (merged.length < 40 && !isIndiaOrUnset) {
         try {
           final triedKeys = genreList.map((g) => g.key).toSet();
-          final extraGenres = _genreOrderFor(countryCode)
+          final extraGenres = genreOrderFor(countryCode)
               .where((g) => !triedKeys.contains(g.key))
               .take(4)
               .toList();
 
           final extraQueries = extraGenres.map((g) {
-            final seed = _buildArtistSearchSeed(
+            final seed = buildArtistSearchSeed(
               genreSeed: g.searchSeed,
               countryName: countryName,
             );
-            return ApiService.searchArtists(seed, limit: 16)
+            return ApiService.searchArtistsRegionScoped(seed,
+                    limit: 16, includeSaavn: isIndiaOrUnset)
                 .timeout(const Duration(seconds: 4))
                 .catchError((_) => <ArtistSimple>[]);
           }).toList();

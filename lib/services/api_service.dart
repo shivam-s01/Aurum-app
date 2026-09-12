@@ -2011,7 +2011,7 @@ class ApiService {
   // FIX (cold-start data usage): fetchSaavnChartsStreaming used to pull
   // charts for all 15 languages above on every cold start/refresh — each
   // one a full Top 50 playlist + artwork, which is the main source of the
-  // 4MB+ data spike and lag reported on slower connections. Most Aurum
+  // 4MB+ data spike and lag reported on slower connections. Most Astra
   // users only care about a handful of these. Default home feed now only
   // fetches the top 4 most broadly-listened Indian charts; the rest of
   // _saavnLanguages stays available for later per-user personalization
@@ -8915,6 +8915,45 @@ class ApiService {
   /// very niche query) — same fallback strategy as before, just backed by
   /// a parser that can't silently miss a shape.
   static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
+    return _searchArtistsInternal(query, limit: limit, includeSaavn: true);
+  }
+
+  /// Same as [searchArtists] but never races in the Saavn leg — use this
+  /// for any query that is scoped to a NON-Indian country/region.
+  ///
+  /// FIX ("bilkul alag artist aa rahe hai" — onboarding artist picks not
+  /// matching the chosen genre/country at all): JioSaavn's
+  /// /api/search/artists endpoint is a plain keyword/text-match search
+  /// over an India-centric catalog — it has no artist-type filter and no
+  /// country awareness at all. Onboarding's queries are natural-language
+  /// phrases like "top k-pop idol groups from South Korea" (built for a
+  /// human-readable YT Music search, not a bag-of-words match), so
+  /// against Saavn's matcher, words like "top"/"from"/the country name
+  /// routinely matched unrelated Indian songs/artists that merely shared
+  /// a word. Because searchArtists races every leg and takes whichever
+  /// completes first with ANY non-empty result, and Saavn's plain JSON
+  /// endpoint is typically the fastest leg to answer, it was winning the
+  /// race with completely mismatched results even though the YT Music
+  /// legs (which DO filter to real artist-type entities) would have
+  /// answered correctly a moment later.
+  ///
+  /// Saavn's catalog is genuinely the right source for India (that's why
+  /// [searchArtists] still includes it by default — regular in-app search
+  /// and India-scoped onboarding queries benefit from it), so this
+  /// dedicated entry point is opt-out rather than a global behavior change.
+  static Future<List<ArtistSimple>> searchArtistsRegionScoped(
+    String query, {
+    int limit = 12,
+    required bool includeSaavn,
+  }) {
+    return _searchArtistsInternal(query, limit: limit, includeSaavn: includeSaavn);
+  }
+
+  static Future<List<ArtistSimple>> _searchArtistsInternal(
+    String query, {
+    required int limit,
+    required bool includeSaavn,
+  }) async {
     if (query.trim().isEmpty) return const [];
 
     // SPEED FIX ("ekdam live result ke sath aana chahiye, koi lag na ho"):
@@ -8938,7 +8977,7 @@ class ApiService {
           useArtistFilter: true, timeout: const Duration(seconds: 4)),
       _searchArtistsAttempt(query, limit,
           useArtistFilter: false, timeout: const Duration(seconds: 4)),
-      _searchArtistsSaavn(query, limit),
+      if (includeSaavn) _searchArtistsSaavn(query, limit),
     ]);
   }
 
@@ -11969,7 +12008,7 @@ class ApiService {
     Future<RealPlaybackResult> Function(Song)? realPlaybackTest,
   }) async {
     final buf = StringBuffer();
-    buf.writeln('=== Aurum Playback Diagnostics v4 ===');
+    buf.writeln('=== Astra Playback Diagnostics v4 ===');
     buf.writeln('Time:   ${DateTime.now()}');
     buf.writeln('Worker: $_worker');
     buf.writeln('Saavn:  $_saavn');

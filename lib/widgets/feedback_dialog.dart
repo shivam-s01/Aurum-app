@@ -175,7 +175,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
         _AurumBrandMark(controller: _iconCtrl),
         const SizedBox(height: 18),
         Text(
-          'Enjoying Aurum?',
+          'Enjoying Astra?',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

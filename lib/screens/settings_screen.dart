@@ -12,6 +12,7 @@ import 'settings_notifications_screen.dart';
 import 'settings_about_screen.dart';
 import 'settings_privacy_screen.dart';
 import 'settings_language_screen.dart';
+import 'settings_region_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
@@ -90,6 +91,15 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () {
                       AurumHaptics.light();
                       AurumDepthRoute.to(context, const SettingsLanguageScreen());
+                    },
+                  ),
+                  _SettingsRow(
+                    icon: Icons.public_rounded,
+                    title: 'Region & Music Preferences',
+                    subtitle: 'Country, genres, and followed artists',
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsRegionScreen());
                     },
                   ),
                   _SettingsRow(

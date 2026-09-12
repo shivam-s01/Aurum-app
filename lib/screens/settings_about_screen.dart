@@ -176,7 +176,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
       '• Offline downloads & smart playlists\n\n'
       '📲 Download Astra Music v$version:\n'
       '${AppConstants.github}/releases/latest\n\n'
-      '#AurumMusic #MusicStreaming',
+      '#AstraMusic #MusicStreaming',
       subject: 'Astra Music — Premium Music Streaming',
     );
   }
