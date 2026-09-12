@@ -1185,44 +1185,67 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   @override
   Widget build(BuildContext context) {
     final followedProvider = context.watch<FollowedArtistsProvider>();
-    // DEBUG VISIBILITY (temporary — "Artists tab blank despite totalSaved>0
-    // confirmed via the follow-toggle SnackBar"): if this tab renders as a
-    // silent black void with no error and no "No artists saved yet" text,
-    // the leading theory is isLoading stuck true (this early-return path
-    // is JUST a thin ~2px AurumM3Loader bar centered on an otherwise empty
-    // black screen — visually indistinguishable from "nothing rendered"
-    // at a glance). This makes that state impossible to mistake for a
-    // silent failure. Remove once confirmed either way.
-    if (followedProvider.isLoading) {
-      if (kDebugMode) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              duration: Duration(seconds: 6),
-              content: Text(
-                'ArtistsTab: STUCK in isLoading=true branch — '
-                'Hive box never finished opening for this provider instance.',
-              ),
-            ),
-          );
-        });
+    // DEBUG VISIBILITY (temporary, ungated — release build confirmed via
+    // the previous screenshot round showing NEITHER the isLoading
+    // SnackBar NOR the "No artists saved yet" empty state, which rules
+    // out the isLoading-stuck theory entirely: if isLoading were stuck
+    // true we'd have seen the loading branch below fire every time. Since
+    // we saw a totally blank Scaffold body instead, something in THIS
+    // exact build() is throwing before reaching either the loading
+    // branch's return or the empty/list slivers further down — most
+    // likely inside the isLoading==false path (the ordered/base
+    // computation, or _TopArtistAndCountRow itself) never even getting a
+    // chance to paint. This top-of-build SnackBar fires on every single
+    // build() call regardless of which branch is taken, unconditionally,
+    // so it will fire even if something later in this same build() throws
+    // — telling us definitively whether build() is even being *entered*
+    // for this tab, and with what raw data, before whatever breaks.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      String rawInfo;
+      try {
+        rawInfo = 'raw=${followedProvider.followed.length} '
+            'isLoading=${followedProvider.isLoading}';
+      } catch (e) {
+        rawInfo = 'ERROR reading followed.length: $e';
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text('ArtistsTab build() entered — $rawInfo'),
+        ),
+      );
+    });
+    if (followedProvider.isLoading) {
+      // DEBUG VISIBILITY (temporary, NOT gated behind kDebugMode this
+      // time — the previous kDebugMode-only SnackBar never fired on a
+      // release build, which is exactly the build this is being tested
+      // on, so it told us nothing). Shows unconditionally so we can see
+      // the real state on the actual installed build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 8),
+            content: Text(
+              'ArtistsTab: STUCK in isLoading=true branch — '
+              'Hive box never finished opening for this provider instance.',
+            ),
+          ),
+        );
+      });
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: kDebugMode
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Loading artists…',
-                        style: TextStyle(
-                            color: AurumTheme.textMutedOf(context))),
-                    const SizedBox(height: 12),
-                    const AurumM3Loader(),
-                  ],
-                )
-              : const AurumM3Loader(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Loading artists…',
+                  style: TextStyle(color: AurumTheme.textMutedOf(context))),
+              const SizedBox(height: 12),
+              const AurumM3Loader(),
+            ],
+          ),
         ),
       );
     }
