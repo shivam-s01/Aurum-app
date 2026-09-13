@@ -95,6 +95,26 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
     RouteObserver<ModalRoute<void>>();
 
+/// App-wide debug ErrorWidget builder: renders the actual exception text on
+/// a dark-red card, in every build mode including release, instead of a
+/// silent blank/grey box. Referenced by name (e.g. home_screen.dart's
+/// _ErrorBoundary) to restore this exact builder after a local override.
+Widget aurumDebugErrorWidgetBuilder(FlutterErrorDetails details) {
+  return Material(
+    color: const Color(0xFF7A0000),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: Text(
+          details.exceptionAsString(),
+          style: const TextStyle(color: Colors.white, fontSize: 11),
+        ),
+      ),
+    ),
+  );
+}
+
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -118,21 +138,7 @@ Future<void> main() async {
   // renders the actual exception text, in every build mode including
   // release. This is what finally surfaces the real crash reason instead
   // of a silent blank screen.
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return Material(
-      color: const Color(0xFF7A0000),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: Text(
-            details.exceptionAsString(),
-            style: const TextStyle(color: Colors.white, fontSize: 11),
-          ),
-        ),
-      ),
-    );
-  };
+  ErrorWidget.builder = aurumDebugErrorWidgetBuilder;
 
   // SECOND SAFETY NET: ErrorWidget.builder above only fires for exceptions
   // thrown during a widget's build() call. Two other classes of crash can
