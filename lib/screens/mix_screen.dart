@@ -553,7 +553,7 @@ class _MixScreenState extends State<MixScreen> {
                                           ? Icons.favorite_rounded
                                           : Icons.favorite_border_rounded,
                                       iconColor: saved
-                                          ? AurumTheme.gold
+                                          ? AurumTheme.accentOf(context)
                                           : Colors.white,
                                       onTap: () => followedAlbums.toggleFollow(
                                         albumId: widget.mixId,
@@ -814,7 +814,7 @@ class _MixScreenState extends State<MixScreen> {
     if (widget.enableRefresh) {
       body = RefreshIndicator(
         onRefresh: _onRefresh,
-        color: AurumTheme.gold,
+        color: AurumTheme.accentOf(context),
         backgroundColor: AurumTheme.bgElevatedOf(context),
         child: body,
       );
@@ -999,7 +999,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: saved
-                        ? AurumTheme.gold.withOpacity(0.12)
+                        ? AurumTheme.accentOf(context).withOpacity(0.12)
                         : AurumTheme.bgSurfaceOf(context),
                     shape: BoxShape.circle,
                   ),
@@ -1266,7 +1266,7 @@ class _RoundGlassButton extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active
-              ? AurumTheme.gold.withOpacity(0.16)
+              ? AurumTheme.accentOf(context).withOpacity(0.16)
               : AurumTheme.bgSurfaceOf(context),
         ),
         child: Icon(
@@ -1275,7 +1275,7 @@ class _RoundGlassButton extends StatelessWidget {
           color: disabled
               ? AurumTheme.textMutedOf(context).withOpacity(0.4)
               : active
-                  ? AurumTheme.gold
+                  ? AurumTheme.accentOf(context)
                   : AurumTheme.textPrimaryOf(context),
         ),
       ),
@@ -1392,7 +1392,7 @@ class _ArtistChip extends StatelessWidget {
           border: Border.all(color: AurumTheme.dividerOf(context)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: AurumTheme.gold),
+          Icon(icon, size: 14, color: AurumTheme.accentOf(context)),
           const SizedBox(width: 6),
           Text(
             name,

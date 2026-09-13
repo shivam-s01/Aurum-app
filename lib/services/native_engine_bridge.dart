@@ -502,6 +502,10 @@ class NativeAudioEngine {
   Future<void> setCrossfadeSeconds(double secs) =>
       _method.invokeMethod('setCrossfadeSeconds', {'seconds': secs});
   Future<void> sleepAfterCurrentSong() => _method.invokeMethod('sleepAfterCurrentSong');
+  Future<bool> deletePublicDownload(String pathOrUri) async {
+    final result = await _method.invokeMethod('deletePublicDownload', {'pathOrUri': pathOrUri});
+    return result == true;
+  }
 
   /// Fades volume smoothly to 0 over [fadeMs] then pauses — used by the
   /// sleep timer so playback winds down instead of cutting out abruptly.

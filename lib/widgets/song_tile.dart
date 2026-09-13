@@ -246,7 +246,7 @@ class _SongTileState extends State<SongTile> {
                   Text(
                     widget.song.title,
                     style: TextStyle(
-                      color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+                      color: isCurrentSong ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
                       fontSize: 16,
                       fontWeight: isCurrentSong ? FontWeight.w700 : FontWeight.w600,
                     ),
@@ -732,10 +732,10 @@ class _AlbumChipState extends State<_AlbumChip> {
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.6,
-                    color: AurumTheme.gold,
+                    color: AurumTheme.accentOf(context),
                   ),
                 )
-              : Icon(Icons.album_rounded, size: 14, color: AurumTheme.gold),
+              : Icon(Icons.album_rounded, size: 14, color: AurumTheme.accentOf(context)),
           const SizedBox(width: 6),
           Text(
             widget.albumName,
@@ -775,7 +775,7 @@ class _ArtistChip extends StatelessWidget {
           border: Border.all(color: AurumTheme.dividerOf(context)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: AurumTheme.gold),
+          Icon(icon, size: 14, color: AurumTheme.accentOf(context)),
           const SizedBox(width: 6),
           Text(
             name,

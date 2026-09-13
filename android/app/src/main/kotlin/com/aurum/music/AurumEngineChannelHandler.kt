@@ -380,6 +380,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     }
                 }
                 "clearQueue" -> { engine.clearQueue(); result.success(null) }
+                "deletePublicDownload" -> {
+                    val pathOrUri = call.argument<String>("pathOrUri") ?: ""
+                    result.success(AurumMediaStoreDownloads.delete(appContext, pathOrUri))
+                }
                 "play" -> { engine.play(); result.success(null) }
                 "pause" -> { engine.pause(); result.success(null) }
                 "stop" -> { engine.stop(); result.success(null) }
