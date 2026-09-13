@@ -1092,30 +1092,55 @@ class _HomeScreenState extends State<HomeScreen> {
                   // _HomeShelvesAndSimilarSection below interleaves real
                   // shelves with similar-artist rows itself instead of
                   // two separate back-to-back sliver children.
-                  // Quick Picks — YT Music's own top-of-Home vertical song
-                  // list, personalized off real listening history. Sits
-                  // right under Hero, before the artist strip/shelves, to
-                  // match the reference screenshots' top-level ordering.
+                  // REDESIGN ("ekdam youtube music jaisa structure
+                  // redesign kro" — 2026-09-13): mood chip row restored
+                  // as the very first thing under the app bar, matching
+                  // the real reference screenshots exactly — but now
+                  // backed by _RealMoodChipsSection's 100% genuine
+                  // fetchMoodsAndGenres()/fetchMoodGenreCategory() data
+                  // instead of the old fake-fallback pipeline (see that
+                  // section's own doc comment for why the previous
+                  // version was removed and what's different this time).
+                  SliverToBoxAdapter(
+                    child: _RealMoodChipsSection(
+                      refreshKey: _playlistRefreshKey,
+                    ),
+                  ),
+                  // Quick Picks — YT Music's own top-of-Home vertical
+                  // song list, personalized off real listening history.
+                  // Sits right under the mood chips, before the artist
+                  // strip/shelves, to match the reference screenshots'
+                  // top-level ordering.
                   SliverToBoxAdapter(
                     child: _QuickPicksSection(
                       refreshKey: _playlistRefreshKey,
                     ),
                   ),
-                  // REMOVED ("ye cards hata do... mujhe aisa chahiye ki
-                  // ekdam real innertube se ho", 2026-09-13): the mood chip
-                  // row (_YtPlaylistsForYouSection — Feel good/Relax/
-                  // Romantic/Energize/Podcasts) unmounted again. Its
-                  // fetchYtMusicHomePlaylists() backing is only PARTLY real
-                  // InnerTube — when a real playlist search comes up short
-                  // it falls back to _raceSongSources (a plain text search)
-                  // wrapped in a fake YtHomePlaylistCard (subtitle:
-                  // 'Playlist') — not a genuine InnerTube playlist at all.
-                  // Every other shelf on this screen (_RealHomeShelvesSection
-                  // below, Quick Picks above) is 100% real InnerTube with no
-                  // such fallback, so this row is removed rather than kept
-                  // alongside them. Class left defined below (dead code) —
-                  // not deleted — in case a REAL-only version of this mood
-                  // row is wanted later.
+                  // ADDED ("aur kuch add krna hai... koi user open kre
+                  // to lage ye top level ka app hai" — 2026-09-13): real
+                  // YT Music's own "Listen again" horizontal shelf —
+                  // this widget already existed fully built (real
+                  // RecentlyPlayedProvider.history data, tap-to-play,
+                  // proper card layout) but was never actually mounted
+                  // anywhere on Home. Wired in here, right under Quick
+                  // Picks, matching where the reference app places its
+                  // own history-based shelf. Genuinely hides itself via
+                  // its own `if (songs.isEmpty) return SizedBox.shrink()`
+                  // for a brand-new install with no play history yet —
+                  // never shows an empty titled row.
+                  //
+                  // PERF: wrapped in its own tiny _ListenAgainSection
+                  // instead of a bare context.watch() right here — this
+                  // file went to real trouble (_onlineSectionsNotifier,
+                  // see this State class's own doc comment above) to
+                  // stop every song-change event from rebuilding the
+                  // ENTIRE Home tree; watching RecentlyPlayedProvider
+                  // directly in this top-level build() would reintroduce
+                  // exactly that problem for every single play. The
+                  // extra widget isolates the rebuild to just this shelf.
+                  const SliverToBoxAdapter(
+                    child: _ListenAgainSection(),
+                  ),
                   SliverToBoxAdapter(
                     child: _ArtistStrip(
                       artists: _homeArtists,
@@ -3109,6 +3134,23 @@ class _SourceOptionState extends State<_SourceOption> {
 // songs, not a mix/album to open — so no MixScreen navigation here).
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Thin isolation wrapper so watching RecentlyPlayedProvider (which
+// changes on every single play) only rebuilds this one shelf — see the
+// PERF note at this section's Home build() call site for why a bare
+// context.watch() directly in _HomeScreenState.build() would be wrong.
+class _ListenAgainSection extends StatelessWidget {
+  const _ListenAgainSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final history = context.watch<RecentlyPlayedProvider>().history;
+    return _RecentlyPlayedSection(
+      title: AppLocalizations.of(context)!.homeListenAgain,
+      songs: history.take(12).toList(),
+    );
+  }
+}
+
 class _RecentlyPlayedSection extends StatelessWidget {
   final String title;
   final List<Song> songs;
@@ -3213,9 +3255,17 @@ class _ArtistStrip extends StatefulWidget {
 }
 
 class _ArtistStripState extends State<_ArtistStrip> {
-  // Cap how many rows render on Home — this is a taste/discovery
-  // section, not the full artist library (that's Search / Library).
-  static const int _maxShown = 10;
+  // RECHECK ("ekdam top level ka hai na ab vo artist ya kuch bhe akward
+  // nhi hai na" — 2026-09-13): capped at 10 full-width rows, this block
+  // ran to roughly 900px of solid vertical space right under Quick
+  // Picks — nothing in the real music.youtube.com reference screenshots
+  // shows a standalone artist block anywhere near that size; the real
+  // app's own artist rows only ever appear as small "Similar to X"
+  // carousels (2-4 cards) interleaved between shelves, which
+  // _HomeShelvesAndSimilarSection below already provides. Cut to 4 so
+  // this reads as one reasonably-sized taste-signal shelf instead of a
+  // page-dominating wall of rows.
+  static const int _maxShown = 4;
 
   @override
   Widget build(BuildContext context) {
@@ -4172,24 +4222,6 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     }
   }
 
-  void _openAsPlaylist(BuildContext context, List<Song> songs) {
-    AurumHaptics.selection();
-    final art = songs
-        .where((s) => s.artworkUrl.isNotEmpty)
-        .map((s) => s.artworkUrl)
-        .firstOrNull ?? '';
-    AurumDepthRoute.to(
-      context,
-      MixScreen(
-        mixId: 'quick_picks_${widget.refreshKey}',
-        mixName: AppLocalizations.of(context)!.homeQuickPicks,
-        artworkUrl: art,
-        emoji: '',
-        songs: songs,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final songs = _songs;
@@ -4258,68 +4290,141 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
       return const SizedBox.shrink();
     }
 
+    // REDESIGN, RECHECKED against real music.youtube.com screenshots
+    // ("dekho ekdam real youtube music jaisa ekdam top level ka" —
+    // 2026-09-13): the real Quick Picks section is a plain FULL-WIDTH
+    // VERTICAL LIST — small square art, title (+ "N plays"/views
+    // subtitle), 3-dot menu on the right, ONE ROW PER LINE — not a
+    // 2-column grid (that was this section's own previous pass, since
+    // corrected) and the header has no "Play all" pill, just the plain
+    // title (unlike "Trending songs for you", which DOES have one).
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 12, right: 12, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _openAsPlaylist(context, songs),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Text(
-                        AppLocalizations.of(context)!.homeQuickPicks,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Material(
-                color: Colors.transparent,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => _openAsPlaylist(context, songs),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 20,
-                      color: AurumTheme.textPrimaryOf(context),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            AppLocalizations.of(context)!.homeQuickPicks,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
           ),
-          const SizedBox(height: 4),
-          // Flat vertical list — no nested scrollable (this whole section
-          // is itself one child of Home's outer CustomScrollView), same
-          // "Column of rows" shape _RecentlyPlayedSection/_ArtistStrip
-          // already use for their own non-horizontal Home rows.
+          const SizedBox(height: 8),
+          // Flat vertical list — no nested scrollable (this whole
+          // section is itself one child of Home's outer
+          // CustomScrollView), same "Column of rows" shape
+          // _RecentlyPlayedSection/_ArtistStrip already use for their
+          // own non-horizontal Home rows.
           for (var i = 0; i < songs.length; i++)
-            SongTile(
+            _QuickPickListRow(
               key: ValueKey('quickpick_${songs[i].id}_${widget.refreshKey}'),
               song: songs[i],
               queue: songs,
               index: i,
-              curatedQueue: true,
             ),
         ],
+      ),
+    );
+  }
+}
+
+// One Quick Picks / Trending-songs-for-you row — small square art (left)
+// + title/subtitle stacked (right) + a 3-dot overflow affordance, full
+// width, one row per line — matches the real reference screenshots
+// exactly (previously this was mistakenly built as a 2-column grid;
+// corrected here). A currently-playing row gets a subtle highlighted
+// background, same as the real app's own "now playing" row treatment.
+class _QuickPickListRow extends StatelessWidget {
+  final Song song;
+  final List<Song> queue;
+  final int index;
+  const _QuickPickListRow({
+    super.key,
+    required this.song,
+    required this.queue,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == song.id,
+    );
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        decoration: BoxDecoration(
+          color: isPlaying
+              ? AurumTheme.accentOf(context).withOpacity(0.10)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () {
+              AurumHaptics.selection();
+              context
+                  .read<PlayerProvider>()
+                  .playSong(song, queue: queue, index: index);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: AurumArtwork(
+                        url: song.artworkUrl, size: 52, borderRadius: 0),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isPlaying
+                                ? AurumTheme.accentOf(context)
+                                : AurumTheme.textPrimaryOf(context),
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AurumTheme.textMutedOf(context),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.more_vert,
+                    size: 20,
+                    color: AurumTheme.textMutedOf(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -5944,6 +6049,268 @@ class _MoodChipRow extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// REAL mood chips + category shelves ("ekdam youtube music jaisa
+// structure redesign kro" — 2026-09-13): reuses _MoodChipRow's UI
+// exactly as before, but backs it with 100% real InnerTube data this
+// time — fetchMoodsAndGenres() for the chip list (real category
+// title/browseId/params, same data MoodsGenresScreen's own grid uses),
+// then fetchMoodGenreCategory(browseId, params) for whichever chip is
+// selected (same real per-category browse call MoodGenreDetailScreen
+// makes). This is the real-data replacement for the old
+// _YtPlaylistsForYouSection, which was removed specifically because its
+// fetchYtMusicHomePlaylists() backing fell back to a fake plain-search
+// result wrapped in a playlist-shaped card when a real playlist search
+// came up short — every fetch here is the same genuine browse endpoint
+// MoodsGenresScreen already trusts, no fallback of that kind exists.
+// An "All" chip (id: _kRealMoodAllId) always leads and simply hides
+// this section's own shelf output, deferring to the regular
+// _HomeShelvesAndSimilarSection lower on the page — this section is
+// additive, it never replaces or hides that one.
+// ══════════════════════════════════════════════════════════════════
+
+const String _kRealMoodAllId = '__all__';
+
+class _RealMoodChipsSection extends StatefulWidget {
+  final int refreshKey;
+  const _RealMoodChipsSection({this.refreshKey = 0});
+
+  @override
+  State<_RealMoodChipsSection> createState() => _RealMoodChipsSectionState();
+}
+
+class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
+  List<MoodGenreCategory>? _categories;
+  bool _categoriesFailed = false;
+
+  String _selectedMood = _kRealMoodAllId;
+  List<HomeShelf>? _categoryShelves;
+  bool _categoryFailed = false;
+  // Guards a fast chip-tap-tap-tap from letting an earlier, slower
+  // fetch's result land after a later one already resolved and
+  // rendered — same "only the latest request wins" rule used
+  // elsewhere in this file (e.g. SearchScreen's own query race guard).
+  int _loadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+  }
+
+  @override
+  void didUpdateWidget(_RealMoodChipsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // FIX (recheck — "refresh pr bhe ekdam fresh ekdam real innertube
+    // se" — 2026-09-13): pull-to-refresh used to only reload the chip
+    // list itself. If a mood other than "All" was still selected at
+    // refresh time, that mood's OWN category shelves were never
+    // refetched — the chip row refreshed but the shelves underneath it
+    // silently kept showing the pre-refresh data until the user tapped
+    // the chip again. Reset selection back to "All" on every refresh
+    // (same rule _HomeShelvesAndSimilarSection already applies to ITS
+    // own state) so a refresh always lands on a guaranteed-fresh state
+    // rather than a stale mood carried over from before the refresh.
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      _selectedMood = _kRealMoodAllId;
+      _categoryShelves = null;
+      _categoryFailed = false;
+      _loadCategories();
+    }
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final sections = await ApiService.fetchMoodsAndGenres();
+      if (!mounted) return;
+      // Flatten every section's tiles into one chip row — this row is
+      // a quick-access shortcut, not the full categorized grid (that's
+      // still MoodsGenresScreen, one tap away via the shelves below).
+      final flat = <MoodGenreCategory>[
+        for (final section in sections) ...section.items,
+      ];
+      setState(() {
+        _categories = flat;
+        _categoriesFailed = flat.isEmpty;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _categoriesFailed = true);
+    }
+  }
+
+  Future<void> _onMoodTap(String id) async {
+    AurumHaptics.selection();
+    if (id == _selectedMood) return;
+    setState(() {
+      _selectedMood = id;
+      _categoryShelves = null;
+      _categoryFailed = false;
+    });
+    if (id == _kRealMoodAllId) return;
+
+    final categories = _categories;
+    if (categories == null) return;
+    final match = categories.where((c) => c.params == id).firstOrNull;
+    if (match == null) return;
+
+    final token = ++_loadToken;
+    try {
+      final shelves =
+          await ApiService.fetchMoodGenreCategory(match.browseId, match.params);
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _categoryShelves = shelves;
+        _categoryFailed = shelves.isEmpty;
+      });
+    } catch (_) {
+      if (mounted && token == _loadToken) {
+        setState(() => _categoryFailed = true);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = _categories;
+
+    // Nothing real came back — skip the whole row silently rather than
+    // showing an empty/broken chip strip, same "don't show a titled
+    // section with no real content" rule every optional Home section
+    // here follows.
+    if (categories == null && _categoriesFailed) {
+      return const SizedBox.shrink();
+    }
+    if (categories == null) {
+      // Loading skeleton — plain chip-shaped shimmer blocks, same
+      // quiet-skeleton language as the rest of Home.
+      return Padding(
+        padding: const EdgeInsets.only(top: 28, left: 12, right: 0),
+        child: SizedBox(
+          height: 34,
+          child: Shimmer.fromColors(
+            baseColor: AurumTheme.bgCardOf(context),
+            highlightColor: AurumTheme.bgElevatedOf(context),
+            child: Row(
+              children: [
+                for (var i = 0; i < 5; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Container(
+                      width: 74,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AurumTheme.bgCardOf(context),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (categories.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 12),
+            child: SizedBox(
+              height: 34,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(right: 12),
+                cacheExtent: 300,
+                itemCount: categories.length + 1,
+                itemBuilder: (_, i) {
+                  final isAll = i == 0;
+                  final id = isAll ? _kRealMoodAllId : categories[i - 1].params;
+                  final label =
+                      isAll ? AppLocalizations.of(context)!.homeMoodAll : categories[i - 1].title;
+                  final selected = id == _selectedMood;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () => _onMoodTap(id),
+                      child: AnimatedContainer(
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                        curve: Curves.easeOut,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AurumTheme.accentOf(context)
+                              : AurumTheme.bgCardOf(context),
+                          borderRadius: BorderRadius.circular(20),
+                          border: selected
+                              ? null
+                              : Border.all(
+                                  color: AurumTheme.textPrimaryOf(context)
+                                      .withOpacity(0.10),
+                                  width: 1,
+                                ),
+                        ),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: selected
+                                ? Theme.of(context).colorScheme.onPrimary
+                                : AurumTheme.textPrimaryOf(context)
+                                    .withOpacity(0.85),
+                            fontSize: 13,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          // Selected-mood shelves — only rendered for a real (non-"All")
+          // chip. "All" intentionally shows nothing here; the regular
+          // shelves further down the page already cover that case.
+          if (_selectedMood != _kRealMoodAllId) ...[
+            const SizedBox(height: 12),
+            if (_categoryShelves == null && !_categoryFailed)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, right: 12),
+                child: FadedHorizontalList(
+                  height: 172,
+                  child: _YtPlaylistsForYouSkeleton(
+                      scrollController: ScrollController()),
+                ),
+              )
+            else if (_categoryFailed || (_categoryShelves?.isEmpty ?? true))
+              const SizedBox.shrink()
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final shelf in _categoryShelves!)
+                    _RealHomeShelfRow(
+                      key: ValueKey('${shelf.title}_$_selectedMood'),
+                      shelf: shelf,
+                    ),
+                ],
+              ),
+          ],
+        ],
       ),
     );
   }
