@@ -5084,6 +5084,34 @@ class ApiService {
     }
   }
 
+  // "Similar to X" Home row, YT MUSIC SHAPE (2026-09-13, "ekdam youtube
+  // music ka structure": header = seed artist photo + name, row directly
+  // underneath = that SAME seed artist's own real albums, e.g. YT Music's
+  // own "Similar to Udit Narayan" showing Diljale/Khal Nayak — his own
+  // discography, not other artists' photos). Previously this row used
+  // fetchSimilarArtistChips above (renders OTHER related artists' chips
+  // underneath, wrong shape for this screenshot). Same single-browse-call
+  // shape as fetchSimilarArtistChips: songCount: 0 keeps the request to
+  // exactly the one InnerTube browse fetchArtist already makes either way
+  // (see that function's own doc comment) — only albumCount actually
+  // matters for what gets parsed out of the response.
+  static Future<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})?>
+      fetchSimilarArtistAlbums(String artistName, {int albumCount = 10}) async {
+    try {
+      final id = await resolveArtistId(artistName);
+      if (id == null) return null;
+      final artist = await fetchArtist(id, songCount: 0, albumCount: albumCount);
+      if (artist == null || artist.topAlbums.isEmpty) return null;
+      return (
+        artistName: artistName,
+        artistImageUrl: artist.imageUrl,
+        albums: artist.topAlbums.take(albumCount).toList(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<HomeShelf?> _searchAsHomeShelf(String query, String label,
       {int take = 10, String? strapline}) async {
     try {

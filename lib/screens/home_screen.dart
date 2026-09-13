@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
+import '../models/artist.dart' show ArtistAlbum;
 import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
@@ -1041,7 +1042,12 @@ class _HomeScreenState extends State<HomeScreen> {
               cacheExtent: 1200,
               slivers: [
                 _buildAppBar(context, src),
-                SliverToBoxAdapter(child: _HeroNowPlaying(isActive: widget.isActive)),
+                // REMOVED ("vo hero hata do complete vo sahi nhi lg raha
+                // hai") — the _HeroNowPlaying floating glass card used to
+                // render here, directly under the app bar. Widget class
+                // left defined below (dead code) rather than deleted, in
+                // case a different treatment is wanted later; it is no
+                // longer mounted anywhere on Home.
                 if (!isOnline)
                   const SliverToBoxAdapter(child: _OfflineContent(key: ValueKey('offline')))
                 else ...[
@@ -1086,6 +1092,30 @@ class _HomeScreenState extends State<HomeScreen> {
                   // _HomeShelvesAndSimilarSection below interleaves real
                   // shelves with similar-artist rows itself instead of
                   // two separate back-to-back sliver children.
+                  // Quick Picks — YT Music's own top-of-Home vertical song
+                  // list, personalized off real listening history. Sits
+                  // right under Hero, before the artist strip/shelves, to
+                  // match the reference screenshots' top-level ordering.
+                  SliverToBoxAdapter(
+                    child: _QuickPicksSection(
+                      refreshKey: _playlistRefreshKey,
+                    ),
+                  ),
+                  // REMOVED ("ye cards hata do... mujhe aisa chahiye ki
+                  // ekdam real innertube se ho", 2026-09-13): the mood chip
+                  // row (_YtPlaylistsForYouSection — Feel good/Relax/
+                  // Romantic/Energize/Podcasts) unmounted again. Its
+                  // fetchYtMusicHomePlaylists() backing is only PARTLY real
+                  // InnerTube — when a real playlist search comes up short
+                  // it falls back to _raceSongSources (a plain text search)
+                  // wrapped in a fake YtHomePlaylistCard (subtitle:
+                  // 'Playlist') — not a genuine InnerTube playlist at all.
+                  // Every other shelf on this screen (_RealHomeShelvesSection
+                  // below, Quick Picks above) is 100% real InnerTube with no
+                  // such fallback, so this row is removed rather than kept
+                  // alongside them. Class left defined below (dead code) —
+                  // not deleted — in case a REAL-only version of this mood
+                  // row is wanted later.
                   SliverToBoxAdapter(
                     child: _ArtistStrip(
                       artists: _homeArtists,
@@ -3183,22 +3213,9 @@ class _ArtistStrip extends StatefulWidget {
 }
 
 class _ArtistStripState extends State<_ArtistStrip> {
-  // Own controller (not a stray one allocated fresh in build) so it's
-  // created once and disposed once — same pattern as every other
-  // scrollable section in this file (see the song-card carousel's own
-  // controller for the fuller rationale on why this matters for a
-  // horizontal list that can rebuild often on Home).
-  late final ScrollController _scrollController = ScrollController();
-
-  // Cap how many chips render on Home — this is a taste/discovery
+  // Cap how many rows render on Home — this is a taste/discovery
   // section, not the full artist library (that's Search / Library).
   static const int _maxShown = 10;
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -3221,85 +3238,167 @@ class _ArtistStripState extends State<_ArtistStrip> {
             ),
           ),
           const SizedBox(height: 14),
-          // COMPACT HORIZONTAL STRIP: a full-width list of 6-10 artist
-          // rows was taking up nearly a full screen of vertical space on
-          // Home before a person even reached New Releases / other
-          // sections below it — same "too much scroll for one section"
-          // problem a vertical grid would have. A horizontal scroll strip
-          // (Spotify/YT Music's own "Popular artists" pattern) keeps the
-          // section's footprint to a single fixed-height row while still
-          // surfacing the same 10 artists — just swipeable instead of
-          // stacked.
-          //
-          // CORRECTION (2026-09-06, same day as the bump below): the
-          // earlier 124px pass was based on a rough visual guess against
-          // the reference screenshot, not an actual measurement — doing
-          // the real math (circle width as a % of the screenshot's own
-          // pixel width, translated to a typical phone's logical/dp
-          // width) puts the reference artist circle at roughly 65-75dp,
-          // NOT 124dp. 124px was overshooting by nearly 2x. Corrected to
-          // 72px avatar (between the original 84px baseline and that
-          // measured ~65-75dp target) — genuinely matches the reference
-          // proportion now instead of just "looking bigger than before."
-          // Row height corrected to 122 to match (72 avatar + 8 spacing +
-          // one line of 12px name text + a little breathing room) —
-          // NOT simply reverted to the old 128, since the chip's own
-          // internal spacing/font-size also changed slightly alongside
-          // the size correction.
-          FadedHorizontalList(
-            // Bumped alongside _ArtistChip's avatar size increase (104
-            // avatar + 10 spacing + ~13px name line + breathing room).
-            height: 158,
-            controller: _scrollController,
-            fadeWidth: 12,
-            child: loading
-                ? _buildShimmer(context)
-                : artists.isEmpty
-                    ? const SizedBox.shrink()
-                    : ListView.builder(
-                        controller: _scrollController,
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        cacheExtent: 500,
-                        itemCount: artists.take(_maxShown).length,
-                        itemBuilder: (_, i) => _ArtistChip(
-                          key: ValueKey(artists[i].id),
-                          artist: artists[i],
-                        ),
-                      ),
-          ),
+          // FULL-WIDTH VERTICAL LIST ("sirf ek line mai phle jaise nhi
+          // rahenge na ekdam youtube jaisa", 2026-09-13): YT Music's own
+          // "Popular artists"/artist rows on Home are full-width list
+          // rows stacked one under another (big avatar + big name, same
+          // row shape as a playlist/song row), NOT a horizontal scroll
+          // strip of small circular chips — that horizontal-strip
+          // treatment (the FadedHorizontalList + _ArtistChip pair this
+          // replaces) read as a discovery carousel instead of a real
+          // artist list. _ArtistChip/the horizontal ListView.builder are
+          // left defined below (dead code) rather than deleted, in case
+          // a compact strip is wanted again elsewhere later.
+          loading
+              ? _buildRowShimmer(context)
+              : artists.isEmpty
+                  ? const SizedBox.shrink()
+                  : Column(
+                      children: [
+                        for (final a in artists.take(_maxShown))
+                          _ArtistFullRow(key: ValueKey(a.id), artist: a),
+                      ],
+                    ),
         ],
       ),
     );
   }
 
-  Widget _buildShimmer(BuildContext context) {
+  Widget _buildRowShimmer(BuildContext context) {
     return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: 6,
-        itemBuilder: (_, __) => Container(
-          width: 110,
-          margin: const EdgeInsets.only(right: 16),
-          child: Column(children: [
-            // FIX (white flash — same root cause as elsewhere in this
-            // file): Shimmer.fromColors only sweeps a gradient OVER this
-            // base color, it doesn't replace it. Using the theme's own
-            // card color (not Colors.white) keeps a dropped/late shimmer
-            // frame looking correct against the dark theme.
-            CircleAvatar(radius: 52, backgroundColor: AurumTheme.bgCardOf(context)),
-            const SizedBox(height: 10),
-            Container(
-              width: 70, height: 12,
-              decoration: BoxDecoration(
-                color: AurumTheme.bgCardOf(context),
-                borderRadius: BorderRadius.circular(4),
+      child: Column(
+        children: List.generate(4, (_) => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            children: [
+              CircleAvatar(radius: 36, backgroundColor: AurumTheme.bgCardOf(context)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Container(
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: AurumTheme.bgCardOf(context),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
               ),
+            ],
+          ),
+        )),
+      ),
+    );
+  }
+}
+
+// Full-width artist list row — YT Music's real "Popular artists" row
+// shape: big circular avatar on the left, name (and a subtle "Artist"
+// caption) next to it, a play affordance on the right, one artist
+// stacked directly under another (not a horizontal scroll strip). Tap
+// anywhere on the row opens the artist's real page; the play button
+// starts that artist's own top songs directly, same as tapping straight
+// into ArtistScreen and hitting play would.
+class _ArtistFullRow extends StatelessWidget {
+  final ArtistSimple artist;
+  const _ArtistFullRow({super.key, required this.artist});
+
+  Future<void> _open(BuildContext context) async {
+    AurumHaptics.selection();
+    final id = artist.id.isNotEmpty
+        ? artist.id
+        : await ApiService.resolveArtistId(artist.name);
+    if (id == null || !context.mounted) return;
+    AurumDepthRoute.to(
+      context,
+      ArtistScreen(artistId: id, artistName: artist.name),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Highlights this row while the artist's own song is the one
+    // actively playing — same "you're already listening to this" signal
+    // the old chip row gave, just carried over to the new row shape.
+    final isCurrentArtist = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong != null &&
+          p.currentSong!.artist.toLowerCase() == artist.name.toLowerCase(),
+    );
+    final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
+
+    // PERF: isolates this row's own PlayerProvider-driven rebuilds
+    // (isCurrentArtist/isActuallyPlaying flip on every song change and
+    // every play/pause toggle) into its own compositor layer — same
+    // reasoning the old _ArtistChip already applied.
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 18),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _open(context),
+            child: Row(
+              children: [
+                AurumStackedArtwork(
+                  url: artist.imageUrl,
+                  size: 72,
+                  circular: true,
+                  showNowPlaying: isCurrentArtist,
+                  isPlaying: isActuallyPlaying,
+                  stackColor: AurumTheme.accentOf(context),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        artist.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrentArtist
+                              ? AurumTheme.accentOf(context)
+                              : AurumTheme.textPrimaryOf(context),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        AppLocalizations.of(context)!.homeArtistLabel,
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _open(context),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.play_circle_fill_rounded,
+                        size: 34,
+                        color: isCurrentArtist
+                            ? AurumTheme.accentOf(context)
+                            : AurumTheme.textPrimaryOf(context).withOpacity(0.85),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ]),
+          ),
         ),
       ),
     );
@@ -3457,12 +3556,20 @@ class _ArtistChip extends StatelessWidget {
 // reshuffles which top artists surface on every pull-to-refresh, same
 // convention _RealHomeShelvesSection's own personalized shelf already
 // uses). Each row is its own header (small circular seed-artist avatar
-// + "Similar to <Name>" + arrow) above a horizontal strip of that
-// artist's real related-artist chips (fetchSimilarArtistChips —
-// Artist.relatedArtists, YT Music's own "Fans might also like"
-// carousel — never guessed/derived client-side). A row with no related
-// artists found (thin/obscure seed artist) is silently dropped rather
-// than shown empty.
+// + "Similar to <Name>" + arrow) above a horizontal strip of cards.
+//
+// SHAPE ("ekdam youtube music ka structure", 2026-09-13): the row below
+// the header is the SEED ARTIST'S OWN real albums (fetchSimilarArtistAlbums
+// — Artist.topAlbums off that artist's own InnerTube browse page), not
+// other artists' photos — matches YT Music's own "Similar to Udit
+// Narayan" showing Udit Narayan's own films (Diljale, Khal Nayak) directly
+// underneath. Previously this row used fetchSimilarArtistChips (renders
+// OTHER related artists' circular photos instead — wrong shape for this
+// screenshot); that function/its ArtistSimple-based _ArtistChip row are
+// left defined elsewhere in this file (dead code) rather than deleted, in
+// case a genuine "related artists" row is wanted again later. A row whose
+// seed artist has no albums found (thin/obscure seed, or a pure-singles
+// artist) is silently dropped rather than shown empty.
 class _SimilarArtistsSection extends StatefulWidget {
   final int refreshKey;
   const _SimilarArtistsSection({this.refreshKey = 0});
@@ -3472,7 +3579,7 @@ class _SimilarArtistsSection extends StatefulWidget {
 }
 
 class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
-  List<({String artistName, List<ArtistSimple> related})>? _rows;
+  List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>? _rows;
   bool _failed = false;
 
   @override
@@ -3504,7 +3611,7 @@ class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
         return;
       }
       final results = await Future.wait(
-        seedArtists.map((a) => ApiService.fetchSimilarArtistChips(a)),
+        seedArtists.map((a) => ApiService.fetchSimilarArtistAlbums(a)),
       );
       if (!mounted) return;
       final rows = results
@@ -3539,7 +3646,8 @@ class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
           _SimilarArtistsRow(
             key: ValueKey('${row.artistName}_${widget.refreshKey}'),
             seedArtistName: row.artistName,
-            related: row.related,
+            seedArtistImageUrl: row.artistImageUrl,
+            albums: row.albums,
           ),
       ],
     );
@@ -3548,11 +3656,13 @@ class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
 
 class _SimilarArtistsRow extends StatelessWidget {
   final String seedArtistName;
-  final List<ArtistSimple> related;
+  final String? seedArtistImageUrl;
+  final List<ArtistAlbum> albums;
   const _SimilarArtistsRow({
     super.key,
     required this.seedArtistName,
-    required this.related,
+    required this.seedArtistImageUrl,
+    required this.albums,
   });
 
   Future<void> _openSeedArtist(BuildContext context) async {
@@ -3579,7 +3689,7 @@ class _SimilarArtistsRow extends StatelessWidget {
                 onTap: () => _openSeedArtist(context),
                 child: ClipOval(
                   child: AurumArtwork(
-                    url: related.isNotEmpty ? related.first.imageUrl : '',
+                    url: seedArtistImageUrl ?? '',
                     size: 44,
                   ),
                 ),
@@ -3640,19 +3750,97 @@ class _SimilarArtistsRow extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FadedHorizontalList(
-            height: 158,
+            height: 190,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 500,
-              itemCount: related.length,
-              itemBuilder: (_, i) => _ArtistChip(
-                key: ValueKey(related[i].id),
-                artist: related[i],
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: albums.length,
+              itemBuilder: (_, i) => _SimilarArtistAlbumCard(
+                key: ValueKey('${albums[i].id}_$i'),
+                album: albums[i],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// One real album card inside a "Similar to X" row — same visual language
+// (radius, shadow, sizing) as _HomeAlbumCardWidget just uses ArtistAlbum's
+// shape (id/name/artworkUrl) instead of HomeAlbumCard's, since this row's
+// data comes from an artist's own topAlbums, not a mood-based album fetch.
+// Tapping opens AlbumScreen — same target every album card in the app
+// opens, including artist_screen.dart's own album grid this mirrors.
+class _SimilarArtistAlbumCard extends StatelessWidget {
+  final ArtistAlbum album;
+  const _SimilarArtistAlbumCard({super.key, required this.album});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () {
+          AurumHaptics.light();
+          AurumDepthRoute.to(
+            context,
+            AlbumScreen(
+              albumId: album.id,
+              albumName: album.name,
+              artworkUrl: album.artworkUrl,
+            ),
+          );
+        },
+        child: Container(
+          width: 148,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AurumArtwork(url: album.artworkUrl, size: 148, borderRadius: 16),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                album.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (album.year != null && album.year!.isNotEmpty)
+                Text(
+                  album.year!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3848,6 +4036,295 @@ class _YouMightAlsoLikeSectionState extends State<_YouMightAlsoLikeSection> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Quick Picks — YT Music's own top-of-Home shelf: a flat VERTICAL list of
+// individual songs (thumbnail + title + artist, no playlist-card wrapper),
+// personalized off real listening history, not a text-search hack.
+//
+// REAL DATA, not a fake shelf: seeds off the user's own most-recently-
+// played songs (RecentlyPlayedProvider.history — real play history, same
+// source _YouMightAlsoLikeSection already trusts) and asks InnerTube what's
+// related to each seed via the existing fetchYouMightAlsoLike() — the same
+// real "related" pipeline YT Music's own Quick Picks/Up Next is built on.
+// Multiple seeds (not just the single latest song) are used and then
+// interleaved + de-duped so the result reads as a broad personalized mix
+// instead of "more songs like the one thing I played last", matching the
+// breadth an actual YT Music Quick Picks shelf has.
+//
+// Cold-start: hydrates instantly from HomeFeedCache.loadQuickPicks() (same
+// "show last session's result now, refresh quietly after" contract as every
+// other Home row) and only fires a real fetch when there's no cache yet or
+// the 6-hour freshness window has lapsed — see HomeFeedCache's doc comment.
+// Pull-to-refresh (refreshKey bump) always forces a real refetch regardless.
+class _QuickPicksSection extends StatefulWidget {
+  final int refreshKey;
+  const _QuickPicksSection({this.refreshKey = 0});
+
+  @override
+  State<_QuickPicksSection> createState() => _QuickPicksSectionState();
+}
+
+class _QuickPicksSectionState extends State<_QuickPicksSection> {
+  List<Song>? _songs;
+  bool _failed = false;
+
+  // Cap how many seed songs we fan out to InnerTube for — each seed is a
+  // full network round-trip (fetchYouMightAlsoLike), so this bounds worst-
+  // case latency/parallel requests the same way _SimilarArtistsSection caps
+  // its own seed count at 3.
+  static const int _kSeedCount = 3;
+  static const int _kMaxShown = 15;
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrateFromCache();
+  }
+
+  Future<void> _hydrateFromCache() async {
+    final cached = await HomeFeedCache.loadQuickPicks();
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() => _songs = cached);
+      // Still refresh quietly in the background once the cache has aged
+      // out, same "instant paint, silent refresh" contract as every other
+      // Home row — never re-shows a loading state over already-visible
+      // content.
+      if (!await HomeFeedCache.isQuickPicksFresh()) _load(silent: true);
+    } else {
+      _load();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_QuickPicksSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pull-to-refresh bumps refreshKey — rotate Quick Picks along with
+    // every other section rather than leaving it frozen from cold start.
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      _load(silent: true);
+    }
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _failed = false);
+    try {
+      // Real recent history, most-recent first — same source
+      // _YouMightAlsoLikeSection already trusts for its own single seed.
+      final history =
+          context.read<RecentlyPlayedProvider>().history.take(_kSeedCount);
+      final seedIds = history
+          .map((s) => s.id)
+          .where((id) => id.isNotEmpty)
+          .toSet() // de-dupe seeds themselves before fanning out
+          .toList();
+
+      if (seedIds.isEmpty) {
+        // No listening history yet (fresh install / library-only user) —
+        // nothing real to personalize off. Stays hidden rather than
+        // showing an unrelated/generic list under a "Quick picks" label,
+        // same rule _YouMightAlsoLikeSection already follows.
+        if (mounted) setState(() { _songs = silent ? _songs : const []; _failed = !silent; });
+        return;
+      }
+
+      final results = await Future.wait(
+        seedIds.map((id) => ApiService.fetchYouMightAlsoLike(id)
+            .catchError((_) => const <Song>[])),
+      );
+
+      // INTERLEAVE (not concat): walk each seed's result list one at a
+      // time, round-robin, so the final mix reads as genuinely varied
+      // (a bit from each recent thing you played) instead of "everything
+      // related to song A, then everything related to song B" stacked in
+      // blocks — same reasoning _HomeShelvesAndSimilarSection already
+      // applies when weaving shelves with similar-artist rows.
+      final seen = <String>{};
+      final merged = <Song>[];
+      var idx = 0;
+      while (merged.length < _kMaxShown) {
+        var addedThisRound = false;
+        for (final list in results) {
+          if (idx >= list.length) continue;
+          final s = list[idx];
+          if (s.id.isNotEmpty && seen.add(s.id)) {
+            merged.add(s);
+            addedThisRound = true;
+            if (merged.length >= _kMaxShown) break;
+          }
+        }
+        if (!addedThisRound) break; // every seed list exhausted
+        idx++;
+      }
+
+      if (!mounted) return;
+      if (merged.isEmpty) {
+        setState(() { if (!silent) _failed = true; });
+        return;
+      }
+      unawaited(HomeFeedCache.saveQuickPicks(merged));
+      setState(() {
+        _songs = merged;
+        _failed = false;
+      });
+    } catch (_) {
+      if (mounted && !silent) setState(() => _failed = true);
+    }
+  }
+
+  void _openAsPlaylist(BuildContext context, List<Song> songs) {
+    AurumHaptics.selection();
+    final art = songs
+        .where((s) => s.artworkUrl.isNotEmpty)
+        .map((s) => s.artworkUrl)
+        .firstOrNull ?? '';
+    AurumDepthRoute.to(
+      context,
+      MixScreen(
+        mixId: 'quick_picks_${widget.refreshKey}',
+        mixName: AppLocalizations.of(context)!.homeQuickPicks,
+        artworkUrl: art,
+        emoji: '',
+        songs: songs,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = _songs;
+
+    // Loading (first paint, nothing cached yet) — plain title skeleton +
+    // a handful of row placeholders, same "quiet skeleton" language every
+    // other Home section already uses.
+    if (songs == null && !_failed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ShelfTitleSkeleton(),
+            const SizedBox(height: 14),
+            for (var i = 0; i < 4; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: AurumTheme.bgCardOf(context),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 14,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: AurumTheme.bgCardOf(context),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            height: 12,
+                            width: 140,
+                            decoration: BoxDecoration(
+                              color: AurumTheme.bgCardOf(context),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    // No listening history to personalize off, or InnerTube genuinely
+    // found nothing related — skip the whole section rather than showing
+    // an empty (or fake) "Quick picks" row.
+    if (songs == null || songs.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openAsPlaylist(context, songs),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        AppLocalizations.of(context)!.homeQuickPicks,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _openAsPlaylist(context, songs),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 20,
+                      color: AurumTheme.textPrimaryOf(context),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // Flat vertical list — no nested scrollable (this whole section
+          // is itself one child of Home's outer CustomScrollView), same
+          // "Column of rows" shape _RecentlyPlayedSection/_ArtistStrip
+          // already use for their own non-horizontal Home rows.
+          for (var i = 0; i < songs.length; i++)
+            SongTile(
+              key: ValueKey('quickpick_${songs[i].id}_${widget.refreshKey}'),
+              song: songs[i],
+              queue: songs,
+              index: i,
+              curatedQueue: true,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 // Entry card into the full real "Moods & Genres" grid screen — tap opens
 // MoodsGenresScreen (ApiService.fetchMoodsAndGenres, real InnerTube
 // FEmusic_moods_and_genres browse, see that screen's own doc header).
@@ -3924,7 +4401,7 @@ class _HomeShelvesAndSimilarSection extends StatefulWidget {
 class _HomeShelvesAndSimilarSectionState
     extends State<_HomeShelvesAndSimilarSection> {
   List<HomeShelf>? _shelves;
-  List<({String artistName, List<ArtistSimple> related})>? _similarRows;
+  List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>? _similarRows;
   bool _shelvesFailed = false;
 
   @override
@@ -3979,7 +4456,7 @@ class _HomeShelvesAndSimilarSectionState
     });
   }
 
-  Future<List<({String artistName, List<ArtistSimple> related})>>
+  Future<List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>>
       _loadSimilarRows() async {
     try {
       final seedArtists = RecommendationEngine.rotatingAffinityArtists(
@@ -3988,7 +4465,7 @@ class _HomeShelvesAndSimilarSectionState
       );
       if (seedArtists.isEmpty) return const [];
       final results = await Future.wait(
-        seedArtists.map((a) => ApiService.fetchSimilarArtistChips(a)),
+        seedArtists.map((a) => ApiService.fetchSimilarArtistAlbums(a)),
       );
       return results.where((r) => r != null).map((r) => r!).toList();
     } catch (_) {
@@ -4010,8 +4487,13 @@ class _HomeShelvesAndSimilarSectionState
           children: [
             _ShelfTitleSkeleton(),
             const SizedBox(height: 12),
+            // Height matched to _RealHomeShelfRow's actual card height
+            // (172, see that row's own FadedHorizontalList) — this used
+            // to borrow _YtPlaylistsForYouSkeleton's 130px placeholder,
+            // which caused a visible layout jump (shelf grows 130->172)
+            // the instant real shelves resolved.
             FadedHorizontalList(
-              height: 130,
+              height: 172,
               child: _YtPlaylistsForYouSkeleton(
                   scrollController: ScrollController()),
             ),
@@ -4046,7 +4528,8 @@ class _HomeShelvesAndSimilarSectionState
         children.add(_SimilarArtistsRow(
           key: ValueKey('${row.artistName}_${widget.refreshKey}'),
           seedArtistName: row.artistName,
-          related: row.related,
+          seedArtistImageUrl: row.artistImageUrl,
+          albums: row.albums,
         ));
         similarIdx++;
       }
@@ -5073,7 +5556,24 @@ class _HomeAlbumCardWidget extends StatelessWidget {
           );
         },
         child: SizedBox(
-          width: 148,
+          // FIX (recheck — album cards visibly smaller than playlist
+          // cards in the same shelf): _RealHomeShelfRow mixes this widget
+          // with _RealShelfPlaylistCard in the exact same horizontal row
+          // (a shelf can freely interleave albums and playlists), but
+          // that card sat at 172 while this one was still 148 — a 24px
+          // gap that read as an inconsistent, oddly-sized card sitting
+          // next to full-size ones. Bumped width to 172 to match exactly.
+          width: 172,
+          // FIX (recheck — overflow in the shared shelf row): the shelf's
+          // FadedHorizontalList is a fixed height: 172 (see
+          // _RealHomeShelfRow), sized for _RealShelfPlaylistCard, which
+          // fills that whole 172 with its artwork and overlays title/
+          // subtitle ON TOP of the image. This card instead stacked
+          // title+artist BELOW a full 172-tall artwork square, which
+          // silently overflowed the row's fixed height. Art shrunk to
+          // 134 so art + spacing + two text lines fits inside 172 exactly
+          // — same total card height as the playlist card beside it.
+          height: 172,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -5094,10 +5594,10 @@ class _HomeAlbumCardWidget extends StatelessWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: AurumArtwork(url: card.artworkUrl, size: 148, borderRadius: 16),
+                  child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 16),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               Text(
                 card.title,
                 maxLines: 1,

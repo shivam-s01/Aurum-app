@@ -439,4 +439,51 @@ class HomeFeedCache {
       return false;
     }
   }
+
+  // ── "Quick Picks" cache — real-InnerTube personalized song mix shown
+  // as a flat vertical list at the very top of Home (YT Music's own
+  // "Quick picks" shelf). Same cold-start-instant / 6-hour background-
+  // refresh treatment as every other row above — see _maxFreshAge's doc
+  // comment. Not mood-keyed (Quick Picks itself has no mood selector,
+  // unlike the playlist/album rows), so a single fixed key is enough.
+  static const _quickPicksKey = 'home_quick_picks_v1';
+  static const _quickPicksSavedAtKey = 'home_quick_picks_saved_at_ms';
+
+  static Future<void> saveQuickPicks(List<Song> songs) async {
+    if (songs.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(songs.map((s) => s.toJson()).toList());
+      await prefs.setString(_quickPicksKey, encoded);
+      await prefs.setInt(
+          _quickPicksSavedAtKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<Song>> loadQuickPicks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_quickPicksSavedAtKey);
+      if (savedAtMs == null) return [];
+      final raw = prefs.getString(_quickPicksKey);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .whereType<Map>()
+          .map((e) => Song.fromJson(Map<String, dynamic>.from(e)))
+          .where((s) => s.id.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isQuickPicksFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _isRecent(prefs.getInt(_quickPicksSavedAtKey));
+    } catch (_) {
+      return false;
+    }
+  }
 }
