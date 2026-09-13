@@ -28,7 +28,7 @@ import '../widgets/aurum_stage_backdrop.dart';
 import '../widgets/faded_horizontal_list.dart';
 import '../widgets/song_tile.dart';
 import 'album_screen.dart';
-import '../main.dart' show aurumRouteObserver;
+import '../main.dart' show aurumRouteObserver, aurumDebugErrorWidgetBuilder;
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
@@ -1112,22 +1112,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   // REMOVED ("category wale option hata do — All/Chill/
                   // Commute/Energize/Feel good" — 2026-09-13): the top
                   // mood/category chip row is gone entirely per request.
-                  // _RealMoodChipsSection is left defined below (now
-                  // unused) rather than deleted, in case it's wanted back
-                  // later.
-                  // Genre/mood chips row — real InnerTube fetchMoodsAndGenres()
-                  // data (Podcasts, Feel good, Romance, Relax, Energise, etc.
-                  // — whatever InnerTube actually returns, never hardcoded).
-                  // Sits as the very first thing under the app bar, matching
-                  // the reference screenshots' own top-level ordering. Tapping
-                  // a chip loads that mood's real shelves inline; "All" (the
-                  // default) shows nothing extra here since the regular
-                  // shelves further down already cover that case.
-                  SliverToBoxAdapter(
-                    child: _RealMoodChipsSection(
-                      refreshKey: _playlistRefreshKey,
-                    ),
-                  ),
+                  // PREVIOUS ATTEMPT AT THIS REMOVAL LEFT THE COMMENT ABOVE
+                  // BUT NEVER ACTUALLY DELETED THE SliverToBoxAdapter BELOW
+                  // IT — _RealMoodChipsSection kept rendering the exact
+                  // same All/Chill/Commute/Energize/Feel good row every
+                  // build, which is what was still showing up on Home.
+                  // Actually removed now. _RealMoodChipsSection is left
+                  // defined below (now unused) rather than deleted, in
+                  // case it's wanted back later.
                   // Quick Picks — YT Music's own top-of-Home vertical
                   // song list, personalized off real listening history.
                   // Sits right under the mood chips, before the artist
@@ -1177,12 +1169,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SliverToBoxAdapter(
                     child: _ForgottenFavouritesSection(),
                   ),
-                  SliverToBoxAdapter(
-                    child: _ArtistStrip(
-                      artists: _homeArtists,
-                      loading: _artistsLoading,
-                    ),
-                  ),
+                  // ARCHIVETUNE-STRUCTURE MATCH ("sab kuch category aur
+                  // artist ekdam ArchiveTune jaisa" — 2026-09-13):
+                  // ArchiveTune's real HomeScreen.kt has no standalone
+                  // "Popular Artists" flat-list section anywhere in its
+                  // layout — that concept doesn't exist there. What it
+                  // has instead, right after Forgotten Favorites and
+                  // before the generic remote InnerTube sections, is a
+                  // `uiState.similarRecommendations.forEach { ... }` loop:
+                  // one real "Similar to <Artist>" header+row PER artist,
+                  // never a generic combined artist strip. _ArtistStrip
+                  // (Popular Artists) removed to match — it had no
+                  // ArchiveTune equivalent. Class left defined below
+                  // (dead code) rather than deleted, in case it's wanted
+                  // back later. The real "Similar to X" rows already
+                  // exist here as _HomeShelvesAndSimilarSection, which
+                  // now also renders its similar-artist rows in one
+                  // sequential block BEFORE the remote shelves block
+                  // (previously alternated/interleaved one-shelf-one-
+                  // similar-row, which is not how ArchiveTune orders
+                  // them) — see that widget's own build() for the fix.
                   SliverToBoxAdapter(
                     child: _HomeShelvesAndSimilarSection(
                       refreshKey: _playlistRefreshKey,
@@ -2787,12 +2793,27 @@ class _SafeListenAgainCard extends StatelessWidget {
   }
 }
 
-// Generic per-subtree error boundary: overrides ErrorWidget.builder just
-// long enough to build [child], so any exception thrown while laying out
-// that one subtree (a bad artwork URL, malformed song data, etc.) renders
-// as [fallback] instead of Flutter's default red-screen ErrorWidget —
-// scoped tightly enough that it never affects error rendering anywhere
-// else on screen, and restores the previous builder immediately after.
+// Generic per-subtree error boundary: overrides ErrorWidget.builder while
+// [child]'s subtree is being built, so any exception thrown while laying
+// out that subtree (a bad artwork URL, malformed song data, etc.) renders
+// as [fallback] instead of Flutter's default (here, main.dart's loud red
+// debug box) ErrorWidget.
+//
+// BUG FIX (this override was a no-op — the RangeError red box in Listen
+// Again kept showing up even with this class in place, 2026-09-13):
+// the previous version wrapped `return child;` in a plain try/finally,
+// restoring the previous builder immediately once build() returned. But
+// build() only returns the *widget object* — Flutter's element system
+// (ComponentElement.performRebuild) calls build() and THEN, as a separate
+// later step, recursively mounts/builds that returned widget's own
+// subtree via updateChild(). That recursion — which is what actually
+// invokes AurumArtwork's build() and can throw — happens AFTER this
+// method's try/finally has already completed and already restored the
+// original builder. So the override was already gone before the risky
+// subtree was ever built, and main.dart's global red-box builder is what
+// fired every time — exactly what the screenshot showed.
+// Deferring the restore to a post-frame callback keeps the override alive
+// through that same-frame build/mount recursion instead.
 class _ErrorBoundary extends StatelessWidget {
   final Widget child;
   final Widget fallback;
@@ -2800,13 +2821,14 @@ class _ErrorBoundary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final previousBuilder = ErrorWidget.builder;
     ErrorWidget.builder = (details) => fallback;
-    try {
-      return child;
-    } finally {
-      ErrorWidget.builder = previousBuilder;
-    }
+    // Restores to main.dart's real debug builder BY REFERENCE (not a
+    // snapshot taken at some earlier point) — see aurumDebugErrorWidgetBuilder's
+    // own doc comment for why a snapshot here would be unreliable.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ErrorWidget.builder = aurumDebugErrorWidgetBuilder;
+    });
+    return child;
   }
 }
 
@@ -3985,37 +4007,47 @@ class _HomeShelvesAndSimilarSectionState
     }
 
     if (shelves == null || shelves.isEmpty) {
-      return const SizedBox.shrink();
+      // FIX ("similar to X rows disappearing when remote shelves fail" —
+      // 2026-09-13): this used to return SizedBox.shrink() here
+      // unconditionally, which hid the ENTIRE section — including any
+      // already-loaded Similar Recommendations rows — just because the
+      // separate real-shelves fetch came back empty/failed. ArchiveTune
+      // treats these as two independent loops (`similarRecommendations
+      // .forEach` and `homePage.sections.forEachIndexed`), so one being
+      // empty never affects the other. Falls through to the render path
+      // below instead, which already handles an empty shelves list fine.
+      if ((_similarRows ?? const []).isEmpty) {
+        return const SizedBox.shrink();
+      }
     }
 
     final similar = _similarRows ?? const [];
+    final realShelves = shelves ?? const [];
 
-    // INTERLEAVE: walk both lists together, alternating one shelf then
-    // one similar-artist row, so neither source ends up bunched at the
-    // top or bottom of this section. Once one list runs out, the rest
-    // of the other just continues normally — never truncated.
-    final children = <Widget>[];
-    var shelfIdx = 0;
-    var similarIdx = 0;
-    while (shelfIdx < shelves.length || similarIdx < similar.length) {
-      if (shelfIdx < shelves.length) {
-        children.add(_RealHomeShelfRow(
-          key: ValueKey('${shelves[shelfIdx].title}_${widget.refreshKey}'),
-          shelf: shelves[shelfIdx],
-        ));
-        shelfIdx++;
-      }
-      if (similarIdx < similar.length) {
-        final row = similar[similarIdx];
-        children.add(_SimilarArtistsRow(
+    // ARCHIVETUNE ORDER MATCH ("category aur artist ekdam ArchiveTune
+    // jaisa" — 2026-09-13): this used to alternate one shelf then one
+    // similar-artist row (an interleave loop) — ArchiveTune's own
+    // HomeScreen.kt never does that. It runs
+    // `uiState.similarRecommendations.forEach { ... }` as one complete,
+    // separate loop FIRST, then `uiState.homePage.sections.forEachIndexed
+    // { ... }` as its own complete loop AFTER — i.e. every "Similar to X"
+    // row together, then every real remote shelf together, never mixed.
+    // Reordered here to match that exactly: all similar-artist rows
+    // render first, then all real shelves.
+    final children = <Widget>[
+      for (final row in similar)
+        _SimilarArtistsRow(
           key: ValueKey('${row.artistName}_${widget.refreshKey}'),
           seedArtistName: row.artistName,
           seedArtistImageUrl: row.artistImageUrl,
           albums: row.albums,
-        ));
-        similarIdx++;
-      }
-    }
+        ),
+      for (final shelf in realShelves)
+        _RealHomeShelfRow(
+          key: ValueKey('${shelf.title}_${widget.refreshKey}'),
+          shelf: shelf,
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
