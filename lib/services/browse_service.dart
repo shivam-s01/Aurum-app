@@ -4,7 +4,7 @@
 //
 // BROWSE — Powered by YouTube. Search tab owns Saavn; Browse is the
 // YouTube-catalogue side (channels, live versions, remixes, regional/indie
-// uploads, full discographies-as-playlists), held to the same premium
+// uploads, full discographies-as-playlists), held to the same pemium
 // quality bar (view-count floor, official-channel priority, smart dedup)
 // as every other YT-sourced surface in the app.
 //
