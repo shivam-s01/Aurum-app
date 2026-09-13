@@ -724,13 +724,15 @@ class _HomeScreenState extends State<HomeScreen> {
         // so the cache always reflects the fullest list this session saw.
         unawaited(HomeFeedCache.saveArtists(artists));
       });
-      // DEBUG VISIBILITY (temporary — no adb/logcat access on this
-      // device): reports the final artist count once the whole fetch
-      // completes, so an empty "Popular Artists" row shows exactly what
-      // came back (0 = the fetch genuinely returned nothing; the caller
-      // never even hit the exception path) instead of guessing. Safe to
-      // remove once the artist-row issue is confirmed fixed.
-      if (mounted) {
+      // DEBUG VISIBILITY (kDebugMode-gated): reports the final artist
+      // count once the whole fetch completes, so an empty "Popular
+      // Artists" row can be diagnosed during development. Previously this
+      // fired unconditionally — every single Home load/refresh popped a
+      // SnackBar with raw debug text in front of real users, which is
+      // exactly the kind of "akward"/dev-leak moment production code must
+      // never show. Gated behind kDebugMode so it only ever appears in a
+      // debug build, never in what a real user sees.
+      if (kDebugMode && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 6),
@@ -740,12 +742,18 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _artistsLoading = false);
-      // DEBUG VISIBILITY (temporary — no adb/logcat access on this
-      // device): shows the actual exception on-screen instead of
-      // silently swallowing it, so a real crash here is visible without
-      // any tooling. Safe to remove once the artist-row issue is
-      // confirmed fixed.
-      if (mounted) {
+      // DEBUG VISIBILITY (kDebugMode-gated): shows the actual exception
+      // on-screen during development instead of silently swallowing it.
+      // Previously unconditional — a real fetch failure (network blip,
+      // malformed response, anything) would surface a raw exception
+      // string (e.g. "RangeError (length): ...") directly in a SnackBar
+      // in front of real users — the exact class of dev-leak crash text
+      // this whole redesign pass has been removing elsewhere (see the
+      // _ErrorBoundary/_SafeListenAgainCard fix above). A genuine failure
+      // now just leaves the Popular Artists row empty (its own
+      // `artists.isEmpty ? SizedBox.shrink()` in _ArtistStrip already
+      // handles that silently) instead of announcing itself.
+      if (kDebugMode && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 6),
@@ -1101,6 +1109,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   // instead of the old fake-fallback pipeline (see that
                   // section's own doc comment for why the previous
                   // version was removed and what's different this time).
+                  // REMOVED ("category wale option hata do — All/Chill/
+                  // Commute/Energize/Feel good" — 2026-09-13): the top
+                  // mood/category chip row is gone entirely per request.
+                  // _RealMoodChipsSection is left defined below (now
+                  // unused) rather than deleted, in case it's wanted back
+                  // later.
+                  // Genre/mood chips row — real InnerTube fetchMoodsAndGenres()
+                  // data (Podcasts, Feel good, Romance, Relax, Energise, etc.
+                  // — whatever InnerTube actually returns, never hardcoded).
+                  // Sits as the very first thing under the app bar, matching
+                  // the reference screenshots' own top-level ordering. Tapping
+                  // a chip loads that mood's real shelves inline; "All" (the
+                  // default) shows nothing extra here since the regular
+                  // shelves further down already cover that case.
                   SliverToBoxAdapter(
                     child: _RealMoodChipsSection(
                       refreshKey: _playlistRefreshKey,
@@ -1347,520 +1369,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hero Now Playing — premium immersive section + floating glass card.
-// Lives inside HomeScreen's IndexedStack tab, so Flutter's TickerMode
-// automatically pauses the AnimationController when this tab is offstage —
-// no manual lifecycle wiring needed for the breathing animation.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _HeroNowPlaying extends StatefulWidget {
-  final bool isActive;
-  const _HeroNowPlaying({this.isActive = true});
-
-  @override
-  State<_HeroNowPlaying> createState() => _HeroNowPlayingState();
-}
-
-class _HeroNowPlayingState extends State<_HeroNowPlaying>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
-  late final AnimationController _breatheCtrl;
-  String? _lastUrl;
-  bool _appInForeground = true;
-
-  // ── Left/right swipe → prev/next song ──
-  double _dragX = 0;
-  bool _isDraggingX = false;
-  int _swipeDir = 0;
-  String? _lastSongId;
-  static const double _swipeThreshold = 70.0;
-  static const double _swipeVelocityThreshold = 500.0;
-
-  late final AnimationController _swipeCtrl;
-  Animation<double> _swipeAnim = const AlwaysStoppedAnimation(0.0);
-  late final AnimationController _slideInCtrl;
-  late Animation<double> _slideInAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    // 13s full cycle — within spec's 12-15s range
-    _breatheCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 20000),
-    ); // started/stopped from build() based on isPlaying — see build()
-
-    _swipeCtrl = AnimationController(
-      vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-    );
-    _slideInCtrl = AnimationController(
-      vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-    );
-    _slideInAnim =
-        CurvedAnimation(parent: _slideInCtrl, curve: AurumMotion.standard);
-  }
-
-  ModalRoute<void>? _subscribedRoute;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Guard against re-subscribing on every didChangeDependencies call —
-    // this fires more than once since _HeroNowPlaying lives inside an
-    // IndexedStack tab that's never disposed (theme changes, MediaQuery
-    // changes, etc. all re-trigger it). Only (re)subscribe if the actual
-    // ModalRoute instance changed, matching Flutter's documented
-    // RouteAware pattern exactly.
-    final route = ModalRoute.of(context);
-    if (route != null && route != _subscribedRoute) {
-      if (_subscribedRoute != null) {
-        aurumRouteObserver.unsubscribe(this);
-      }
-      aurumRouteObserver.subscribe(this, route);
-      _subscribedRoute = route;
-    }
-  }
-
-  // FIX — breathing animation permanently dead after opening the full
-  // player once: FullPlayerScreen is pushed via Navigator ON TOP of Home,
-  // which puts Home's route (and everything in it, including this widget)
-  // under Flutter's TickerMode.disabled. That silently stops _breatheCtrl
-  // from ticking frames, but does NOT flip AnimationController.isAnimating
-  // back to false — the controller still THINKS it's mid-`.repeat()`.
-  // build()'s gate is `if (shouldBreathe && !_breatheCtrl.isAnimating)`,
-  // so on returning to Home, isAnimating already reads true and that
-  // guard never re-fires .repeat() — the animation stays frozen forever
-  // (or until the next song change happens to reset state elsewhere).
-  // Fix: RouteAware.didPopNext fires exactly when this route becomes the
-  // active top route again (i.e. right after popping FullPlayerScreen
-  // back to Home). Force a hard stop+restart there so the controller's
-  // internal state is never left stale.
-  @override
-  void didPopNext() {
-    if (!mounted) return;
-    // Hard reset — do NOT rely on the `!_breatheCtrl.isAnimating` guard in
-    // build(), since that flag can still read `true` here (stale from
-    // before TickerMode disabled this route) even though no frames have
-    // actually ticked. .stop() first guarantees a clean, real restart.
-    _breatheCtrl.stop();
-    final player = context.read<PlayerProvider>();
-    if (player.isPlaying && _appInForeground && widget.isActive) {
-      _breatheCtrl.repeat(reverse: true);
-    }
-    setState(() {});
-  }
-
-  @override
-  void didUpdateWidget(_HeroNowPlaying old) {
-    super.didUpdateWidget(old);
-    // See widget.isActive doc comment — stop the breathe glow the instant
-    // this tab is switched away from, rather than leaving it ticking
-    // off-screen until some unrelated rebuild happens to re-evaluate
-    // build()'s gate. Switching back TO this tab lets build()'s own gate
-    // (which already re-checks isPlaying/appInForeground) resume it
-    // naturally on the next build — no special-case restart needed here,
-    // only the stop needs to be immediate.
-    if (old.isActive == widget.isActive) return;
-    if (!widget.isActive && _breatheCtrl.isAnimating) {
-      _breatheCtrl.stop();
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Force-stop the breathe glow the instant the app leaves the
-    // foreground (minimized, screen locked, app-switcher) regardless of
-    // isPlaying — audio keeps playing via the foreground service, but
-    // there's zero reason to keep repainting this widget when nobody can
-    // see it. This is on top of the isPlaying gate in build().
-    _appInForeground = state == AppLifecycleState.resumed;
-    if (!_appInForeground) {
-      if (_breatheCtrl.isAnimating) _breatheCtrl.stop();
-    } else if (mounted) {
-      setState(() {}); // let build() re-evaluate and resume if isPlaying
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    aurumRouteObserver.unsubscribe(this);
-    _breatheCtrl.dispose();
-    _swipeCtrl.dispose();
-    _slideInCtrl.dispose();
-    super.dispose();
-  }
-
-  // Generation token — same pattern as mini player's _swipeGen. Prevents
-  // stale .whenComplete() callbacks from firing extra/wrong skipNext/
-  // skipPrev calls when swipes are spammed rapidly back-to-back.
-  int _swipeGen = 0;
-
-  void _onDragStartX(DragStartDetails _) {
-    _swipeGen++;
-    _swipeCtrl.stop();
-    setState(() => _isDraggingX = true);
-  }
-
-  void _onDragUpdateX(DragUpdateDetails details) {
-    setState(() {
-      _dragX = (_dragX + details.delta.dx).clamp(-160.0, 160.0);
-    });
-  }
-
-  void _onDragEndX(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    setState(() => _isDraggingX = false);
-
-    final commitNext =
-        _dragX < -_swipeThreshold || velocity < -_swipeVelocityThreshold;
-    final commitPrev =
-        _dragX > _swipeThreshold || velocity > _swipeVelocityThreshold;
-
-    if (commitNext) {
-      AurumHaptics.medium();
-      _commitSwipe(next: true);
-    } else if (commitPrev) {
-      AurumHaptics.medium();
-      _commitSwipe(next: false);
-    } else {
-      _springBackX();
-    }
-  }
-
-  void _springBackX() {
-    _swipeCtrl.stop();
-    final gen = ++_swipeGen;
-    _swipeAnim = Tween<double>(begin: _dragX, end: 0.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: AurumMotion.standard),
-    );
-    _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted || gen != _swipeGen) return;
-      _swipeCtrl.reset();
-      setState(() => _dragX = 0);
-    });
-  }
-
-  void _commitSwipe({required bool next}) {
-    _swipeCtrl.stop();
-    final gen = ++_swipeGen;
-    _swipeAnim =
-        Tween<double>(begin: _dragX, end: next ? -220.0 : 220.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: AurumMotion.standardReverse),
-    );
-    _swipeDir = next ? -1 : 1;
-    _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted || gen != _swipeGen) return;
-      final player = context.read<PlayerProvider>();
-      next ? player.skipNext() : player.skipPrev();
-      _swipeCtrl.reset();
-      setState(() => _dragX = 0);
-    });
-  }
-
-
-  void _openFullPlayer() {
-    pushFullPlayer(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
-    final isLight = Theme.of(context).brightness == Brightness.light;
-
-    // Battery: the breathe glow only needs to animate while a song is
-    // actually playing. Previously it ran on an infinite ..repeat(reverse:
-    // true) from initState with no gating, so it kept ticking (and
-    // repainting this part of the hero) even when paused or when nothing
-    // was loaded — pure wasted GPU/CPU work sitting on the home screen.
-    final isPlayingNow =
-        context.select<PlayerProvider, bool>((p) => p.isPlaying);
-    final shouldBreathe = isPlayingNow &&
-        _appInForeground &&
-        widget.isActive &&
-        AudioPrefs.enableAnimationsNotifier.value;
-    if (shouldBreathe && !_breatheCtrl.isAnimating) {
-      _breatheCtrl.repeat(reverse: true);
-    } else if (!shouldBreathe && _breatheCtrl.isAnimating) {
-      _breatheCtrl.stop();
-    }
-
-    // FIX: a persistent hairline seam (page's cream/`bgOf` background
-    // peeking through) was showing along the hero's bottom edge in every
-    // state, not just mid-transition. Root cause: AnimatedSize recomputes
-    // its layout size from its child's intrinsic size every frame, and
-    // that computed size can be a sub-pixel off from the child's actual
-    // painted bounds due to rounding — normally invisible, but here the
-    // full-bleed hero (no margin/card color of its own to plug the gap,
-    // unlike the old padded/boxed design) sits directly on the page
-    // background, so that fractional gap exposed it as a visible seam.
-    //
-    // Fix: `clipBehavior: Clip.hardEdge` on AnimatedSize clips content to
-    // its own computed bounds rather than letting a rounding mismatch
-    // show whatever's behind it. This addresses the actual rendering
-    // artifact directly, rather than trying to paint over a gap that
-    // shouldn't be visible in the first place.
-    return AnimatedSize(
-      duration: AurumMotion.durationOrZero(AurumMotion.medium2),
-      curve: AurumMotion.standard,
-      alignment: Alignment.topCenter,
-      clipBehavior: Clip.hardEdge,
-      child: AnimatedSwitcher(
-        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
-            child: child,
-          ),
-        ),
-        child: song == null
-            ? _buildEmptyPrompt(context)
-            : _buildPlayingCard(context, song, isLight),
-      ),
-    );
-  }
-
-  Widget _buildEmptyPrompt(BuildContext context) {
-    // Lightweight static prompt — no blur, no animation, theme-safe.
-    // Kept a small side margin here (unlike the playing card below) since
-    // there's no artwork to bleed edge-to-edge — a floating pill reads
-    // better than a full-width empty bar.
-    return Padding(
-      key: const ValueKey('hero_empty'),
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 22),
-      child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: AurumTheme.bgCardOf(context),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.graphic_eq_rounded,
-                color: AurumTheme.accentOf(context).withOpacity(0.85), size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                AppLocalizations.of(context)!.homePickSomething,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Playing card — "now playing stage" ──────────────────────────────────
-  // Redesigned as a full-bleed panel (no side margins, no rounded card
-  // floating on the page background, no outer border) so it reads as the
-  // top of a continuous surface that the rest of the page descends from,
-  // rather than a separate boxed widget sitting on top of the scaffold.
-  // All gesture/animation logic below (swipe-to-skip, breathing scale,
-  // slide-in on song change) is unchanged from before — only the outer
-  // shape/spacing changed.
-  Widget _buildPlayingCard(BuildContext context, Song song, bool isLight) {
-    return Padding(
-      key: const ValueKey('hero_playing'),
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 22),
-      child: AurumPressable(
-        scaleAmount: 0.99,
-        onTap: _openFullPlayer,
-        child: Container(
-          height: 160,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isLight ? 0.14 : 0.32),
-                blurRadius: 22,
-                offset: const Offset(0, 10),
-                spreadRadius: -4,
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(26),
-            child: ValueListenableBuilder<bool>(
-            valueListenable: AudioPrefs.swipeToChangeNotifier,
-            builder: (context, swipeEnabled, _) {
-              return GestureDetector(
-            onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
-            onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
-            onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
-            child: AnimatedBuilder(
-              animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
-              builder: (_, child) {
-                if (song.id != _lastSongId) {
-                  final isFirst = _lastSongId == null;
-                  _lastSongId = song.id;
-                  if (!isFirst) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) _slideInCtrl.forward(from: 0.0);
-                    });
-                  }
-                }
-                final swipeX =
-                    _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
-                final frac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
-                final swipeOpacity = (1.0 - frac * 0.7).clamp(0.0, 1.0);
-                final swipeScale = (1.0 - frac * 0.05).clamp(0.92, 1.0);
-
-                final slideInOffset = _slideInCtrl.isAnimating
-                    ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
-                    : 0.0;
-                final slideInOpacity = _slideInCtrl.isAnimating
-                    ? Curves.easeOut.transform(_slideInAnim.value)
-                    : 1.0;
-
-                final totalX = swipeX + slideInOffset;
-                final totalOpacity = (swipeOpacity *
-                        (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
-                    .clamp(0.0, 1.0);
-
-                return Transform.translate(
-                  offset: Offset(totalX, 0),
-                  child: Transform.scale(
-                    scale: swipeScale,
-                    child: Opacity(opacity: totalOpacity, child: child),
-                  ),
-                );
-              },
-              child: Stack(fit: StackFit.expand, children: [
-            // ── Stage background: blurred artwork, breathing scale ──
-            // Perf: the blur (ImageFiltered) is now built ONCE, outside the
-            // AnimatedBuilder — only the cheap Transform.scale wrapper
-            // rebuilds every animation tick. Before, the blur filter itself
-            // sat inside the builder callback, so Skia was re-running the
-            // (expensive, full-stage-sized) Gaussian blur on every single
-            // frame of the breathe loop for a scale change of at most
-            // 1.5% — pure wasted GPU work for an effect nobody can even
-            // perceive.
-            RepaintBoundary(
-              child: AnimatedBuilder(
-                animation: _breatheCtrl,
-                child: ImageFiltered(
-                  imageFilter: ImageFilter.blur(
-                    sigmaX: isLight ? 2.5 : 2,
-                    sigmaY: isLight ? 2.5 : 2,
-                    tileMode: TileMode.clamp,
-                  ),
-                  child: AurumArtwork(
-                    url: song.artworkUrl,
-                    size: double.infinity,
-                    borderRadius: 0,
-                  ),
-                ),
-                builder: (_, child) {
-                  // FIX (same glitch as full_player_screen.dart's Ken
-                  // Burns pan): _breatheCtrl already reverses direction on
-                  // its own via repeat(reverse: true). Layering
-                  // Curves.easeInOut.transform() on that raw value
-                  // re-eases something already changing direction — at
-                  // each turnaround the controller's own velocity flip and
-                  // the curve's steep slope combine into a visible snap,
-                  // most noticeable on the return stroke. A raised-cosine
-                  // is smooth at both ends of a reversing triangle wave.
-                  final b = (1 - math.cos(_breatheCtrl.value * math.pi)) / 2;
-                  return Transform.scale(
-                    scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
-                    child: child,
-                  );
-                },
-              ),
-            ),
-            // ── Scrim: now fades from fully transparent at the very top
-            // (so it visually joins the appbar behind it, reinforcing the
-            // "one continuous stage" read) down to a strong dark base
-            // where the track info sits, for legibility.
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: isLight
-                      ? [
-                          Colors.white.withValues(alpha: 0.0),
-                          Colors.white.withValues(alpha: 0.0),
-                          Colors.black.withValues(alpha: 0.32),
-                        ]
-                      : [
-                          Colors.black.withValues(alpha: 0.0),
-                          Colors.black.withValues(alpha: 0.15),
-                          Colors.black.withValues(alpha: 0.70),
-                        ],
-                  stops: const [0.0, 0.55, 1.0],
-                ),
-              ),
-            ),
-            // ── Track info + resume — sits directly on the stage now,
-            // no floating glass card/border. Full-width, edge-aligned
-            // with the rest of the page's 20px gutter.
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
-                child: Row(children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: AurumArtwork(
-                        url: song.artworkUrl, size: 44, borderRadius: 11),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          song.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.2,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          song.artist,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          ]),
-            ),
-          );
-            },
-          ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Online Content
@@ -2051,9 +1559,9 @@ class _SongSectionRowState extends State<_SongSectionRow> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
                         ),
                       ),
                     ),
@@ -3183,9 +2691,9 @@ class _RecentlyPlayedSection extends StatelessWidget {
             title,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
             ),
           ),
           const SizedBox(height: 14),
@@ -3197,53 +2705,108 @@ class _RecentlyPlayedSection extends StatelessWidget {
               cacheExtent: 600,
               padding: const EdgeInsets.only(right: 12),
               itemCount: songs.length,
-              itemBuilder: (_, i) => AurumPressable(
-                scaleAmount: 0.96,
+              itemBuilder: (_, i) => _SafeListenAgainCard(
+                song: songs[i],
                 onTap: () {
                   // SPOTIFY-STYLE FIX ("kahi se bhi full player na
                   // khule"): tap now only starts playback.
                   player.playSong(songs[i], queue: songs, index: i);
                 },
-                child: Container(
-                  width: 130,
-                  margin: const EdgeInsets.only(right: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: AurumArtwork(
-                            url: songs[i].artworkUrl, size: 260, borderRadius: 12),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        songs[i].title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        songs[i].artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AurumTheme.textSecondaryOf(context),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+// CRASH FIX ("RangeError (length): Invalid value: Not in inclusive range
+// 0..1: 2" — red error card appearing in place of a Listen Again tile,
+// 2026-09-13): whatever throws inside AurumArtwork's decode path for a
+// specific song's artwork URL was surfacing as a raw ErrorWidget inline
+// in the carousel — exactly the "koi bhi card crash na kare, silently
+// skip ho" behavior real production apps (including YT Music itself)
+// already guarantee for a single bad thumbnail. ErrorWidget.builder is
+// overridden per-subtree here via a Builder + runtime try/catch
+// equivalent: FlutterError.onError can't catch synchronous build()
+// exceptions after the fact, so instead this widget defers to
+// ErrorWidget.builder scoped locally — any exception thrown while
+// building this one card's subtree now renders as a plain empty
+// SizedBox(width: 130) (same footprint as a real card, no visible gap
+// jump in the carousel) instead of the default red-screen ErrorWidget,
+// while every other card in the row is completely unaffected.
+class _SafeListenAgainCard extends StatelessWidget {
+  final Song song;
+  final VoidCallback onTap;
+  const _SafeListenAgainCard({required this.song, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return _ErrorBoundary(
+      fallback: const SizedBox(width: 130),
+      child: AurumPressable(
+        scaleAmount: 0.96,
+        onTap: onTap,
+        child: Container(
+          width: 130,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AurumArtwork(
+                    url: song.artworkUrl, size: 260, borderRadius: 12),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                song.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textSecondaryOf(context),
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Generic per-subtree error boundary: overrides ErrorWidget.builder just
+// long enough to build [child], so any exception thrown while laying out
+// that one subtree (a bad artwork URL, malformed song data, etc.) renders
+// as [fallback] instead of Flutter's default red-screen ErrorWidget —
+// scoped tightly enough that it never affects error rendering anywhere
+// else on screen, and restores the previous builder immediately after.
+class _ErrorBoundary extends StatelessWidget {
+  final Widget child;
+  final Widget fallback;
+  const _ErrorBoundary({required this.child, required this.fallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final previousBuilder = ErrorWidget.builder;
+    ErrorWidget.builder = (details) => fallback;
+    try {
+      return child;
+    } finally {
+      ErrorWidget.builder = previousBuilder;
+    }
   }
 }
 
@@ -3425,8 +2988,7 @@ class _ForgottenFavouriteCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -3480,173 +3042,69 @@ class _ArtistStripState extends State<_ArtistStrip> {
             AppLocalizations.of(context)!.homePopularArtists,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
             ),
           ),
           const SizedBox(height: 14),
-          // FULL-WIDTH VERTICAL LIST ("sirf ek line mai phle jaise nhi
-          // rahenge na ekdam youtube jaisa", 2026-09-13): YT Music's own
-          // "Popular artists"/artist rows on Home are full-width list
-          // rows stacked one under another (big avatar + big name, same
-          // row shape as a playlist/song row), NOT a horizontal scroll
-          // strip of small circular chips — that horizontal-strip
-          // treatment (the FadedHorizontalList + _ArtistChip pair this
-          // replaces) read as a discovery carousel instead of a real
-          // artist list. _ArtistChip/the horizontal ListView.builder are
-          // left defined below (dead code) rather than deleted, in case
-          // a compact strip is wanted again elsewhere later.
+          // HORIZONTAL CIRCULAR-AVATAR CAROUSEL ("ekdam youtube music
+          // jaisa, popular artists ka vertical list bahut akward lag
+          // raha hai" — 2026-09-13): real music.youtube.com never shows
+          // a standalone full-width vertical artist list on Home — every
+          // artist row there (including its own "Similar to X" shelves)
+          // is a horizontal strip of small circular avatar chips. Swapped
+          // back from the full-width _ArtistFullRow column to the
+          // existing _ArtistChip horizontal strip so this section matches
+          // that reference shape exactly. _ArtistFullRow is left defined
+          // below (now unused) rather than deleted, in case a full-width
+          // row is wanted again elsewhere later.
           loading
-              ? _buildRowShimmer(context)
+              ? _buildChipShimmer(context)
               : artists.isEmpty
                   ? const SizedBox.shrink()
-                  : Column(
-                      children: [
-                        for (final a in artists.take(_maxShown))
-                          _ArtistFullRow(key: ValueKey(a.id), artist: a),
-                      ],
+                  : SizedBox(
+                      height: 150,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: artists.take(_maxShown).length,
+                        itemBuilder: (context, index) {
+                          final a = artists.take(_maxShown).toList()[index];
+                          return _ArtistChip(key: ValueKey(a.id), artist: a);
+                        },
+                      ),
                     ),
         ],
       ),
     );
   }
 
-  Widget _buildRowShimmer(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: AurumTheme.bgCardOf(context),
-      highlightColor: AurumTheme.bgElevatedOf(context),
-      child: Column(
-        children: List.generate(4, (_) => Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Row(
-            children: [
-              CircleAvatar(radius: 36, backgroundColor: AurumTheme.bgCardOf(context)),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Container(
-                  height: 16,
+  Widget _buildChipShimmer(BuildContext context) {
+    return SizedBox(
+      height: 150,
+      child: Shimmer.fromColors(
+        baseColor: AurumTheme.bgCardOf(context),
+        highlightColor: AurumTheme.bgElevatedOf(context),
+        child: Row(
+          children: List.generate(4, (_) => Container(
+            width: 110,
+            margin: const EdgeInsets.only(right: 16),
+            child: Column(
+              children: [
+                CircleAvatar(radius: 52, backgroundColor: AurumTheme.bgCardOf(context)),
+                const SizedBox(height: 10),
+                Container(
+                  height: 13,
+                  width: 70,
                   decoration: BoxDecoration(
                     color: AurumTheme.bgCardOf(context),
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-              ),
-            ],
-          ),
-        )),
-      ),
-    );
-  }
-}
-
-// Full-width artist list row — YT Music's real "Popular artists" row
-// shape: big circular avatar on the left, name (and a subtle "Artist"
-// caption) next to it, a play affordance on the right, one artist
-// stacked directly under another (not a horizontal scroll strip). Tap
-// anywhere on the row opens the artist's real page; the play button
-// starts that artist's own top songs directly, same as tapping straight
-// into ArtistScreen and hitting play would.
-class _ArtistFullRow extends StatelessWidget {
-  final ArtistSimple artist;
-  const _ArtistFullRow({super.key, required this.artist});
-
-  Future<void> _open(BuildContext context) async {
-    AurumHaptics.selection();
-    final id = artist.id.isNotEmpty
-        ? artist.id
-        : await ApiService.resolveArtistId(artist.name);
-    if (id == null || !context.mounted) return;
-    AurumDepthRoute.to(
-      context,
-      ArtistScreen(artistId: id, artistName: artist.name),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Highlights this row while the artist's own song is the one
-    // actively playing — same "you're already listening to this" signal
-    // the old chip row gave, just carried over to the new row shape.
-    final isCurrentArtist = context.select<PlayerProvider, bool>(
-      (p) => p.currentSong != null &&
-          p.currentSong!.artist.toLowerCase() == artist.name.toLowerCase(),
-    );
-    final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
-
-    // PERF: isolates this row's own PlayerProvider-driven rebuilds
-    // (isCurrentArtist/isActuallyPlaying flip on every song change and
-    // every play/pause toggle) into its own compositor layer — same
-    // reasoning the old _ArtistChip already applied.
-    return RepaintBoundary(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 18),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _open(context),
-            child: Row(
-              children: [
-                AurumStackedArtwork(
-                  url: artist.imageUrl,
-                  size: 72,
-                  circular: true,
-                  showNowPlaying: isCurrentArtist,
-                  isPlaying: isActuallyPlaying,
-                  stackColor: AurumTheme.accentOf(context),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        artist.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isCurrentArtist
-                              ? AurumTheme.accentOf(context)
-                              : AurumTheme.textPrimaryOf(context),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        AppLocalizations.of(context)!.homeArtistLabel,
-                        style: TextStyle(
-                          color: AurumTheme.textSecondaryOf(context),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Material(
-                  color: Colors.transparent,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => _open(context),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.play_circle_fill_rounded,
-                        size: 34,
-                        color: isCurrentArtist
-                            ? AurumTheme.accentOf(context)
-                            : AurumTheme.textPrimaryOf(context).withOpacity(0.85),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
-          ),
+          )),
         ),
       ),
     );
@@ -3818,90 +3276,6 @@ class _ArtistChip extends StatelessWidget {
 // case a genuine "related artists" row is wanted again later. A row whose
 // seed artist has no albums found (thin/obscure seed, or a pure-singles
 // artist) is silently dropped rather than shown empty.
-class _SimilarArtistsSection extends StatefulWidget {
-  final int refreshKey;
-  const _SimilarArtistsSection({this.refreshKey = 0});
-
-  @override
-  State<_SimilarArtistsSection> createState() => _SimilarArtistsSectionState();
-}
-
-class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
-  List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>? _rows;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(_SimilarArtistsSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshKey != widget.refreshKey) {
-      setState(() {
-        _rows = null;
-        _failed = false;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    try {
-      final seedArtists = RecommendationEngine.rotatingAffinityArtists(
-        count: 3,
-        seed: widget.refreshKey,
-      );
-      if (seedArtists.isEmpty) {
-        if (mounted) setState(() => _failed = true);
-        return;
-      }
-      final results = await Future.wait(
-        seedArtists.map((a) => ApiService.fetchSimilarArtistAlbums(a)),
-      );
-      if (!mounted) return;
-      final rows = results
-          .where((r) => r != null)
-          .map((r) => r!)
-          .toList();
-      setState(() {
-        _rows = rows;
-        _failed = rows.isEmpty;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_failed) return const SizedBox.shrink();
-    final rows = _rows;
-    if (rows == null) {
-      // Loading — no skeleton here (unlike the shelf rows above): this
-      // section can legitimately end up empty (no listening history),
-      // so a skeleton would flash and then disappear for a large chunk
-      // of users. Same "quiet until real data" behavior _ArtistStrip's
-      // caller already relies on via its own `loading` flag.
-      return const SizedBox.shrink();
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final row in rows)
-          _SimilarArtistsRow(
-            key: ValueKey('${row.artistName}_${widget.refreshKey}'),
-            seedArtistName: row.artistName,
-            seedArtistImageUrl: row.artistImageUrl,
-            albums: row.albums,
-          ),
-      ],
-    );
-  }
-}
-
 class _SimilarArtistsRow extends StatelessWidget {
   final String seedArtistName;
   final String? seedArtistImageUrl;
@@ -4094,216 +3468,19 @@ class _SimilarArtistAlbumCard extends StatelessWidget {
   }
 }
 
-class _YouMightAlsoLikeSection extends StatefulWidget {
-  const _YouMightAlsoLikeSection();
-
-  @override
-  State<_YouMightAlsoLikeSection> createState() =>
-      _YouMightAlsoLikeSectionState();
-}
-
-class _YouMightAlsoLikeSectionState extends State<_YouMightAlsoLikeSection> {
-  List<Song>? _songs;
-  bool _failed = false;
-  // The seed song itself isn't shown — only used to ask InnerTube what's
-  // related to it — but keeping it lets a future rebuild (e.g. a new song
-  // finishing playback and becoming the latest history entry) refetch
-  // against the new seed instead of staying stuck on whatever was most
-  // recent the first time this widget built.
-  String? _seedVideoId;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // RecentlyPlayedProvider can gain a new most-recent entry any time
-    // after this widget's first build (a song finishing playback doesn't
-    // remount Home) — re-check on every dependency change (provider
-    // notifies listeners -> this rebuilds) rather than only once in
-    // initState, so the seed genuinely tracks "last played", not just
-    // "whatever was last played when Home first opened this session".
-    final latest = context.watch<RecentlyPlayedProvider>().history.firstOrNull;
-    final latestId = latest?.id;
-    if (latestId != null && latestId != _seedVideoId) {
-      _seedVideoId = latestId;
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    final seed = _seedVideoId;
-    if (seed == null || seed.isEmpty) {
-      // No listening history yet (fresh install / library-only user) —
-      // nothing to seed this off of. Stays hidden rather than falling
-      // back to a random/unrelated song, which would make the row's
-      // name a lie.
-      if (mounted) setState(() { _songs = const []; _failed = true; });
-      return;
-    }
-    try {
-      final songs = await ApiService.fetchYouMightAlsoLike(seed);
-      if (!mounted) return;
-      setState(() {
-        _songs = songs;
-        _failed = songs.isEmpty;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  void _openAsPlaylist(BuildContext context, List<Song> songs) {
-    AurumHaptics.selection();
-    final art = songs
-        .where((s) => s.artworkUrl.isNotEmpty)
-        .map((s) => s.artworkUrl)
-        .firstOrNull ?? '';
-    AurumDepthRoute.to(
-      context,
-      MixScreen(
-        mixId: 'you_might_also_like_$_seedVideoId',
-        mixName: AppLocalizations.of(context)!.searchYouMightAlsoLike,
-        artworkUrl: art,
-        emoji: '',
-        songs: songs,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Keep watching so a brand-new most-recent play (didChangeDependencies
-    // above) actually triggers a rebuild of this widget, not just a
-    // re-evaluation that gets skipped because nothing here read the
-    // provider during build.
-    context.watch<RecentlyPlayedProvider>();
-    final songs = _songs;
-
-    // Still loading (first paint) — same skeleton language
-    // _RealHomeShelvesSection already uses elsewhere on Home.
-    if (songs == null && !_failed) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ShelfTitleSkeleton(),
-            const SizedBox(height: 12),
-            FadedHorizontalList(
-              height: 130,
-              child: _YtPlaylistsForYouSkeleton(
-                  scrollController: ScrollController()),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // No history to seed off, or InnerTube genuinely found nothing
-    // related — skip silently, same "don't show an empty titled row"
-    // rule every other optional Home section follows.
-    if (songs == null || songs.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _openAsPlaylist(context, songs),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Text(
-                        AppLocalizations.of(context)!.searchYouMightAlsoLike,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Material(
-                color: Colors.transparent,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => _openAsPlaylist(context, songs),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 20,
-                      color: AurumTheme.textPrimaryOf(context),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          FadedHorizontalList(
-            height: 214,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 12),
-              itemCount: songs.length.clamp(0, 12),
-              itemBuilder: (_, i) {
-                if (i >= songs.length) return const SizedBox.shrink();
-                return _SongGridCard(
-                  song: songs[i],
-                  queue: songs,
-                  index: i,
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Quick Picks — YT Music's own top-of-Home shelf: a flat VERTICAL list of
-// individual songs (thumbnail + title + artist, no playlist-card wrapper),
-// personalized off real listening history, not a text-search hack.
-//
-// REAL DATA, not a fake shelf: seeds off the user's own most-recently-
-// played songs (RecentlyPlayedProvider.history — real play history, same
-// source _YouMightAlsoLikeSection already trusts) and asks InnerTube what's
-// related to each seed via the existing fetchYouMightAlsoLike() — the same
-// real "related" pipeline YT Music's own Quick Picks/Up Next is built on.
-// Multiple seeds (not just the single latest song) are used and then
-// interleaved + de-duped so the result reads as a broad personalized mix
-// instead of "more songs like the one thing I played last", matching the
-// breadth an actual YT Music Quick Picks shelf has.
+// Quick Picks — real InnerTube-personalized song mix (YT Music's own
+// top-of-Home shelf). Seeds off the user's own most-recently-played songs
+// (RecentlyPlayedProvider.history) and asks InnerTube what's related to
+// each seed via fetchYouMightAlsoLike() — the same real "related" pipeline
+// YT Music's own Quick Picks/Up Next is built on. Multiple seeds are
+// interleaved + de-duped + quality-ranked (RecommendationEngine) so the
+// result reads as a broad personalized mix, not "more like the last song".
 //
 // Cold-start: hydrates instantly from HomeFeedCache.loadQuickPicks() (same
 // "show last session's result now, refresh quietly after" contract as every
 // other Home row) and only fires a real fetch when there's no cache yet or
-// the 6-hour freshness window has lapsed — see HomeFeedCache's doc comment.
-// Pull-to-refresh (refreshKey bump) always forces a real refetch regardless.
+// the 6-hour freshness window has lapsed. Pull-to-refresh always forces a
+// real refetch regardless.
 class _QuickPicksSection extends StatefulWidget {
   final int refreshKey;
   const _QuickPicksSection({this.refreshKey = 0});
@@ -4321,7 +3498,11 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
   // case latency/parallel requests the same way _SimilarArtistsSection caps
   // its own seed count at 3.
   static const int _kSeedCount = 3;
-  static const int _kMaxShown = 15;
+  // 6 columns of 4 rows each (24 songs) so a real 5-6 swipe horizontal
+  // scroll ("5-6 baar swipe karne pr 4-4 songs aaye") always has enough
+  // InnerTube-ranked pool to fill every column — 15 only covered ~4
+  // columns before running out.
+  static const int _kMaxShown = 24;
 
   @override
   void initState() {
@@ -4381,29 +3562,55 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
             .catchError((_) => const <Song>[])),
       );
 
-      // INTERLEAVE (not concat): walk each seed's result list one at a
-      // time, round-robin, so the final mix reads as genuinely varied
-      // (a bit from each recent thing you played) instead of "everything
-      // related to song A, then everything related to song B" stacked in
-      // blocks — same reasoning _HomeShelvesAndSimilarSection already
-      // applies when weaving shelves with similar-artist rows.
+      // QUALITY FIX ("ekdam top garde level ka... har baar great songs
+      // aaye" — 2026-09-13): this used to interleave the raw seed
+      // results in whatever order InnerTube happened to return them —
+      // no quality/relevance filtering at all, so a low-quality upload
+      // or a barely-related result could land in the very first row just
+      // because it appeared early in one seed's list. Two real fixes:
+      //   1. isNonMusicContent strips junk (vlogs, label-channel
+      //      reuploads, non-music content) before it ever gets a chance
+      //      to appear — same filter rankAndFilter already trusts for
+      //      the Up Next queue.
+      //   2. Pool size raised to 4x _kMaxShown (was capped at exactly
+      //      _kMaxShown while interleaving) so RecommendationEngine.
+      //      scoreCandidate — genuine artist/genre/language affinity +
+      //      completion-rate/replay/skip signals from real listening
+      //      history — has an actual pool to RANK instead of just a
+      //      round-robin merge with nothing left to choose between.
+      //      currentSong is intentionally omitted (Quick Picks has no
+      //      single "now playing" reference song, unlike Up Next) — the
+      //      era-match term simply no-ops in that case and every other
+      //      term (taste affinity, mood/genre session match, completion/
+      //      replay/skip history) still applies fully.
+      final poolCap = _kMaxShown * 4;
       final seen = <String>{};
-      final merged = <Song>[];
+      final pool = <Song>[];
       var idx = 0;
-      while (merged.length < _kMaxShown) {
+      while (pool.length < poolCap) {
         var addedThisRound = false;
         for (final list in results) {
           if (idx >= list.length) continue;
           final s = list[idx];
-          if (s.id.isNotEmpty && seen.add(s.id)) {
-            merged.add(s);
-            addedThisRound = true;
-            if (merged.length >= _kMaxShown) break;
-          }
+          if (s.id.isEmpty || !seen.add(s.id)) continue;
+          if (RecommendationEngine.isNonMusicContent(s)) continue;
+          pool.add(s);
+          addedThisRound = true;
+          if (pool.length >= poolCap) break;
         }
         if (!addedThisRound) break; // every seed list exhausted
         idx++;
       }
+
+      // Stable-sort by genuine taste/quality score, highest first — ties
+      // (e.g. two songs InnerTube considers equally related) keep their
+      // original interleaved order rather than an arbitrary one, since
+      // List.sort in Dart is not guaranteed stable but the score itself
+      // already varies enough in practice that visible re-shuffling of
+      // true ties is not a concern here.
+      pool.sort((a, b) => RecommendationEngine.scoreCandidate(a)
+          .compareTo(RecommendationEngine.scoreCandidate(b)));
+      final merged = pool.reversed.take(_kMaxShown).toList();
 
       if (!mounted) return;
       if (merged.isEmpty) {
@@ -4488,42 +3695,71 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
       return const SizedBox.shrink();
     }
 
-    // REDESIGN, RECHECKED against real music.youtube.com screenshots
-    // ("dekho ekdam real youtube music jaisa ekdam top level ka" —
-    // 2026-09-13): the real Quick Picks section is a plain FULL-WIDTH
-    // VERTICAL LIST — small square art, title (+ "N plays"/views
-    // subtitle), 3-dot menu on the right, ONE ROW PER LINE — not a
-    // 2-column grid (that was this section's own previous pass, since
-    // corrected) and the header has no "Play all" pill, just the plain
-    // title (unlike "Trending songs for you", which DOES have one).
+    // REDESIGN ("ekdam youtube jaisa side scroll rahe 4 4 ke category
+    // mein" — 2026-09-13): real music.youtube.com's own Quick Picks is a
+    // HORIZONTAL carousel of columns — each column stacks 4 rows
+    // vertically (small square art + title/subtitle + 3-dot menu, same
+    // row shape as before), and the whole block scrolls sideways one
+    // column-of-4 at a time, peeking the next column's edge — not one
+    // single full-width vertical list. _QuickPickListRow itself is
+    // unchanged; only the layout wrapping it changed from a flat Column
+    // to a horizontal ListView of 4-row columns.
+    const rowsPerColumn = 4;
+    final columnCount = (songs.length / rowsPerColumn).ceil();
+
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 12, right: 12, bottom: 4),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 0, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            AppLocalizations.of(context)!.homeQuickPicks,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.3,
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Text(
+              AppLocalizations.of(context)!.homeQuickPicks,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
             ),
           ),
           const SizedBox(height: 8),
-          // Flat vertical list — no nested scrollable (this whole
-          // section is itself one child of Home's outer
-          // CustomScrollView), same "Column of rows" shape
-          // _RecentlyPlayedSection/_ArtistStrip already use for their
-          // own non-horizontal Home rows.
-          for (var i = 0; i < songs.length; i++)
-            _QuickPickListRow(
-              key: ValueKey('quickpick_${songs[i].id}_${widget.refreshKey}'),
-              song: songs[i],
-              queue: songs,
-              index: i,
+          // Each column is exactly as tall as 4 real rows — row height is
+          // 68 (52 artwork + 12 vertical padding + 4 bottom margin, see
+          // _QuickPickListRow below) x 4 rows.
+          SizedBox(
+            height: 68 * rowsPerColumn,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 900,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: columnCount,
+              itemBuilder: (_, colIndex) {
+                final start = colIndex * rowsPerColumn;
+                final end = (start + rowsPerColumn).clamp(0, songs.length);
+                return Container(
+                  width: MediaQuery.of(context).size.width - 24,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = start; i < end; i++)
+                        _QuickPickListRow(
+                          key: ValueKey(
+                              'quickpick_${songs[i].id}_${widget.refreshKey}'),
+                          song: songs[i],
+                          queue: songs,
+                          index: i,
+                        ),
+                    ],
+                  ),
+                );
+              },
             ),
+          ),
         ],
       ),
     );
@@ -4631,67 +3867,10 @@ class _QuickPickListRow extends StatelessWidget {
 // Entry card into the full real "Moods & Genres" grid screen — tap opens
 // MoodsGenresScreen (ApiService.fetchMoodsAndGenres, real InnerTube
 // FEmusic_moods_and_genres browse, see that screen's own doc header).
-class _MoodsGenresEntryCard extends StatelessWidget {
-  const _MoodsGenresEntryCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 20, left: 12, right: 12),
-      child: Material(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () {
-            AurumHaptics.selection();
-            AurumDepthRoute.to(context, const MoodsGenresScreen());
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            child: Row(
-              children: [
-                Icon(Icons.grid_view_rounded,
-                    color: AurumTheme.textPrimaryOf(context), size: 22),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    'Moods & Genres',
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Icon(Icons.chevron_right,
-                    color: AurumTheme.textSecondaryOf(context), size: 22),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Real shelves + "Similar to [Artist]" — INTERLEAVED
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// FEATURE ("artist ekdam niche nhi aayenge, akward lag raha tha" —
-// 2026-09-07): fetches both real InnerTube home shelves (same source
-// _RealHomeShelvesSection always used — see fetchHomeShelvesForDisplay's
-// own doc comment) and per-affinity-artist "Similar to X" rows (same
-// source _SimilarArtistsSection always used — fetchSimilarArtistChips)
-// IN PARALLEL, then renders them woven together (one shelf, one
-// similar-artist row, one shelf, ...) instead of two back-to-back
-// blocks. Matches the reference screenshots, where a "Similar to
-// <Artist>" row never appears bunched with every other artist row at
-// the bottom — it sits between ordinary mood/genre shelves. If only one
-// of the two sources comes back (e.g. no listening history yet, so no
-// similar-artist rows), this silently falls back to showing just the
-// shelves — never an empty gap where a row should be.
+// NOTE: the actual entry-card widget this comment describes
+// (_MoodsGenresEntryCard) was dead code (never mounted) and has been
+// removed — MoodsGenresScreen is still reachable via the real shelf
+// rows' own "see all" arrow below, same destination either way.
 class _HomeShelvesAndSimilarSection extends StatefulWidget {
   final int refreshKey;
   const _HomeShelvesAndSimilarSection({this.refreshKey = 0});
@@ -4841,109 +4020,6 @@ class _HomeShelvesAndSimilarSectionState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: children,
-    );
-  }
-}
-
-class _RealHomeShelvesSection extends StatefulWidget {
-  final int refreshKey;
-  const _RealHomeShelvesSection({this.refreshKey = 0});
-
-  @override
-  State<_RealHomeShelvesSection> createState() =>
-      _RealHomeShelvesSectionState();
-}
-
-class _RealHomeShelvesSectionState extends State<_RealHomeShelvesSection> {
-  List<HomeShelf>? _shelves;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(_RealHomeShelvesSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Pull-to-refresh bumps refreshKey — refetch so these shelves rotate
-    // along with every other section on refresh, same convention as
-    // _YtPlaylistsForYouSection's own didUpdateWidget.
-    if (oldWidget.refreshKey != widget.refreshKey) {
-      setState(() {
-        _shelves = null;
-        _failed = false;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    try {
-      // FEATURE ("youtube music innertube jaisa, ekdam same top level" —
-      // 2026-09-06): fetchHomeShelvesForDisplay combines the real
-      // FEmusic_home shelves with a personalized "Made for you" shelf
-      // (from real on-device listening affinity) and a handful of fixed
-      // seed shelves (genre/mood, same real InnerTube playlist search
-      // surface) — see that function's doc comment in api_service.dart
-      // for the exact ordering/reasoning. refreshSeed ties the
-      // personalized shelf's own internal shuffle to this row's
-      // refreshKey so pull-to-refresh actually rotates which top artists
-      // get featured, not just re-running the identical query.
-      final shelves = await ApiService.fetchHomeShelvesForDisplay(
-        refreshSeed: widget.refreshKey,
-      );
-      if (!mounted) return;
-      setState(() {
-        _shelves = shelves;
-        _failed = shelves.isEmpty;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final shelves = _shelves;
-
-    // Still loading (first paint) — one skeleton shelf, same visual
-    // language _YtPlaylistsForYouSkeleton already uses elsewhere on Home.
-    if (shelves == null && !_failed) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ShelfTitleSkeleton(),
-            const SizedBox(height: 12),
-            FadedHorizontalList(
-              height: 130,
-              child: _YtPlaylistsForYouSkeleton(
-                  scrollController: ScrollController()),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Nothing real came back (offline/blocked/anonymous quota) — skip
-    // silently, same "don't show an empty titled row" rule every other
-    // optional Home section follows.
-    if (shelves == null || shelves.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final shelf in shelves)
-          _RealHomeShelfRow(
-            key: ValueKey('${shelf.title}_${widget.refreshKey}'),
-            shelf: shelf,
-          ),
-      ],
     );
   }
 }
@@ -5499,6 +4575,84 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
   }
 }
 
+// Album card for a real InnerTube home shelf — used by both
+// _RealHomeShelfRow (the horizontal shelf row on Home) and
+// _ShelfSeeAllScreen (that shelf's own "see all" grid) whenever a shelf
+// item is an album rather than a playlist/mix.
+class _HomeAlbumCardWidget extends StatelessWidget {
+  final HomeAlbumCard card;
+  const _HomeAlbumCardWidget({super.key, required this.card});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () {
+          AurumHaptics.light();
+          AurumDepthRoute.to(
+            context,
+            AlbumScreen(
+              albumId: card.albumId,
+              albumName: card.title,
+              artworkUrl: card.artworkUrl,
+            ),
+          );
+        },
+        child: SizedBox(
+          // Matches _RealShelfPlaylistCard's 172 width/height exactly so
+          // album cards don't look smaller/flatter sitting next to
+          // playlist cards in the same shelf row.
+          width: 172,
+          height: 172,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 16),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                card.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (card.artist.isNotEmpty)
+                Text(
+                  card.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // FEATURE ("See all" full-grid screen — 2026-09-07): plain grid of every
 // item already sitting in `shelf.items` (no re-fetch — the horizontal row
 // already has all of it in memory). Reuses _RealShelfPlaylistCard /
@@ -5582,796 +4736,6 @@ class _ShelfSeeAllScreen extends StatelessWidget {
     );
   }
 }
-
-class _YtPlaylistsForYouSection extends StatefulWidget {
-  final int refreshKey;
-  const _YtPlaylistsForYouSection({this.refreshKey = 0});
-
-  @override
-  State<_YtPlaylistsForYouSection> createState() =>
-      _YtPlaylistsForYouSectionState();
-}
-
-// Sentinel id for the always-present default chip — the personalized-
-// seed + generic-shelf mix this row showed before mood chips existed.
-// Kept selected by default (never an "unselected" chip state) so the
-// row never has a beat where nothing is highlighted — same reasoning
-// as Spotify/Echo always showing one active pill.
-const String _kMoodAll = '_all';
-
-class _YtPlaylistsForYouSectionState
-    extends State<_YtPlaylistsForYouSection> {
-  List<YtHomePlaylistCard>? _cards;
-  bool _failed = false;
-  bool _everLoadedOnce = false;
-  String _selectedMood = _kMoodAll;
-
-  // BUG FIX ("app fasna / scroll atakna over time" — memory leak):
-  // this ScrollController used to be created fresh inside build() —
-  // `final scrollController = ScrollController();` — every single
-  // rebuild. Since this is a StatefulWidget whose build() re-runs on
-  // every mood-chip tap (_onMoodTap → setState) and every pull-to-
-  // refresh (didUpdateWidget), each of those rebuilds allocated a brand
-  // new controller and abandoned the previous one without ever calling
-  // .dispose() on it — a genuine, unbounded memory leak that gets worse
-  // the more the user interacts with this row (switches moods, pulls to
-  // refresh) across a session. Each abandoned controller also leaves its
-  // ScrollPosition/listener machinery alive in memory doing nothing.
-  // Moved to a State field created once in initState and disposed once
-  // in dispose(), matching every other ScrollController in this file.
-  late final ScrollController _scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    // NO-SILENT-REFRESH FIX (same rule as the rest of Home): this row had
-    // no cache at all before — it always fetched fresh, different
-    // playlists on every single app open (worse: HomePlaylistHistory's
-    // own "no repeat" system guaranteed they'd be different each time),
-    // even while every other Home section correctly stayed frozen from
-    // cache until the user pulled to refresh. Now it hydrates from its
-    // own cache first (instant, same as sections/artists) and only fires
-    // a real fetch when nothing has ever been cached for this mood yet —
-    // mood switches and pull-to-refresh (see didUpdateWidget below) are
-    // unaffected and always still fetch fresh, exactly as before.
-    _hydrateFromCache();
-  }
-
-  Future<void> _hydrateFromCache() async {
-    // Single SharedPreferences round-trip covers both "what to show" and
-    // "do we still need a real fetch" — loadPlaylistCards() returns []
-    // only when nothing has ever been cached for this mood (no time-based
-    // expiry — see HomeFeedCache's class doc), so an empty result here
-    // unambiguously means "no usable cache yet".
-    final cached = await HomeFeedCache.loadPlaylistCards(_selectedMood);
-    if (!mounted) return;
-    if (cached.isNotEmpty) {
-      setState(() {
-        _cards = cached;
-        _everLoadedOnce = true;
-      });
-    } else {
-      _load();
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_YtPlaylistsForYouSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Pull-to-refresh bumps refreshKey — refetch so this row rotates
-    // along with every other section on refresh instead of staying
-    // stale. Refresh keeps whatever mood was selected rather than
-    // silently resetting it back to "All".
-    if (oldWidget.refreshKey != widget.refreshKey) {
-      setState(() {
-        _cards = null;
-        _failed = false;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    try {
-      // NO-REPEAT: skip song ids already shown recently under THIS
-      // SPECIFIC mood (persisted across sessions, scoped per-mood — see
-      // HomePlaylistHistory), so refresh and mood switches actually
-      // surface something new instead of looping the same handful of
-      // songs, without one mood's history ever being able to starve a
-      // different mood's (often much smaller) result pool.
-      final currentMood = _selectedMood == _kMoodAll ? null : _selectedMood;
-      final excludeIds = await HomePlaylistHistory.getShownIds(currentMood);
-      final cards = await ApiService.fetchYtMusicHomePlaylists(
-        limit: 10,
-        mood: currentMood,
-        excludeIds: excludeIds,
-      ).timeout(const Duration(seconds: 12));
-      if (!mounted) return;
-      if (cards.isNotEmpty) {
-        unawaited(HomeFeedCache.savePlaylistCards(_selectedMood, cards));
-      }
-      if (cards.isEmpty) {
-        setState(() => _failed = true);
-      } else {
-        setState(() {
-          _cards = cards;
-          _failed = false;
-          _everLoadedOnce = true;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  void _onMoodTap(String moodId) {
-    if (moodId == _selectedMood) return;
-    AurumHaptics.selection();
-    setState(() {
-      _selectedMood = moodId;
-      _cards = null;
-      _failed = false;
-    });
-    _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Nothing to show and nothing coming — skip the whole section
-    // rather than leaving an empty-but-titled row on screen. Matches
-    // how other optional sections on this screen (e.g. offline row)
-    // handle the no-content case. Mood chips only render once there's
-    // at least been a successful load, so a first-load failure never
-    // shows a row of chips above an empty shelf.
-    // FIX (2026-08-14 — "Bollywood ya koi mood choose karne pe poora
-    // section invisible ho jaata tha"): pehle yahan condition thi
-    // `_failed && _cards == null`, jo TRUE ho jaati thi har baar jab
-    // koi mood switch fail/khaali result deta — kyunki _onMoodTap()
-    // mood switch karte hi _cards ko null kar deta hai (line ~3206),
-    // aur agar us mood ka fetch fail ho, poora row shrink ho jaata,
-    // as if section exist hi nahi karta. Ab hum sirf VERY FIRST load
-    // (jab koi mood kabhi successfully load hi nahi hua, matlab "All"
-    // khud fail ho gaya) pe hi poora section chhupate hain — kisi bhi
-    // baad ke mood switch ke fail hone pe row visible rehta hai aur
-    // ek proper "retry" state dikhata hai (neeche build me), jaisa
-    // Spotify/YT Music khud karte hain — section gayab nahi hota.
-    if (_failed && _cards == null && !_everLoadedOnce) {
-      return const SizedBox.shrink();
-    }
-
-    final l10n = AppLocalizations.of(context)!;
-    final cards = _cards;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.homePlaylistsForYou,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _MoodChipRow(
-            selectedMood: _selectedMood,
-            onTap: _onMoodTap,
-          ),
-          const SizedBox(height: 12),
-          FadedHorizontalList(
-            height: 130,
-            controller: _scrollController,
-            child: cards == null
-                ? (_failed
-                    ? _YtPlaylistsForYouRetry(onRetry: _load)
-                    : _YtPlaylistsForYouSkeleton(
-                        scrollController: _scrollController))
-                : ListView.builder(
-                    controller: _scrollController,
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    cacheExtent: 600,
-                    padding: const EdgeInsets.only(right: 12),
-                    itemCount: cards.length,
-                    itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
-                      key: ValueKey(
-                          '${cards[i].id}_${widget.refreshKey}_$_selectedMood'),
-                      card: cards[i],
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// FEATURE ("home page pe naya Albums row, ekdam YouTube Music InnerTube
-// ka data") — same cold-start-cache pattern as _YtPlaylistsForYouSection
-// just above, but backed by fetchYtMusicHomeAlbums (searchAlbumsYtOnly
-// under the hood — no Saavn leg) and tapping a card opens AlbumScreen
-// instead of MixScreen. `mood` is passed in from the parent screen
-// (currently always _kMoodAll — see the SliverToBoxAdapter call site)
-// rather than reading _YtPlaylistsForYouSectionState's own private
-// _selectedMood, since that field isn't exposed outside that widget;
-// wiring the two rows to the same live mood selection would need lifting
-// that state up to the shared parent, which this fix deliberately keeps
-// out of scope to avoid touching the existing playlists row's state.
-class _YtAlbumsForYouSection extends StatefulWidget {
-  final int refreshKey;
-  final String mood; // shares _YtPlaylistsForYouSection's _selectedMood
-  const _YtAlbumsForYouSection({this.refreshKey = 0, required this.mood});
-
-  @override
-  State<_YtAlbumsForYouSection> createState() => _YtAlbumsForYouSectionState();
-}
-
-class _YtAlbumsForYouSectionState extends State<_YtAlbumsForYouSection> {
-  List<HomeAlbumCard>? _cards;
-  bool _failed = false;
-  bool _everLoadedOnce = false;
-  late final ScrollController _scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    _hydrateFromCache();
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_YtAlbumsForYouSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Same triggers as the playlists row: pull-to-refresh (refreshKey)
-    // or a mood switch (mood, shared from the playlists row's chips)
-    // both mean this shelf's current cards no longer match what should
-    // be shown, so refetch exactly like a fresh mount would.
-    if (oldWidget.refreshKey != widget.refreshKey || oldWidget.mood != widget.mood) {
-      setState(() {
-        _cards = null;
-        _failed = false;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _hydrateFromCache() async {
-    final cached = await HomeFeedCache.loadAlbumCards(widget.mood);
-    if (!mounted) return;
-    if (cached.isNotEmpty) {
-      setState(() {
-        _cards = cached;
-        _everLoadedOnce = true;
-      });
-    } else {
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    try {
-      final cards = await ApiService.fetchYtMusicHomeAlbums(
-        limit: 10,
-        mood: widget.mood == _kMoodAll ? null : widget.mood,
-      ).timeout(const Duration(seconds: 12));
-      if (!mounted) return;
-      if (cards.isNotEmpty) {
-        unawaited(HomeFeedCache.saveAlbumCards(widget.mood, cards));
-      }
-      if (cards.isEmpty) {
-        setState(() => _failed = true);
-      } else {
-        setState(() {
-          _cards = cards;
-          _failed = false;
-          _everLoadedOnce = true;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Same no-content-and-nothing-coming skip as the playlists row.
-    if (_failed && _cards == null && !_everLoadedOnce) {
-      return const SizedBox.shrink();
-    }
-
-    final l10n = AppLocalizations.of(context)!;
-    final cards = _cards;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.homeAlbumsForYou,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          FadedHorizontalList(
-            height: 130,
-            controller: _scrollController,
-            child: cards == null
-                ? (_failed
-                    ? _YtPlaylistsForYouRetry(onRetry: _load)
-                    : _YtPlaylistsForYouSkeleton(
-                        scrollController: _scrollController))
-                : ListView.builder(
-                    controller: _scrollController,
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    cacheExtent: 600,
-                    padding: const EdgeInsets.only(right: 12),
-                    itemCount: cards.length,
-                    itemBuilder: (_, i) => _HomeAlbumCardWidget(
-                      key: ValueKey(
-                          '${cards[i].albumId}_${widget.refreshKey}_${widget.mood}'),
-                      card: cards[i],
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HomeAlbumCardWidget extends StatelessWidget {
-  final HomeAlbumCard card;
-  const _HomeAlbumCardWidget({super.key, required this.card});
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: GestureDetector(
-        onTap: () {
-          AurumHaptics.light();
-          AurumDepthRoute.to(
-            context,
-            AlbumScreen(
-              albumId: card.albumId,
-              albumName: card.title,
-              artworkUrl: card.artworkUrl,
-            ),
-          );
-        },
-        child: SizedBox(
-          // FIX (recheck — album cards visibly smaller than playlist
-          // cards in the same shelf): _RealHomeShelfRow mixes this widget
-          // with _RealShelfPlaylistCard in the exact same horizontal row
-          // (a shelf can freely interleave albums and playlists), but
-          // that card sat at 172 while this one was still 148 — a 24px
-          // gap that read as an inconsistent, oddly-sized card sitting
-          // next to full-size ones. Bumped width to 172 to match exactly.
-          width: 172,
-          // FIX (recheck — overflow in the shared shelf row): the shelf's
-          // FadedHorizontalList is a fixed height: 172 (see
-          // _RealHomeShelfRow), sized for _RealShelfPlaylistCard, which
-          // fills that whole 172 with its artwork and overlays title/
-          // subtitle ON TOP of the image. This card instead stacked
-          // title+artist BELOW a full 172-tall artwork square, which
-          // silently overflowed the row's fixed height. Art shrunk to
-          // 134 so art + spacing + two text lines fits inside 172 exactly
-          // — same total card height as the playlist card beside it.
-          height: 172,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // PREMIUM UPGRADE — matches the larger, deeper-shadow
-              // language now used by playlist cards in this row (radius
-              // 10->16, added ambient shadow) so album cards don't look
-              // smaller/flatter sitting next to them in the same shelf.
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 16),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                card.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (card.artist.isNotEmpty)
-                Text(
-                  card.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AurumTheme.textSecondaryOf(context),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// THEMED PLAYLIST SHELVES — YT Music / "ArchiveTune"-style full playlist
-// layout: several stacked shelves, each with its own small kicker line +
-// bold title (e.g. "THROWBACK TO THE OG ERAS OF MUSIC" / "Brb, Being
-// Nostalgic!"), followed by a horizontal row of real playlist cards.
-//
-// FEATURE ("complete youtube music jaisa layout sirf playlist"): the
-// existing "Playlists For You" section above is a single row behind mood
-// chips — switching mood REPLACES the row rather than showing multiple
-// themed rows at once, which is why Home never looked like YT Music's
-// multi-shelf playlist page. This section adds that multi-shelf layout
-// as an ADDITIONAL block (doesn't touch _YtPlaylistsForYouSection above
-// at all) by fetching several FIXED moods in parallel — each mood's own
-// ApiService.fetchYtMusicHomePlaylists() call, each with its own
-// HomeFeedCache entry (mood-keyed, already built for exactly this) — and
-// rendering each as its own titled shelf, reusing the exact same
-// _YtHomePlaylistCardWidget card design already used above so visuals
-// stay consistent with the rest of Home.
-class _ThemedPlaylistShelvesSection extends StatelessWidget {
-  final int refreshKey;
-  const _ThemedPlaylistShelvesSection({this.refreshKey = 0});
-
-  // Fixed shelf lineup + editorial copy. Mood ids must be valid keys in
-  // ApiService's _kMoodSubQueries map (see kHomeMoodChips for the full
-  // list) — reusing those moods means every shelf is backed by the same
-  // already-quality-filtered, already-deduped query set the mood-chip row
-  // above uses, no new query design needed.
-  static const List<_ThemeShelfSpec> _shelves = [
-    _ThemeShelfSpec(
-      mood: 'bollywood',
-      kicker: 'MUSIC THAT\'S HOT AND HAPPENING',
-      title: 'India\'s Biggest Hits',
-    ),
-    _ThemeShelfSpec(
-      mood: 'nineties',
-      kicker: 'THROWBACK TO THE OG ERAS OF MUSIC',
-      title: 'Brb, Being Nostalgic!',
-    ),
-    _ThemeShelfSpec(
-      mood: 'party',
-      kicker: 'TURN IT UP AND LET GO',
-      title: 'Party Mode: On',
-    ),
-    _ThemeShelfSpec(
-      mood: 'romantic',
-      kicker: 'FOR THE HOPELESS ROMANTICS',
-      title: 'Love Is In The Air',
-    ),
-    _ThemeShelfSpec(
-      mood: 'relax',
-      kicker: 'SLOW DOWN, BREATHE, REPEAT',
-      title: 'Chill Out Zone',
-    ),
-    _ThemeShelfSpec(
-      mood: 'sad',
-      kicker: 'FOR WHEN THE FEELS HIT HARD',
-      title: 'Grab The Tissues',
-    ),
-    _ThemeShelfSpec(
-      mood: 'workout',
-      kicker: 'PUSH THROUGH THE LAST REP',
-      title: 'Sweat It Out',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: _shelves
-          .map((spec) => _ThemedPlaylistShelf(
-                key: ValueKey('shelf_${spec.mood}_$refreshKey'),
-                spec: spec,
-                refreshKey: refreshKey,
-              ))
-          .toList(),
-    );
-  }
-}
-
-class _ThemeShelfSpec {
-  final String mood;
-  final String kicker;
-  final String title;
-  const _ThemeShelfSpec({
-    required this.mood,
-    required this.kicker,
-    required this.title,
-  });
-}
-
-class _ThemedPlaylistShelf extends StatefulWidget {
-  final _ThemeShelfSpec spec;
-  final int refreshKey;
-  const _ThemedPlaylistShelf({super.key, required this.spec, this.refreshKey = 0});
-
-  @override
-  State<_ThemedPlaylistShelf> createState() => _ThemedPlaylistShelfState();
-}
-
-class _ThemedPlaylistShelfState extends State<_ThemedPlaylistShelf> {
-  List<YtHomePlaylistCard>? _cards;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _hydrateFromCache();
-  }
-
-  @override
-  void didUpdateWidget(_ThemedPlaylistShelf oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Pull-to-refresh bumps refreshKey — refetch this shelf too, same
-    // trigger _YtPlaylistsForYouSection already reacts to.
-    if (oldWidget.refreshKey != widget.refreshKey) {
-      setState(() {
-        _cards = null;
-        _failed = false;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _hydrateFromCache() async {
-    // Same mood-keyed cache the "Playlists For You" row already uses —
-    // each shelf's mood is its own independent cache entry, so this
-    // section and the row above never fight over the same key.
-    final cached = await HomeFeedCache.loadPlaylistCards(widget.spec.mood);
-    if (!mounted) return;
-    if (cached.isNotEmpty) {
-      setState(() => _cards = cached);
-    } else {
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    try {
-      final cards = await ApiService.fetchYtMusicHomePlaylists(
-        limit: 8,
-        mood: widget.spec.mood,
-      ).timeout(const Duration(seconds: 12));
-      if (!mounted) return;
-      if (cards.isNotEmpty) {
-        unawaited(HomeFeedCache.savePlaylistCards(widget.spec.mood, cards));
-        setState(() {
-          _cards = cards;
-          _failed = false;
-        });
-      } else {
-        setState(() => _failed = true);
-      }
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Nothing loaded and nothing coming — skip this one shelf entirely
-    // rather than leaving an empty-but-titled block on screen. Other
-    // shelves are unaffected since each is fetched independently.
-    if (_cards == null && _failed) return const SizedBox.shrink();
-
-    final cards = _cards;
-    return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 16, right: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.spec.kicker,
-            style: TextStyle(
-              color: AurumTheme.textSecondaryOf(context),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.6,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            widget.spec.title,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.3,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 130,
-            child: cards == null
-                ? _ThemedShelfSkeleton()
-                : ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    cacheExtent: 600,
-                    padding: const EdgeInsets.only(right: 12),
-                    itemCount: cards.length,
-                    itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
-                      key: ValueKey(
-                          '${widget.spec.mood}_${cards[i].id}_${widget.refreshKey}'),
-                      card: cards[i],
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Lightweight shimmer placeholder for a themed shelf while its cards load
-// — same visual language (rounded rect cards) as _YtPlaylistsForYouSkeleton
-// so a loading shelf doesn't look visually inconsistent with a loaded one.
-class _ThemedShelfSkeleton extends StatelessWidget {
-  const _ThemedShelfSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: AurumTheme.bgCardOf(context),
-      highlightColor: AurumTheme.bgCardOf(context).withOpacity(0.5),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(right: 12),
-        itemCount: 4,
-        itemBuilder: (_, __) => Container(
-          width: 130,
-          margin: const EdgeInsets.only(right: 12),
-          decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context),
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// Mood chip row — Podcasts/Relax/Workout/Energize/etc, plus an always-
-// present "All" chip first. One chip is always selected (never a bare/
-// unselected row), matching the reference apps this row is modeled on.
-// Pure presentational row; all state lives in the parent section.
-// ══════════════════════════════════════════════════════════════════
-class _MoodChipRow extends StatelessWidget {
-  final String selectedMood;
-  final ValueChanged<String> onTap;
-  const _MoodChipRow({required this.selectedMood, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final chips = <HomeMoodChip>[
-      HomeMoodChip(_kMoodAll, l10n.homeMoodAll),
-      ...kHomeMoodChips,
-    ];
-    return SizedBox(
-      height: 34,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(right: 12),
-        // PERF: mood chips are cheap (AnimatedContainer + Text, no
-        // network image), but caching a little extra off-screen width
-        // still avoids a build/layout hitch on the very first frame a
-        // low-end device scrolls this row fast — matches the cacheExtent
-        // used on every other horizontal list in this file for
-        // consistency, even though the cost here is small either way.
-        cacheExtent: 300,
-        itemCount: chips.length,
-        itemBuilder: (_, i) {
-          final chip = chips[i];
-          final selected = chip.id == selectedMood;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onTap(chip.id),
-              child: AnimatedContainer(
-                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? AurumTheme.accentOf(context)
-                      : AurumTheme.bgCardOf(context),
-                  borderRadius: BorderRadius.circular(20),
-                  border: selected
-                      ? null
-                      : Border.all(
-                          color: AurumTheme.textPrimaryOf(context)
-                              .withOpacity(0.10),
-                          width: 1,
-                        ),
-                ),
-                child: Text(
-                  chip.label,
-                  style: TextStyle(
-                    color: selected
-                        ? Theme.of(context).colorScheme.onPrimary
-                        : AurumTheme.textPrimaryOf(context).withOpacity(0.85),
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// REAL mood chips + category shelves ("ekdam youtube music jaisa
-// structure redesign kro" — 2026-09-13): reuses _MoodChipRow's UI
-// exactly as before, but backs it with 100% real InnerTube data this
-// time — fetchMoodsAndGenres() for the chip list (real category
-// title/browseId/params, same data MoodsGenresScreen's own grid uses),
-// then fetchMoodGenreCategory(browseId, params) for whichever chip is
-// selected (same real per-category browse call MoodGenreDetailScreen
-// makes). This is the real-data replacement for the old
-// _YtPlaylistsForYouSection, which was removed specifically because its
-// fetchYtMusicHomePlaylists() backing fell back to a fake plain-search
-// result wrapped in a playlist-shaped card when a real playlist search
-// came up short — every fetch here is the same genuine browse endpoint
-// MoodsGenresScreen already trusts, no fallback of that kind exists.
-// An "All" chip (id: _kRealMoodAllId) always leads and simply hides
-// this section's own shelf output, deferring to the regular
-// _HomeShelvesAndSimilarSection lower on the page — this section is
-// additive, it never replaces or hides that one.
-// ══════════════════════════════════════════════════════════════════
 
 const String _kRealMoodAllId = '__all__';
 
@@ -6691,130 +5055,6 @@ class _YtPlaylistsForYouRetry extends StatelessWidget {
   }
 }
 
-class _YtHomePlaylistCardWidget extends StatefulWidget {
-  final YtHomePlaylistCard card;
-  const _YtHomePlaylistCardWidget({super.key, required this.card});
-
-  @override
-  State<_YtHomePlaylistCardWidget> createState() =>
-      _YtHomePlaylistCardWidgetState();
-}
-
-class _YtHomePlaylistCardWidgetState
-    extends State<_YtHomePlaylistCardWidget> {
-  bool _pressed = false;
-
-  // REWRITTEN (2026-08-14): the card's songs are already fully resolved
-  // Song objects by the time this widget exists (see
-  // ApiService.fetchYtMusicHomePlaylists) — there's no playlist id to
-  // "import" anymore, so this is now just a direct navigation, exactly
-  // like every other mix/playlist tile elsewhere in this app. No
-  // loading snackbar, no failure state, no async gap at all.
-  void _open() {
-    AurumHaptics.selection();
-    AurumDepthRoute.to(
-      context,
-      MixScreen(
-        mixId: widget.card.id,
-        mixName: widget.card.title,
-        artworkUrl: widget.card.artworkUrl,
-        emoji: '', // no-emoji requirement — MixScreen renders an Icon fallback now
-        // FIX ("pull to refresh na ho, songs scroll pe hi aa jaaye"):
-        // this card used to open with enableRefresh: true, which put a
-        // RefreshIndicator on the playlist and required a manual
-        // pull-down gesture to fetch more songs. Requirement now is that
-        // every song is just already there / loads in as you scroll —
-        // no separate refresh action needed. All songs for the card are
-        // already fully resolved by fetchYtMusicHomePlaylists() before
-        // this widget ever exists, so simply not opting into refresh
-        // mode here means MixScreen shows the complete list up front via
-        // its normal scroll view — no gesture required.
-        songs: widget.card.songs,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = widget.card;
-    // PERF FIX (scroll jank): this card has its own local press state
-    // (_pressed) and AnimatedScale — without a RepaintBoundary, every
-    // tap-driven rebuild here had no isolated compositor layer, same gap
-    // as _ArtistChip above. Wrapping it means press feedback and any
-    // parent-driven rebuild stay contained to this one card instead of
-    // costing a repaint pass on neighboring cards in the row.
-    return RepaintBoundary(
-      child: GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: _open,
-      child: AnimatedScale(
-        scale: _pressed ? 0.96 : 1.0,
-        duration: AurumMotion.durationOrZero(AurumMotion.short1),
-        curve: Curves.easeOut,
-        child: Container(
-          width: 130,
-          margin: const EdgeInsets.only(right: 12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (c.artworkUrl.isNotEmpty)
-                  CachedNetworkImage(
-                    imageUrl: c.artworkUrl,
-                    cacheManager: AurumImageCache(),
-                    fit: BoxFit.cover,
-                    memCacheWidth: 260,
-                    memCacheHeight: 260,
-                    placeholder: (_, __) => Container(
-                      color: AurumTheme.bgCardOf(context),
-                    ),
-                    errorWidget: (_, __, ___) => Container(
-                      color: AurumTheme.bgCardOf(context),
-                    ),
-                  )
-                else
-                  Container(color: AurumTheme.bgCardOf(context)),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withOpacity(0.75),
-                      ],
-                      stops: const [0.4, 1.0],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 10,
-                  right: 10,
-                  bottom: 10,
-                  child: Text(
-                    c.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      ),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Home Premium Banner — shown to free users between sections
