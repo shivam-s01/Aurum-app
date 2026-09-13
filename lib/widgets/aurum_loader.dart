@@ -254,7 +254,7 @@ class AurumLoaderScreen extends StatelessWidget {
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: const Center(
-        child: AurumMorphLoader(size: 56),
+        child: AurumMorphLoader(size: 56, contained: true),
       ),
     );
   }

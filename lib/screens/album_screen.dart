@@ -387,7 +387,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 12)),
           if (_loading)
             const SliverFillRemaining(
-              child: Center(child: AurumMorphLoader(size: 56)),
+              child: Center(child: AurumMorphLoader(size: 56, contained: true)),
             )
           else if (_songs.isEmpty)
             SliverFillRemaining(

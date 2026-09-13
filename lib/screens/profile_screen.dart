@@ -705,7 +705,7 @@ class _AccountCardState extends State<_AccountCard> {
         barrierDismissible: false,
         barrierColor: Colors.black.withOpacity(0.55),
         builder: (_) => const Center(
-          child: AurumMorphLoader(size: 48),
+          child: AurumMorphLoader(size: 48, contained: true),
         ),
       );
     }

@@ -149,7 +149,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsStorage),
       body: _loading
-          ? const Center(child: AurumMorphLoader(size: 56))
+          ? const Center(child: AurumMorphLoader(size: 56, contained: true))
           : Builder(builder: (context) {
               final rows = <Widget>[
                 // ── DOWNLOADS ─────────────────────────────────────────────

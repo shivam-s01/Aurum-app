@@ -220,7 +220,7 @@ class _LikedScreenState extends State<LikedScreen> {
             builder: (context, fav, _) {
               if (fav.isLoading) {
                 return SliverFillRemaining(
-                  child: Center(child: AurumMorphLoader(size: 56)),
+                  child: Center(child: AurumMorphLoader(size: 56, contained: true)),
                 );
               }
 

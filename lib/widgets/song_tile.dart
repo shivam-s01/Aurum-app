@@ -18,8 +18,6 @@ import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
-import '../utils/aurum_immersive_header.dart' show extractImmersiveColor;
-import '../utils/artwork_palette_cache.dart' show ensureContrastSafe;
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -200,12 +198,6 @@ class _SongTileState extends State<SongTile> {
       splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
       highlightColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
       child: Padding(
-        // FLAT LIST ("box mai band hai, ekdam Bloomee jaisa flat chahiye" —
-        // reference: Bloomee's SongCardWidget/screenshot — every row sits
-        // directly on the page background, no per-row card fill, border,
-        // or outer margin. Reverts the earlier "card look" experiment
-        // (tinted background + hairline border + margin), which read as
-        // a boxed/pill list rather than a single continuous sheet.
         // SPACING FIX ("thumbnail bahut chhota dikhta hai" — reference:
         // the artist "Top songs" list, where each row's cover art reads
         // as noticeably bigger/more premium than a compact 50px chip):
@@ -254,7 +246,7 @@ class _SongTileState extends State<SongTile> {
                   Text(
                     widget.song.title,
                     style: TextStyle(
-                      color: isCurrentSong ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
+                      color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
                       fontSize: 16,
                       fontWeight: isCurrentSong ? FontWeight.w700 : FontWeight.w600,
                     ),
@@ -329,33 +321,6 @@ class _SongOptionsSheet extends StatefulWidget {
 }
 
 class _SongOptionsSheetState extends State<_SongOptionsSheet> {
-  // PREMIUM TINT ("options bhi dead lag rahe hai" — same fix as
-  // _MixOptionsSheet in mix_screen.dart): this sheet used to paint a
-  // flat AurumTheme.bgElevatedOf(context) regardless of the song, so it
-  // hard-cut to a generic gray panel every time it opened. Extracting
-  // the song's own artwork color and lerping toward dark/light (exactly
-  // the treatment full_player_screen.dart's _PremiumOptionsSheet already
-  // uses) makes the sheet visually belong to the song instead of reading
-  // as a disconnected system panel.
-  Color _glow = const Color(0xFF1A1630);
-
-  @override
-  void initState() {
-    super.initState();
-    _extractGlow();
-  }
-
-  Future<void> _extractGlow() async {
-    final c = await extractImmersiveColor(widget.song.artworkUrl);
-    if (c != null && mounted) {
-      final safe = ensureContrastSafe(
-        c,
-        isLight: Theme.of(context).brightness == Brightness.light,
-      );
-      setState(() => _glow = safe);
-    }
-  }
-
   // Shared, deduped toast handler — see aurum_snack.dart for why this
   // replaced a hand-copied per-file implementation.
   void _snack(String msg) {
@@ -370,23 +335,11 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
     final player = context.read<PlayerProvider>();
     final fav = context.watch<FavoritesProvider>();
     final isLiked = fav.isFavorite(song.id);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark
-        ? Color.lerp(_glow, const Color(0xFF0C0C18), 0.55)!
-        : Color.lerp(_glow, Colors.white, 0.88)!;
 
     return Container(
       decoration: BoxDecoration(
-        color: bgColor,
+        color: AurumTheme.bgElevatedOf(context),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border(
-          top: BorderSide(
-            color: isDark
-                ? Colors.white.withOpacity(0.08)
-                : Colors.black.withOpacity(0.06),
-            width: 0.6,
-          ),
-        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -657,25 +610,21 @@ class _GridOption extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isDark
-                ? [Colors.white.withOpacity(0.10), Colors.white.withOpacity(0.03)]
-                : [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.55)],
-          ),
+          color: isDark
+              ? Colors.white.withOpacity(0.06)
+              : Colors.black.withOpacity(0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isDark
-                ? Colors.white.withOpacity(0.12)
-                : Colors.black.withOpacity(0.10),
+                ? Colors.white.withOpacity(0.10)
+                : Colors.black.withOpacity(0.12),
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.22 : 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
@@ -783,10 +732,10 @@ class _AlbumChipState extends State<_AlbumChip> {
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.6,
-                    color: AurumTheme.accentOf(context),
+                    color: AurumTheme.gold,
                   ),
                 )
-              : Icon(Icons.album_rounded, size: 14, color: AurumTheme.accentOf(context)),
+              : Icon(Icons.album_rounded, size: 14, color: AurumTheme.gold),
           const SizedBox(width: 6),
           Text(
             widget.albumName,
@@ -826,7 +775,7 @@ class _ArtistChip extends StatelessWidget {
           border: Border.all(color: AurumTheme.dividerOf(context)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: AurumTheme.accentOf(context)),
+          Icon(icon, size: 14, color: AurumTheme.gold),
           const SizedBox(width: 6),
           Text(
             name,

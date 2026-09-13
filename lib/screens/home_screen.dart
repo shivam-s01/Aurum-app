@@ -1931,7 +1931,7 @@ class _OfflineContent extends StatelessWidget {
     if (libLoading && downloads.isEmpty) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
-        child: const Center(child: AurumMorphLoader(size: 56)),
+        child: const Center(child: AurumMorphLoader(size: 56, contained: true)),
       );
     }
     if (lib.status == LibraryStatus.noPermission && downloads.isEmpty) {

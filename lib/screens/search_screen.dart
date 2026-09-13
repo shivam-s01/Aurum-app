@@ -1296,7 +1296,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildCommunityPlaylistsFilterView(BuildContext context) {
     if (_communityPlaylistsLoading && _communityPlaylistResults.isEmpty) {
-      return const Center(child: AurumMorphLoader());
+      return const Center(child: AurumMorphLoader(contained: true));
     }
     if (_communityPlaylistResults.isEmpty) {
       return _buildEmptyFilterState(context, 'No community playlists found');
@@ -1337,7 +1337,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildFeaturedPlaylistsFilterView(BuildContext context) {
     if (_featuredPlaylistsLoading && _featuredPlaylistResults.isEmpty) {
-      return const Center(child: AurumMorphLoader());
+      return const Center(child: AurumMorphLoader(contained: true));
     }
     if (_featuredPlaylistResults.isEmpty) {
       return _buildEmptyFilterState(context, 'No featured playlists found');
@@ -1455,7 +1455,7 @@ class _SearchScreenState extends State<SearchScreen>
     // the switcher now only ever cross-fades the actual content on a
     // single, stable background.
     if (_loading && !_hasVisibleContent) {
-      return const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56));
+      return const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56, contained: true));
     }
     // FILTER FIX ("Songs/Albums/Artists chip select karo to bhi wahi All
     // wala mixed view dikhta hai — chip kaam hi nahi kar raha"): the chips
@@ -1912,7 +1912,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildLiveLoadingState(BuildContext context) {
     return Column(children: [
       _buildLiveProgressBar(context),
-      const Expanded(child: Center(child: AurumMorphLoader(size: 56))),
+      const Expanded(child: Center(child: AurumMorphLoader(size: 56, contained: true))),
     ]);
   }
 
@@ -2507,7 +2507,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildExploreGrid(BuildContext context) {
     final sections = _moodSections;
     if (sections == null || sections.isEmpty) {
-      return const Center(child: AurumMorphLoader());
+      return const Center(child: AurumMorphLoader(contained: true));
     }
     // Flatten every section's tiles into one combined grid (dedup by
     // title) rather than just the first section's — a single section
@@ -2708,7 +2708,7 @@ class _SuggestionsLandingState extends State<_SuggestionsLanding> {
     final artistRows = _artistRows;
     final albums = _albums;
     if (songs == null || artistRows == null || albums == null) {
-      return const Center(child: AurumMorphLoader());
+      return const Center(child: AurumMorphLoader(contained: true));
     }
 
     // Flatten every artist row's chips into one combined strip — this

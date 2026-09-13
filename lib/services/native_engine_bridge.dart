@@ -350,21 +350,6 @@ class NativeAudioEngine {
         final songId = args['songId'] as String?;
         if (songId != null) onLikeToggleRequested?.call(songId);
         return null;
-
-      // FIX ("Auto" quality always shown for YouTube songs): the native
-      // YouTube resolve path (HybridStreamResolver.kt -> YoutubeInnertube)
-      // now reports the real audio bitrate it already extracted from
-      // YouTube's own stream formats, on this same reverse channel used
-      // for onLikeToggleRequested above. Setting the exact same
-      // AudioPrefs.lastResolvedKbps the JioSaavn/Worker resolve path
-      // already sets means the Bluetooth output sheet's _qualityLabel and
-      // Settings > Player & Audio's quality row both pick this up with no
-      // changes needed on their end — they were already reading this
-      // field, it just never had a real YouTube value to read before.
-      case 'onYoutubeBitrateResolved':
-        final args = Map<String, dynamic>.from(call.arguments as Map);
-        AudioPrefs.lastResolvedKbps = args['kbps'] as int?;
-        return null;
       default:
         return null;
     }
@@ -601,72 +586,6 @@ class NativeAudioEngine {
       return result;
     } catch (_) {
       return null;
-    }
-  }
-
-  /// Moves a finished download from the app's private temp storage into
-  /// the device's public Music/Astra folder (via MediaStore on API 29+),
-  /// so it shows up in the file manager / other music apps and survives
-  /// as a real top-level device file instead of being locked inside the
-  /// app's private sandbox. Returns the new location (a content:// URI on
-  /// API 29+, a plain path on older devices) to persist as the download's
-  /// localPath, or null if the save failed (caller should keep the
-  /// original private-storage file as a fallback rather than losing the
-  /// download).
-  ///
-  /// [artworkBytes], if supplied, is embedded into the file as ID3 cover
-  /// art before the copy — see the FIX comment on DownloadProvider's call
-  /// site for why this was missing before (downloads played fine in-app
-  /// but showed no thumbnail in the file manager / other music apps).
-  Future<String?> saveDownloadToPublicMusic({
-    required String sourcePath,
-    required String displayName,
-    String mimeType = 'audio/mpeg',
-    Uint8List? artworkBytes,
-  }) async {
-    try {
-      return await _method.invokeMethod<String>(
-        'saveDownloadToPublicMusic',
-        {
-          'sourcePath': sourcePath,
-          'displayName': displayName,
-          'mimeType': mimeType,
-          if (artworkBytes != null) 'artworkBytes': artworkBytes,
-        },
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Deletes a song previously saved via [saveDownloadToPublicMusic].
-  /// Accepts either the content:// URI or plain path that call returned.
-  /// Returns true only if the file/row is actually confirmed gone —
-  /// DownloadProvider must not remove the item from its own list unless
-  /// this returns true, or a failed delete silently leaves an orphaned
-  /// file on disk while the app believes it's been removed.
-  Future<bool> deletePublicDownload(String pathOrUri) async {
-    try {
-      final result = await _method.invokeMethod<bool>(
-        'deletePublicDownload',
-        {'pathOrUri': pathOrUri},
-      );
-      return result ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// True if a previously-saved public download still exists on disk.
-  Future<bool> publicDownloadExists(String pathOrUri) async {
-    try {
-      final result = await _method.invokeMethod<bool>(
-        'publicDownloadExists',
-        {'pathOrUri': pathOrUri},
-      );
-      return result ?? false;
-    } catch (_) {
-      return false;
     }
   }
 

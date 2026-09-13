@@ -142,7 +142,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
       // matching comment for the full reasoning.
       bottomNavigationBar: const MiniPlayerSlot(),
       body: _loading
-          ? const Center(child: AurumMorphLoader(size: 56))
+          ? const Center(child: AurumMorphLoader(size: 56, contained: true))
           : _failed
               ? _buildError(context)
               : _buildContent(context, _artist!),

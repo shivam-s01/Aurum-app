@@ -289,7 +289,7 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
                 fontWeight: FontWeight.w600)),
       ),
       body: _loadingPrefs
-          ? const Center(child: AurumMorphLoader(size: 40))
+          ? const Center(child: AurumMorphLoader(size: 40, contained: true))
           : ListView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),

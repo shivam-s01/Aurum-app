@@ -6283,7 +6283,7 @@ class _LyricsPageState extends State<AurumLyricsPage> {
         key: ValueKey('loading'),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 48),
-          child: AurumMorphLoader(),
+          child: AurumMorphLoader(contained: true),
         ),
       );
     } else if (_notFound) {
