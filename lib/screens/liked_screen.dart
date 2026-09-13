@@ -10,9 +10,108 @@ import '../widgets/aurum_empty_state.dart';
 import '../widgets/mini_player_slot.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
-class LikedScreen extends StatelessWidget {
+class LikedScreen extends StatefulWidget {
   const LikedScreen({super.key});
+
+  @override
+  State<LikedScreen> createState() => _LikedScreenState();
+}
+
+class _LikedScreenState extends State<LikedScreen> {
+  // MULTI-SELECT ("select krne pr 3 dot aa jaye ... select all, unlike ka
+  // option"): selecting a song doesn't touch SongTile itself (shared by
+  // every other screen in the app) — instead, while _selectMode is true,
+  // a transparent GestureDetector is overlaid on top of each SongTile that
+  // intercepts the tap for selection instead of letting it reach the tile
+  // underneath and start playback. A normal long-press on any tile (while
+  // not already selecting) enters select mode with that song pre-selected,
+  // same gesture pattern as the Artists tab's multi-select above.
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _enterSelectMode(String firstId) {
+    AurumHaptics.medium();
+    setState(() {
+      _selectMode = true;
+      _selectedIds
+        ..clear()
+        ..add(firstId);
+    });
+  }
+
+  void _toggleSelected(String id) {
+    AurumHaptics.selection();
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectMode = false;
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _confirmUnlikeSelected() async {
+    final count = _selectedIds.length;
+    final confirmed = await showAurumModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              count == 1 ? 'Unlike this song?' : 'Unlike $count songs?',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(sheetContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    child: const Text('Unlike'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    AurumHaptics.medium();
+    final ids = List<String>.from(_selectedIds);
+    _exitSelectMode();
+    await context.read<FavoritesProvider>().removeMany(ids);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,21 +143,77 @@ class LikedScreen extends StatelessWidget {
             snap: true,
             backgroundColor: AurumTheme.bgOf(context),
             leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_rounded, color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () { AurumHaptics.light(); Navigator.pop(context); },
+              icon: Icon(
+                _selectMode ? Icons.close_rounded : Icons.arrow_back_ios_rounded,
+                color: AurumTheme.textSecondaryOf(context),
+                size: 20,
+              ),
+              onPressed: () {
+                AurumHaptics.light();
+                if (_selectMode) {
+                  _exitSelectMode();
+                } else {
+                  Navigator.pop(context);
+                }
+              },
             ),
+            // SELECTION APP BAR ("select krne pr 3 dot aa jaye"): while
+            // selecting, the title/heart row is swapped for a live count
+            // and a 3-dot menu (Select all / Deselect all / Unlike
+            // selected) — same pattern as the Artists tab above, so the
+            // two multi-select flows feel identical across the app.
+            actions: _selectMode
+                ? [
+                    Consumer<FavoritesProvider>(
+                      builder: (context, fav, _) => PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert_rounded,
+                            color: AurumTheme.textPrimaryOf(context)),
+                        onSelected: (value) {
+                          if (value == 'select_all') {
+                            AurumHaptics.selection();
+                            setState(() {
+                              _selectedIds
+                                ..clear()
+                                ..addAll(fav.favorites.map((s) => s.id));
+                            });
+                          } else if (value == 'deselect_all') {
+                            AurumHaptics.selection();
+                            setState(() => _selectedIds.clear());
+                          } else if (value == 'unlike') {
+                            _confirmUnlikeSelected();
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(value: 'select_all', child: Text('Select all')),
+                          PopupMenuItem(value: 'deselect_all', child: Text('Deselect all')),
+                          PopupMenuItem(value: 'unlike', child: Text('Unlike selected')),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ]
+                : null,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
-              title: Row(
-                children: [
-                  const Icon(Icons.favorite_rounded, color: Color(0xFFE1306C), size: 22),
-                  const SizedBox(width: 8),
-                  ShaderMask(
-                    shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
-                    child: Text(l10n.libraryLikedSongs, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
-                  ),
-                ],
-              ),
+              title: _selectMode
+                  ? Text(
+                      '${_selectedIds.length} selected',
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        const Icon(Icons.favorite_rounded, color: Color(0xFFE1306C), size: 22),
+                        const SizedBox(width: 8),
+                        ShaderMask(
+                          shaderCallback: (b) => AurumTheme.accentGradient.createShader(b),
+                          child: Text(l10n.libraryLikedSongs, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+                        ),
+                      ],
+                    ),
             ),
           ),
           Consumer<FavoritesProvider>(
@@ -135,11 +290,57 @@ class LikedScreen extends StatelessWidget {
                       return const SizedBox(height: 100);
                     }
                     final songIndex = index - 1;
-                    return SongTile(
-                      song: songs[songIndex],
+                    final song = songs[songIndex];
+                    final isSelected = _selectedIds.contains(song.id);
+                    final tile = SongTile(
+                      song: song,
                       queue: songs,
                       index: songIndex,
                       curatedQueue: true,
+                    );
+                    if (!_selectMode) {
+                      // Long-press still needs to enter select mode even
+                      // though SongTile's own onLongPress already opens
+                      // its options sheet — wrapping with a Listener that
+                      // only watches for a long-press-and-hold BEFORE
+                      // SongTile's own gesture arena resolves would be
+                      // fragile, so instead the entry point into select
+                      // mode is the row's leading area only (a small,
+                      // reliable long-press target that doesn't fight
+                      // SongTile's own long-press-for-options behavior on
+                      // the rest of the row).
+                      return GestureDetector(
+                        onLongPress: () => _enterSelectMode(song.id),
+                        behavior: HitTestBehavior.translucent,
+                        child: tile,
+                      );
+                    }
+                    return Stack(
+                      children: [
+                        IgnorePointer(child: tile),
+                        Positioned.fill(
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _toggleSelected(song.id),
+                              child: Row(
+                                children: [
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    isSelected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.radio_button_off_rounded,
+                                    color: isSelected
+                                        ? AurumTheme.accentOf(context)
+                                        : AurumTheme.textMutedOf(context),
+                                    size: 22,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     );
                   },
                   childCount: songs.length + 2,

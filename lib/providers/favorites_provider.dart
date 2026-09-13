@@ -132,6 +132,24 @@ class FavoritesProvider extends ChangeNotifier {
     }
   }
 
+  /// Bulk-unlike, used by Liked Songs' multi-select mode ("Select All" +
+  /// "Unlike selected"). Removing one-by-one via toggleFavorite would fire
+  /// a Hive write + notifyListeners() + a RecommendationEngine signal per
+  /// song — fine for a single tap, but a jank spike when unliking dozens
+  /// at once on a low-end device. This batches every Hive delete first
+  /// and fires exactly one notifyListeners() at the end, same pattern as
+  /// _remove() but for many ids in one pass.
+  Future<void> removeMany(Iterable<String> ids) async {
+    final box = _box ?? await _boxReady.future;
+    for (final id in ids) {
+      await box.delete(id);
+      unawaited(SyncService.instance.pushUnfavorite(id));
+    }
+    final idSet = ids.toSet();
+    _favorites.removeWhere((s) => idSet.contains(s.id));
+    notifyListeners();
+  }
+
   /// Wipes all liked songs — local only, called on sign-out so a fresh
   /// sign-in (same or different account) starts from an empty library
   /// instead of showing the previous account's likes. Does not touch

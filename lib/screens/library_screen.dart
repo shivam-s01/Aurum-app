@@ -36,7 +36,9 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/playlist_provider.dart';
-import '../services/api_service.dart' show YtPlaylistImportException, YtPlaylistImportError;
+import '../services/api_service.dart' show ApiService, YtPlaylistImportException, YtPlaylistImportError;
+import '../models/artist.dart';
+import '../widgets/aurum_snack.dart';
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/sync_service.dart';
@@ -1198,6 +1200,96 @@ class _AurumArtistsTab extends StatefulWidget {
 class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   bool _newestFirst = true;
 
+  // MULTI-SELECT ("select pr all unfollow ka option rahe"): mirrors the
+  // same select-mode pattern added to Liked Songs below — a Set of
+  // selected artist ids plus a bool flag for whether the row checkboxes
+  // are showing at all, so a normal single long-press still opens the
+  // existing single-artist unfollow sheet unchanged.
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _enterSelectMode(String firstId) {
+    AurumHaptics.medium();
+    setState(() {
+      _selectMode = true;
+      _selectedIds
+        ..clear()
+        ..add(firstId);
+    });
+  }
+
+  void _toggleSelected(String id) {
+    AurumHaptics.selection();
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectMode = false;
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _confirmUnfollowSelected(List<Map<String, dynamic>> ordered) async {
+    final count = _selectedIds.length;
+    final confirmed = await showAurumModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              count == 1 ? 'Unfollow this artist?' : 'Unfollow $count artists?',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(sheetContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    child: const Text('Unfollow'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    AurumHaptics.medium();
+    final ids = List<String>.from(_selectedIds);
+    _exitSelectMode();
+    await context.read<FollowedArtistsProvider>().unfollowMany(ids);
+  }
+
   @override
   Widget build(BuildContext context) {
     final followedProvider = context.watch<FollowedArtistsProvider>();
@@ -1397,34 +1489,104 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                _SortRow(
-                  newestFirst: _newestFirst,
-                  onToggle: () {
-                    AurumHaptics.selection();
-                    setState(() => _newestFirst = !_newestFirst);
-                  },
-                ),
-                const Spacer(),
-                if (ordered.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    decoration: BoxDecoration(
-                      color: AurumTheme.bgSurfaceOf(context),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'Subscribed Only',
-                      style: TextStyle(
-                        color: AurumTheme.accentOf(context),
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
+            child: _selectMode
+                // SELECTION BAR ("select pr all unfollow ka option rahe aur
+                // ... 3 dot aa jaye"): replaces the sort/subscribed row while
+                // active. Shows the live count, a "Select all" toggle, and
+                // the 3-dot menu carrying Unfollow selected / Select all /
+                // Deselect all — same idea as the Liked Songs selection bar
+                // below, kept visually consistent between the two screens.
+                ? Row(
+                    children: [
+                      Material(
+                        color: AurumTheme.bgSurfaceOf(context),
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () {
+                            AurumHaptics.light();
+                            _exitSelectMode();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(9),
+                            child: Icon(Icons.close_rounded,
+                                color: AurumTheme.textPrimaryOf(context), size: 18),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${_selectedIds.length} selected',
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert_rounded,
+                            color: AurumTheme.textPrimaryOf(context)),
+                        onSelected: (value) {
+                          if (value == 'select_all') {
+                            AurumHaptics.selection();
+                            setState(() {
+                              _selectedIds
+                                ..clear()
+                                ..addAll(ordered.map((m) => (m['id'] ?? '').toString()));
+                            });
+                          } else if (value == 'deselect_all') {
+                            AurumHaptics.selection();
+                            setState(() => _selectedIds.clear());
+                          } else if (value == 'unfollow') {
+                            _confirmUnfollowSelected(ordered);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'select_all',
+                            child: Text('Select all'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'deselect_all',
+                            child: Text('Deselect all'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'unfollow',
+                            child: Text('Unfollow selected'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      _SortRow(
+                        newestFirst: _newestFirst,
+                        onToggle: () {
+                          AurumHaptics.selection();
+                          setState(() => _newestFirst = !_newestFirst);
+                        },
+                      ),
+                      const Spacer(),
+                      if (ordered.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: AurumTheme.bgSurfaceOf(context),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Subscribed Only',
+                            style: TextStyle(
+                              color: AurumTheme.accentOf(context),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
-            ),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 14)),
@@ -1455,10 +1617,17 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                   // Isolating each row's build in its own try/catch means
                   // one bad entry degrades to a single error placeholder
                   // row instead of hiding every followed artist.
+                  final artistId = (ordered[i]['id'] ?? '').toString();
                   try {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: _AurumArtistRow(artist: ordered[i]),
+                      child: _AurumArtistRow(
+                        artist: ordered[i],
+                        selectMode: _selectMode,
+                        selected: _selectedIds.contains(artistId),
+                        onEnterSelectMode: () => _enterSelectMode(artistId),
+                        onToggleSelected: () => _toggleSelected(artistId),
+                      ),
                     );
                   } catch (e) {
                     return Padding(
@@ -1487,13 +1656,64 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   }
 }
 
-class _TopArtistAndCountRow extends StatelessWidget {
+class _TopArtistAndCountRow extends StatefulWidget {
   final Map<String, dynamic> top;
   final int totalCount;
   const _TopArtistAndCountRow({required this.top, required this.totalCount});
 
   @override
+  State<_TopArtistAndCountRow> createState() => _TopArtistAndCountRowState();
+}
+
+class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
+  // REAL "Play all" ("kuch bhe akward na rahe... fake button ui dummy na
+  // ho"): this used to just reopen ArtistScreen on tap — not actually
+  // playing anything, so it silently lied about what "Play all" does.
+  // ArtistScreen itself only knows an artist's songs AFTER its own async
+  // fetch resolves (Artist.topSongs), and that data was never available
+  // up here — the Library tab only caches id/name/imageUrl locally. So a
+  // genuine "Play all" has to do the same fetch this button promises,
+  // then hand the real song list to PlayerProvider — with a visible
+  // loading state while that network call is in flight (same one-shot
+  // ApiService.fetchArtist() call ArtistScreen's progressive loader is
+  // itself built on top of) and a real error surface if it fails, rather
+  // than a tap that always "succeeds" instantly by doing nothing.
+  bool _resolving = false;
+
+  Future<void> _playAll(String id, String name) async {
+    if (_resolving) return;
+    if (id.isEmpty) {
+      AurumDepthRoute.to(context, ArtistScreen(artistId: id, artistName: name));
+      return;
+    }
+    AurumHaptics.light();
+    setState(() => _resolving = true);
+    try {
+      final artist = await ApiService.fetchArtist(id);
+      if (!mounted) return;
+      final songs = artist?.topSongs ?? const <Song>[];
+      if (songs.isEmpty) {
+        AurumSnack.show(context, 'No playable songs found for $name');
+        return;
+      }
+      context.read<PlayerProvider>().playSong(
+            songs.first,
+            queue: songs,
+            index: 0,
+            curatedQueue: true,
+          );
+    } catch (e) {
+      if (!mounted) return;
+      AurumSnack.show(context, 'Couldn\'t load songs for $name');
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final top = widget.top;
+    final totalCount = widget.totalCount;
     final name = (top['name'] ?? '').toString();
     final id = (top['id'] ?? '').toString();
     final imageUrl = (top['imageUrl'] ?? '').toString();
@@ -1520,100 +1740,283 @@ class _TopArtistAndCountRow extends StatelessWidget {
     // the count card's inner spaceBetween Column still gets a bounded
     // height to distribute across), just computed from actual content
     // instead of an unbounded sliver constraint.
+    // DESIGN PASS (hero row looked flat/awkward — plain grey slab next to a
+    // plain grey slab, generic circle button, no depth cue that this is
+    // the standout "top" card): the artist card now carries the actual
+    // accent gradient (same gradient used for the Liked Songs title/play
+    // pill elsewhere in this file) with a soft glow shadow, a ring around
+    // the avatar, and a subtitle so it doesn't read as a bare button row.
+    // The count card gets a rounded icon chip instead of a bare arrow
+    // glyph so the two cards feel like a matched pair rather than one
+    // "real" card and one afterthought.
     return IntrinsicHeight(
       child: Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          flex: 6,
-          child: _HeroActionCard(
-            eyebrow: 'Top Artist',
-            title: name.isEmpty ? 'Unknown' : name,
-            subtitle: '',
-            buttonLabel: 'Play all',
-            icon: Icons.play_arrow_rounded,
-            leading: ClipOval(
-              child: imageUrl.isEmpty
-                  ? Container(
-                      width: 46,
-                      height: 46,
-                      color: AurumTheme.accentOf(context),
-                      child: const Icon(Icons.person_rounded,
-                          color: Colors.white, size: 22),
-                    )
-                  : AurumArtwork(url: imageUrl, size: 46, borderRadius: 23),
-            ),
-            onButtonTap: () => AurumDepthRoute.to(
-              context,
-              ArtistScreen(artistId: id, artistName: name),
-            ),
-            onMoreTap: () => AurumDepthRoute.to(
-              context,
-              ArtistScreen(artistId: id, artistName: name),
-            ),
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          flex: 4,
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: AurumTheme.bgElevatedOf(context),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 6,
+            child: Material(
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(28),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Artists',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(28),
+                onTap: () => AurumDepthRoute.to(
+                  context,
+                  ArtistScreen(artistId: id, artistName: name),
+                ),
+                child: Ink(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: AurumTheme.accentGradientOf(context),
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AurumTheme.accentOf(context).withOpacity(0.35),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(2.5),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(0.55),
+                                  width: 1.5),
+                            ),
+                            child: ClipOval(
+                              child: imageUrl.isEmpty
+                                  ? Container(
+                                      width: 46,
+                                      height: 46,
+                                      color: Colors.white.withOpacity(0.2),
+                                      child: const Icon(Icons.person_rounded,
+                                          color: Colors.white, size: 22),
+                                    )
+                                  : AurumArtwork(
+                                      url: imageUrl, size: 46, borderRadius: 23),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'TOP ARTIST',
                         style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 16,
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
                         ),
                       ),
-                    ),
-                    Icon(Icons.arrow_forward_rounded,
-                        color: AurumTheme.accentOf(context), size: 18),
-                  ],
-                ),
-                Text(
-                  '$totalCount',
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
+                      const SizedBox(height: 5),
+                      Text(
+                        name.isEmpty ? 'Unknown' : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(22),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(22),
+                              onTap: _resolving ? null : () => _playAll(id, name),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 11),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_resolving)
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AurumTheme.accentDarkOf(context),
+                                        ),
+                                      )
+                                    else
+                                      Icon(Icons.play_arrow_rounded,
+                                          color: AurumTheme.accentDarkOf(context),
+                                          size: 18),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _resolving ? 'Loading…' : 'Play all',
+                                      style: TextStyle(
+                                        color: AurumTheme.accentDarkOf(context),
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  'total',
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context).withOpacity(0.6),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 4,
+            child: Material(
+              color: AurumTheme.bgElevatedOf(context),
+              borderRadius: BorderRadius.circular(28),
+              // FIX ("fake button ui dummy na ho"): this card used to show
+              // a forward-arrow icon implying "tap to see the full list"
+              // but had no InkWell/onTap at all — a purely decorative
+              // affordance that did nothing when pressed. It now actually
+              // opens the full followed-artists list (_ArtistsScreen),
+              // which itself existed already in this file but had no
+              // caller anywhere — this was the one entry point meant to
+              // reach it.
+              child: InkWell(
+                borderRadius: BorderRadius.circular(28),
+                onTap: () {
+                  AurumHaptics.selection();
+                  AurumDepthRoute.to(context, const _ArtistsScreen());
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(9),
+                            decoration: BoxDecoration(
+                              color: AurumTheme.accentOf(context).withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.people_alt_rounded,
+                                color: AurumTheme.accentOf(context), size: 18),
+                          ),
+                          Icon(Icons.arrow_forward_rounded,
+                              color: AurumTheme.textMutedOf(context), size: 16),
+                        ],
+                      ),
+                      Text(
+                        '$totalCount',
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                      Text(
+                        totalCount == 1 ? 'artist followed' : 'artists followed',
+                        style: TextStyle(
+                          color: AurumTheme.textMutedOf(context),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _AurumArtistRow extends StatelessWidget {
+class _AurumArtistRow extends StatefulWidget {
   final Map<String, dynamic> artist;
-  const _AurumArtistRow({required this.artist});
+  // MULTI-SELECT support: when selectMode is true, tapping anywhere on the
+  // row toggles selection (and the play button is swapped for a checkbox)
+  // instead of navigating to the artist screen. Long-press with
+  // selectMode already false is what enters select mode (onEnterSelectMode)
+  // — the existing single-artist long-press unfollow sheet still fires
+  // when selectMode is false, unchanged from before.
+  final bool selectMode;
+  final bool selected;
+  final VoidCallback? onEnterSelectMode;
+  final VoidCallback? onToggleSelected;
+
+  const _AurumArtistRow({
+    required this.artist,
+    this.selectMode = false,
+    this.selected = false,
+    this.onEnterSelectMode,
+    this.onToggleSelected,
+  });
+
+  @override
+  State<_AurumArtistRow> createState() => _AurumArtistRowState();
+}
+
+class _AurumArtistRowState extends State<_AurumArtistRow> {
+  // REAL per-row play button ("fake button ui dummy na ho"): this circular
+  // play icon used to just reopen ArtistScreen — identical to tapping the
+  // row itself — instead of actually playing anything. Same fix as the
+  // hero card above: fetch the artist's real songs first, show a small
+  // inline spinner while that's in flight, then hand them to
+  // PlayerProvider. A row this small has no room for a text label change
+  // like the hero card's "Loading…", so the icon itself swaps to a
+  // spinner instead.
+  bool _resolving = false;
+
+  Future<void> _playAll(String id, String name) async {
+    if (_resolving) return;
+    if (id.isEmpty) return;
+    AurumHaptics.light();
+    setState(() => _resolving = true);
+    try {
+      final artist = await ApiService.fetchArtist(id);
+      if (!mounted) return;
+      final songs = artist?.topSongs ?? const <Song>[];
+      if (songs.isEmpty) {
+        AurumSnack.show(context, 'No playable songs found for $name');
+        return;
+      }
+      context.read<PlayerProvider>().playSong(
+            songs.first,
+            queue: songs,
+            index: 0,
+            curatedQueue: true,
+          );
+    } catch (e) {
+      if (!mounted) return;
+      AurumSnack.show(context, 'Couldn\'t load songs for $name');
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final artist = widget.artist;
+    final selectMode = widget.selectMode;
+    final selected = widget.selected;
     final id = (artist['id'] ?? '').toString();
     final name = (artist['name'] ?? '').toString();
     final imageUrl = (artist['imageUrl'] ?? '').toString();
@@ -1631,17 +2034,24 @@ class _AurumArtistRow extends StatelessWidget {
     // bgElevatedOf so it adapts to dark/AMOLED/light/dynamic — this was the
     // one place still hardcoded, almost certainly a stray copy-paste.
     return Material(
-      color: AurumTheme.bgSurfaceOf(context),
+      color: selected
+          ? AurumTheme.accentOf(context).withOpacity(0.12)
+          : AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: () {
+          if (selectMode) {
+            widget.onToggleSelected?.call();
+            return;
+          }
           AurumHaptics.selection();
           AurumDepthRoute.to(context, ArtistScreen(artistId: id, artistName: name));
         },
         onLongPress: () {
+          if (selectMode) return;
           AurumHaptics.medium();
-          _showUnfollowSheet(context, id, name, imageUrl);
+          widget.onEnterSelectMode?.call();
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1685,21 +2095,38 @@ class _AurumArtistRow extends StatelessWidget {
                   ],
                 ),
               ),
-              Material(
-                color: AurumTheme.accentOf(context),
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => AurumDepthRoute.to(
-                    context,
-                    ArtistScreen(artistId: id, artistName: name),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.all(9),
-                    child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
+              if (selectMode)
+                Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: selected
+                      ? AurumTheme.accentOf(context)
+                      : AurumTheme.textMutedOf(context),
+                  size: 24,
+                )
+              else
+                Material(
+                  color: AurumTheme.accentOf(context),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _resolving ? null : () => _playAll(id, name),
+                    child: Padding(
+                      padding: const EdgeInsets.all(9),
+                      child: _resolving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -1707,62 +2134,6 @@ class _AurumArtistRow extends StatelessWidget {
     );
   }
 
-  void _showUnfollowSheet(
-      BuildContext context, String id, String name, String imageUrl) {
-    final rootContext = context;
-    showAurumModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                ClipOval(
-                  child: AurumArtwork(url: imageUrl, size: 44, borderRadius: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    name,
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.person_remove_rounded, color: Colors.redAccent),
-              title: Text('Unfollow artist',
-                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                rootContext.read<FollowedArtistsProvider>().toggleFollow(
-                      artistId: id,
-                      name: name,
-                      imageUrl: imageUrl,
-                    );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // ALBUMS TAB â€” featured-album hero + grid, plus a
@@ -7776,8 +8147,103 @@ class _FollowedAlbumTile extends StatelessWidget {
   }
 }
 
-class _ArtistsScreen extends StatelessWidget {
+class _ArtistsScreen extends StatefulWidget {
   const _ArtistsScreen();
+
+  @override
+  State<_ArtistsScreen> createState() => _ArtistsScreenState();
+}
+
+class _ArtistsScreenState extends State<_ArtistsScreen> {
+  // Same multi-select pattern as _AurumArtistsTab's Library tab version —
+  // kept identical (select on long-press, 3-dot menu with Select all /
+  // Deselect all / Unfollow selected) so the two "artists list" surfaces
+  // in the app behave exactly the same way, per "sb kuch same working
+  // ho... balance mai rhna chahiye".
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _enterSelectMode(String firstId) {
+    AurumHaptics.medium();
+    setState(() {
+      _selectMode = true;
+      _selectedIds
+        ..clear()
+        ..add(firstId);
+    });
+  }
+
+  void _toggleSelected(String id) {
+    AurumHaptics.selection();
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectMode = false;
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _confirmUnfollowSelected() async {
+    final count = _selectedIds.length;
+    final confirmed = await showAurumModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              count == 1 ? 'Unfollow this artist?' : 'Unfollow $count artists?',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(sheetContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    child: const Text('Unfollow'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    AurumHaptics.medium();
+    final ids = List<String>.from(_selectedIds);
+    _exitSelectMode();
+    await context.read<FollowedArtistsProvider>().unfollowMany(ids);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -7800,28 +8266,76 @@ class _ArtistsScreen extends StatelessWidget {
             snap: true,
             backgroundColor: AurumTheme.bgOf(context),
             leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_rounded,
-                  color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () => Navigator.pop(context),
+              icon: Icon(
+                _selectMode ? Icons.close_rounded : Icons.arrow_back_ios_rounded,
+                color: AurumTheme.textSecondaryOf(context),
+                size: 20,
+              ),
+              onPressed: () {
+                if (_selectMode) {
+                  AurumHaptics.light();
+                  _exitSelectMode();
+                } else {
+                  Navigator.pop(context);
+                }
+              },
             ),
+            actions: _selectMode
+                ? [
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert_rounded,
+                          color: AurumTheme.textPrimaryOf(context)),
+                      onSelected: (value) {
+                        if (value == 'select_all') {
+                          AurumHaptics.selection();
+                          setState(() {
+                            _selectedIds
+                              ..clear()
+                              ..addAll(followed.map((m) => (m['id'] ?? '').toString()));
+                          });
+                        } else if (value == 'deselect_all') {
+                          AurumHaptics.selection();
+                          setState(() => _selectedIds.clear());
+                        } else if (value == 'unfollow') {
+                          _confirmUnfollowSelected();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'select_all', child: Text('Select all')),
+                        PopupMenuItem(value: 'deselect_all', child: Text('Deselect all')),
+                        PopupMenuItem(value: 'unfollow', child: Text('Unfollow selected')),
+                      ],
+                    ),
+                    const SizedBox(width: 4),
+                  ]
+                : null,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
-              title: Row(
-                children: [
-                  const Icon(Icons.person_rounded,
-                      color: Colors.blueAccent, size: 22),
-                  const SizedBox(width: 8),
-                  ShaderMask(
-                    shaderCallback: (b) =>
-                        AurumTheme.accentGradientOf(context).createShader(b),
-                    child: Text(l10n.libraryArtists,
-                        style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white)),
-                  ),
-                ],
-              ),
+              title: _selectMode
+                  ? Text(
+                      '${_selectedIds.length} selected',
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        const Icon(Icons.person_rounded,
+                            color: Colors.blueAccent, size: 22),
+                        const SizedBox(width: 8),
+                        ShaderMask(
+                          shaderCallback: (b) =>
+                              AurumTheme.accentGradientOf(context).createShader(b),
+                          child: Text(l10n.libraryArtists,
+                              style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white)),
+                        ),
+                      ],
+                    ),
             ),
           ),
           if (followed.isEmpty)
@@ -7867,7 +8381,16 @@ class _ArtistsScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, i) => _FollowedArtistTile(artist: followed[i]),
+                  (context, i) {
+                    final artistId = (followed[i]['id'] ?? '').toString();
+                    return _FollowedArtistTile(
+                      artist: followed[i],
+                      selectMode: _selectMode,
+                      selected: _selectedIds.contains(artistId),
+                      onEnterSelectMode: () => _enterSelectMode(artistId),
+                      onToggleSelected: () => _toggleSelected(artistId),
+                    );
+                  },
                   childCount: followed.length,
                 ),
               ),
@@ -7880,7 +8403,20 @@ class _ArtistsScreen extends StatelessWidget {
 
 class _FollowedArtistTile extends StatelessWidget {
   final Map<String, dynamic> artist;
-  const _FollowedArtistTile({required this.artist});
+  // Same selection contract as _AurumArtistRow above â€” kept in sync so
+  // both artist-list surfaces behave identically.
+  final bool selectMode;
+  final bool selected;
+  final VoidCallback? onEnterSelectMode;
+  final VoidCallback? onToggleSelected;
+
+  const _FollowedArtistTile({
+    required this.artist,
+    this.selectMode = false,
+    this.selected = false,
+    this.onEnterSelectMode,
+    this.onToggleSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -7892,7 +8428,9 @@ class _FollowedArtistTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: AurumTheme.bgCardOf(context),
+        color: selected
+            ? AurumTheme.accentOf(context).withOpacity(0.12)
+            : AurumTheme.bgCardOf(context),
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -7910,6 +8448,10 @@ class _FollowedArtistTile extends StatelessWidget {
                   : Colors.black)
               .withValues(alpha: 0.04),
           onTap: () {
+            if (selectMode) {
+              onToggleSelected?.call();
+              return;
+            }
             AurumHaptics.selection();
             AurumDepthRoute.to(
               context,
@@ -7917,8 +8459,9 @@ class _FollowedArtistTile extends StatelessWidget {
             );
           },
           onLongPress: () {
+            if (selectMode) return;
             AurumHaptics.medium();
-            _showUnfollowSheet(context, id, name, imageUrl);
+            onEnterSelectMode?.call();
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -7969,11 +8512,22 @@ class _FollowedArtistTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.more_vert_rounded,
-                      color: AurumTheme.textMutedOf(context)),
-                  onPressed: () => _showUnfollowSheet(context, id, name, imageUrl),
-                ),
+                if (selectMode)
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_off_rounded,
+                    color: selected
+                        ? AurumTheme.accentOf(context)
+                        : AurumTheme.textMutedOf(context),
+                    size: 24,
+                  )
+                else
+                  IconButton(
+                    icon: Icon(Icons.more_vert_rounded,
+                        color: AurumTheme.textMutedOf(context)),
+                    onPressed: () => _showUnfollowSheet(context, id, name, imageUrl),
+                  ),
               ],
             ),
           ),

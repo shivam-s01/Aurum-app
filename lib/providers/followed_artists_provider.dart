@@ -191,6 +191,27 @@ class FollowedArtistsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bulk-unfollow, used by the Artists tab's multi-select mode
+  /// ("Select All" + "Unfollow selected"). Batches every Hive delete
+  /// first and fires exactly one notifyListeners() at the end instead of
+  /// once per artist, so unfollowing many at once stays smooth on a
+  /// low-end device.
+  Future<void> unfollowMany(Iterable<String> artistIds) async {
+    Box<Map>? box;
+    try {
+      box = _box ?? await _boxReady.future;
+    } catch (_) {
+      return;
+    }
+    for (final rawId in artistIds) {
+      final key = rawId.trim();
+      if (key.isEmpty) continue;
+      await box.delete(key);
+      unawaited(SyncService.instance.pushUnfollowedArtist(key));
+    }
+    notifyListeners();
+  }
+
   /// Wipes all followed artists — local only, called on sign-out.
   Future<void> clearAll() async {
     Box<Map>? box;
