@@ -371,27 +371,36 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
             // faint dim/shift with no drag needed to reproduce — the
             // _EdgeSwipeBack fixes above only cover the manually-scrubbed
             // drag controller, not this independent Flutter-driven
-            // secondaryAnimation. Same fix: ignore secondaryAnimation's
-            // raw value whenever ModalRoute.isCurrent confirms this
-            // route is actually the active top of stack.
-            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
-
-            // PERF: only built when actually needed (something is pushed
-            // on top of this route) — skips a CurvedAnimation listener
-            // hookup on the overwhelmingly common case (this route IS the
-            // top of the stack), which is every ordinary push/pop.
+            // secondaryAnimation.
             //
-            // iOS-style parallax back: the screen BEHIND the one being
-            // popped doesn't sit static while the top one slides away —
-            // it drifts in from a partial left offset too, so both
-            // screens visibly move together, text and all, instead of
-            // one screen sliding over a frozen backdrop.
-            final secondaryCurved = isTopRoute
-                ? null
-                : CurvedAnimation(
-                    parent: secondaryAnimation,
-                    curve: AurumMotion.standard,
-                  );
+            // BUG FIX ("3-dot menu open karte hi grey crash screen aa
+            // jaati hai" — RenderFractionalTranslation was not laid out,
+            // same root cause found in AurumDepthRoute below): the
+            // previous fix here used `ModalRoute.of(context)?.isCurrent`
+            // to gate this, but isCurrent flips false for ANY route pushed
+            // on top — including a transient PopupMenuButton menu/dialog/
+            // bottom sheet (a PopupRoute/RawDialogRoute), not just a real
+            // screen push (a PageRoute). Since AurumPageRoute is the
+            // app-wide default push route, that meant tearing down and
+            // rebuilding this ENTIRE SlideTransition/FadeTransition tree
+            // — mid-layout, on an already-settled screen — every time ANY
+            // popup menu opened ANYWHERE in the app, which is exactly what
+            // left RenderFractionalTranslation without a valid laid-out
+            // size and crashed before the menu could render.
+            // PageRoute.canTransitionFrom(previousRoute) is only satisfied
+            // when previousRoute is ALSO a PageRoute
+            // (api.flutter.dev/flutter/widgets/PageRoute/canTransitionFrom.html)
+            // — so Flutter itself already clamps secondaryAnimation at
+            // kAlwaysDismissedAnimation (permanently 0) whenever only a
+            // popup/dialog sits on top, with no isCurrent check needed.
+            // Building secondaryCurved unconditionally lets that built-in
+            // clamping do the work: it stays inert for a popup/dialog and
+            // only actually animates for a genuine screen push — the one
+            // case this dim/parallax exists for.
+            final secondaryCurved = CurvedAnimation(
+              parent: secondaryAnimation,
+              curve: AurumMotion.standard,
+            );
 
             final content = ColoredBox(
               color: AurumTheme.bgOf(context),
@@ -422,25 +431,22 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
                   // this is the "text ke saath back ho" fix. Settles to
                   // fully-in-place once this becomes the top route again.
                   //
-                  // PERF: skips building a Tween/Animation object at all
-                  // (not just skipping the visual offset) when this is
-                  // the top route — AlwaysStoppedAnimation is effectively
-                  // free, whereas a live Tween+CurvedAnimation still costs
-                  // a listener + rebuild hookup even when its start and
-                  // end values happen to be equal.
-                  position: isTopRoute
-                      ? const AlwaysStoppedAnimation(Offset.zero)
-                      : Tween<Offset>(
-                          begin: Offset.zero,
-                          end: const Offset(-0.30, 0),
-                        ).animate(secondaryCurved!),
-                  child: isTopRoute
-                      ? child
-                      : FadeTransition(
-                          opacity: Tween<double>(begin: 1.0, end: 0.85)
-                              .animate(secondaryCurved!),
-                          child: child,
-                        ),
+                  // secondaryCurved is now always built (see comment
+                  // above) and stays inert — permanently at its Offset.zero/
+                  // opacity-1.0 start value — whenever only a popup/dialog
+                  // sits on top, since Flutter clamps secondaryAnimation to
+                  // kAlwaysDismissedAnimation for those. It only actually
+                  // animates for a genuine screen push, which is the one
+                  // case this parallax/dim exists for.
+                  position: Tween<Offset>(
+                    begin: Offset.zero,
+                    end: const Offset(-0.30, 0),
+                  ).animate(secondaryCurved),
+                  child: FadeTransition(
+                    opacity: Tween<double>(begin: 1.0, end: 0.85)
+                        .animate(secondaryCurved),
+                    child: child,
+                  ),
                 ),
               ),
             );
@@ -553,24 +559,39 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
             // parallax + 0.92 dim applied to THIS route while something
             // is pushed on top of it (e.g. a song tile inside Playlists/
             // Albums/Local Files opening FullPlayerScreen via
-            // pushFullPlayer). Unlike AurumPageRoute, nothing here
-            // manually scrubs an AnimationController by hand — this is
-            // pure Flutter-driven route animation — but a fast/overlapping
-            // navigation (double-tap racing pushFullPlayer's own guard
-            // reset, or FullPlayerScreen's pop not fully completing its
-            // reverse transition before another push/pop lands) can still
-            // leave secondaryAnimation holding a stale non-zero value
-            // instead of settling back to 0 when this route becomes the
-            // active top of the stack again. Trusting that raw value
-            // blindly is what let a stuck mid-value silently render as a
-            // permanent gray wash with no drag or gesture needed to
-            // trigger it. ModalRoute.isCurrent is ground truth for
-            // whether this route is actually the one the user is looking
-            // at right now — whenever it is, force full brightness/no-
-            // parallax regardless of whatever secondaryAnimation's raw
-            // value currently claims, so a stale value can never paint.
-            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
-
+            // pushFullPlayer).
+            //
+            // BUG FIX ("3-dot menu open karte hi grey crash screen aa
+            // jaati hai" — RenderFractionalTranslation was not laid out,
+            // same root cause as AurumPageRoute/AurumDepthRoute's matching
+            // fixes in this file): the previous fix here used
+            // `ModalRoute.of(context)?.isCurrent` to decide when to force
+            // full brightness/no-parallax. isCurrent flips false for ANY
+            // route pushed on top — including a transient PopupMenuButton
+            // menu/dialog/bottom sheet (a PopupRoute/RawDialogRoute), not
+            // just a real screen push (a PageRoute). Since
+            // AurumSlidePageRoute is exactly what pushes Playlists/Albums/
+            // Library screens, that meant every single 3-dot tap on a
+            // song row inside one of those screens tore down and rebuilt
+            // this ENTIRE SlideTransition/FadeTransition tree — mid-
+            // layout, on an already-settled screen — purely because a
+            // popup menu opened on top. That's exactly what left
+            // RenderFractionalTranslation without a valid laid-out size
+            // and crashed before the menu could render.
+            // PageRoute.canTransitionFrom(previousRoute) is only satisfied
+            // when previousRoute is ALSO a PageRoute
+            // (api.flutter.dev/flutter/widgets/PageRoute/canTransitionFrom.html)
+            // — so Flutter itself already clamps secondaryAnimation at
+            // kAlwaysDismissedAnimation (permanently 0) whenever only a
+            // popup/dialog sits on top, with no isCurrent check needed:
+            // secondaryCurved (built unconditionally above) stays
+            // permanently at its Offset.zero/opacity-1.0 start value for a
+            // popup/dialog, and only actually animates for a genuine
+            // screen push — the one case this dim/parallax exists for. A
+            // stale non-zero value can still never paint, because Flutter
+            // itself resets secondaryAnimation to exactly 0 once the
+            // pushed PageRoute is fully popped — no isCurrent workaround
+            // needed to force that.
             return ColoredBox(
               color: AurumTheme.bgOf(context),
               child: SlideTransition(
@@ -584,18 +605,14 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
                     // Outgoing screen drifts left ~6% and dims — a light
                     // parallax cue that the new screen is arriving "on top",
                     // not just cross-fading in place.
-                    position: isTopRoute
-                        ? const AlwaysStoppedAnimation(Offset.zero)
-                        : Tween<Offset>(
-                            begin: Offset.zero,
-                            end: const Offset(-0.06, 0),
-                          ).animate(secondaryCurved),
+                    position: Tween<Offset>(
+                      begin: Offset.zero,
+                      end: const Offset(-0.06, 0),
+                    ).animate(secondaryCurved),
                     child: FadeTransition(
-                      opacity: isTopRoute
-                          ? const AlwaysStoppedAnimation(1.0)
-                          : Tween<double>(begin: 1.0, end: 0.92).animate(
-                              secondaryCurved,
-                            ),
+                      opacity: Tween<double>(begin: 1.0, end: 0.92).animate(
+                        secondaryCurved,
+                      ),
                       child: child,
                     ),
                   ),
@@ -830,31 +847,66 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
             // now — skips the extra CurvedAnimation/Tween hookup on the
             // overwhelmingly common case (this route sitting alone at
             // the top of the stack, mid push or pop).
-            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
-            final recedeFade = isTopRoute
-                ? null
-                : Tween<double>(begin: 1.0, end: 0.85).animate(
-                    CurvedAnimation(
-                      parent: secondaryAnimation,
-                      curve: Curves.easeInCubic,
-                    ),
-                  );
-
-            Widget content = FadeTransition(
-              opacity: incomingFade,
-              child: SlideTransition(
-                position: incomingSlide,
-                child: child,
+            //
+            // BUG FIX ("3-dot menu open karte hi grey crash screen aa
+            // jaati hai, koi menu dikhta hi nahi — RenderFractionalTranslation
+            // was not laid out"): this used to gate building the
+            // secondaryAnimation-driven fade on
+            // `ModalRoute.of(context)?.isCurrent`. isCurrent goes false the
+            // instant ANY route is pushed on top of THIS one — including a
+            // transient PopupMenuButton menu (showMenu()) or any dialog/
+            // bottom sheet, none of which are a real navigated-to screen.
+            // That flipped isTopRoute to false and, on every single 3-dot
+            // tap, tore down and rebuilt this route's entire
+            // FadeTransition/SlideTransition tree with a brand new
+            // CurvedAnimation — mid-frame, while the tree was already
+            // laid out — purely because a popup menu opened on top, not
+            // because the user actually navigated away. That teardown/
+            // rebuild is what left RenderFractionalTranslation
+            // (SlideTransition's underlying render object) without a
+            // valid laid-out size for a frame, crashing before the menu
+            // ever got a chance to render.
+            //
+            // Flutter's own routing already draws the exact distinction
+            // this needs: PageRoute.canTransitionFrom(previousRoute) is
+            // only satisfied when previousRoute is ALSO a PageRoute
+            // (api.flutter.dev/flutter/widgets/PageRoute/canTransitionFrom.html)
+            // — a PopupMenuButton's menu, a dialog, or a bottom sheet is a
+            // PopupRoute/RawDialogRoute, never a PageRoute, so Flutter
+            // itself already keeps secondaryAnimation clamped at
+            // kAlwaysDismissedAnimation (permanently 0, never firing a
+            // frame) whenever only one of those sits on top of this route.
+            // The old isCurrent check short-circuited past that built-in
+            // protection by tearing down and rebuilding the transition
+            // tree on ITS OWN boolean flip, ignoring what secondaryAnimation
+            // would actually have done. Building recedeFade unconditionally
+            // — the same way AurumPageRoute/AurumSlidePageRoute already do
+            // — lets Flutter's own kAlwaysDismissedAnimation clamping do
+            // its job: the Tween/CurvedAnimation get created once and just
+            // sit inert (a fixed opacity of 1.0) for a popup/dialog, and
+            // only actually animate when a genuine PageRoute is pushed on
+            // top — which is the one case this fade exists for.
+            final recedeFade = Tween<double>(begin: 1.0, end: 0.85).animate(
+              CurvedAnimation(
+                parent: secondaryAnimation,
+                curve: Curves.easeInCubic,
               ),
             );
-            if (recedeFade != null) {
-              content = FadeTransition(opacity: recedeFade, child: content);
-            }
 
-            // Real, already-themed content from the previous route stays
-            // visible underneath the whole time (opaque: false above) —
-            // no filler backdrop behind either branch.
-            return content;
+            // recedeFade is always built now (see the comment above it) —
+            // it only ever visibly changes anything when a genuine
+            // PageRoute is pushed on top, so it's always safe to wrap
+            // with here.
+            return FadeTransition(
+              opacity: recedeFade,
+              child: FadeTransition(
+                opacity: incomingFade,
+                child: SlideTransition(
+                  position: incomingSlide,
+                  child: child,
+                ),
+              ),
+            );
           },
         );
 

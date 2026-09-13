@@ -3556,7 +3556,7 @@ class _TagFilterChip extends StatelessWidget {
 
 // â”€â”€ List row (list-view mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-class _PlaylistListRow extends StatelessWidget {
+class _PlaylistListRow extends StatefulWidget {
   final AurumPlaylist playlist;
   final int index;
   final bool reorderable;
@@ -3568,10 +3568,58 @@ class _PlaylistListRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
-      ArtworkPaletteCache.warm(playlist.coverArt!);
+  State<_PlaylistListRow> createState() => _PlaylistListRowState();
+}
+
+class _PlaylistListRowState extends State<_PlaylistListRow> {
+  // PERF FIX ("Playlists section mein jaate hi had se zyada lag/hang" —
+  // production bug, found on recheck): `ArtworkPaletteCache.warm(...)`
+  // used to be called directly inside this row's build() method (this
+  // was a StatelessWidget before). build() re-runs on every scroll frame
+  // that brings this row back into the sliver's visible range AND on
+  // every single Consumer<PlaylistProvider> rebuild above (any playlist
+  // renamed/added/reordered rebuilds the whole list, which rebuilds
+  // every visible row). warm() itself dedupes against an already-cached
+  // or already-in-flight URL, but that dedupe is still a Map lookup done
+  // once per row per rebuild — with N playlists on screen and the
+  // Consumer rebuilding on every provider change, that's O(N) redundant
+  // map lookups firing continuously during scrolling/reordering, on top
+  // of the real cost: while extraction for a given cover is still
+  // in-flight (queued behind ArtworkPaletteCache's own 3-concurrent-max
+  // gate — see that file's matching comment), every rebuild before it
+  // resolves re-enters warm(), re-adding load to the same contended
+  // queue instead of firing the request once and leaving it alone.
+  // Moving this to initState/didUpdateWidget (gated on the URL actually
+  // changing) means each playlist's cover extraction is requested
+  // exactly once per URL, no matter how many times this row rebuilds
+  // afterward for unrelated reasons (scrolling it in/out of view,
+  // sibling rows changing, provider updates) — identical to the pattern
+  // PlaylistColorCover (aurum_cover_color.dart) already uses correctly
+  // for this exact same cache.
+  @override
+  void initState() {
+    super.initState();
+    _warmCover();
+  }
+
+  @override
+  void didUpdateWidget(_PlaylistListRow old) {
+    super.didUpdateWidget(old);
+    if (old.playlist.coverArt != widget.playlist.coverArt) _warmCover();
+  }
+
+  void _warmCover() {
+    final coverArt = widget.playlist.coverArt;
+    if (coverArt != null && coverArt.isNotEmpty) {
+      ArtworkPaletteCache.warm(coverArt);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final playlist = widget.playlist;
+    final index = widget.index;
+    final reorderable = widget.reorderable;
     final row = AurumPressable(
       onTap: () => AurumDepthRoute.to(
         context,
@@ -3727,15 +3775,43 @@ class _PlaylistListRow extends StatelessWidget {
 
 // â”€â”€ Grid tile (grid-view mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-class _PlaylistGridTile extends StatelessWidget {
+class _PlaylistGridTile extends StatefulWidget {
   final AurumPlaylist playlist;
   const _PlaylistGridTile({required this.playlist});
 
   @override
-  Widget build(BuildContext context) {
-    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
-      ArtworkPaletteCache.warm(playlist.coverArt!);
+  State<_PlaylistGridTile> createState() => _PlaylistGridTileState();
+}
+
+class _PlaylistGridTileState extends State<_PlaylistGridTile> {
+  // PERF FIX — same root cause and same fix as _PlaylistListRowState's
+  // matching comment above: ArtworkPaletteCache.warm() moved out of
+  // build() (where it re-fired on every scroll/provider rebuild) and
+  // into initState/didUpdateWidget, gated on the cover URL actually
+  // changing, so each playlist's cover extraction is only ever
+  // requested once per URL.
+  @override
+  void initState() {
+    super.initState();
+    _warmCover();
+  }
+
+  @override
+  void didUpdateWidget(_PlaylistGridTile old) {
+    super.didUpdateWidget(old);
+    if (old.playlist.coverArt != widget.playlist.coverArt) _warmCover();
+  }
+
+  void _warmCover() {
+    final coverArt = widget.playlist.coverArt;
+    if (coverArt != null && coverArt.isNotEmpty) {
+      ArtworkPaletteCache.warm(coverArt);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final playlist = widget.playlist;
     return AurumPressable(
       onTap: () => AurumDepthRoute.to(
         context,
