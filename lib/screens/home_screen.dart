@@ -3730,7 +3730,7 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
           // 68 (52 artwork + 12 vertical padding + 4 bottom margin, see
           // _QuickPickListRow below) x 4 rows.
           SizedBox(
-            height: 68 * rowsPerColumn,
+            height: 68.0 * rowsPerColumn,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
