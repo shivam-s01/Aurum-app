@@ -41,6 +41,7 @@ import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
 import 'artist_screen.dart';
 import 'profile_screen.dart';
+import 'library_screen.dart' show PlaylistDetailScreen;
 import 'login_screen.dart';
 import 'full_player_screen.dart';
 import 'edge_to_edge_full_player.dart';
@@ -1130,30 +1131,47 @@ class _HomeScreenState extends State<HomeScreen> {
                       refreshKey: _playlistRefreshKey,
                     ),
                   ),
-                  // ADDED ("aur kuch add krna hai... koi user open kre
-                  // to lage ye top level ka app hai" — 2026-09-13): real
-                  // YT Music's own "Listen again" horizontal shelf —
-                  // this widget already existed fully built (real
-                  // RecentlyPlayedProvider.history data, tap-to-play,
-                  // proper card layout) but was never actually mounted
-                  // anywhere on Home. Wired in here, right under Quick
-                  // Picks, matching where the reference app places its
-                  // own history-based shelf. Genuinely hides itself via
-                  // its own `if (songs.isEmpty) return SizedBox.shrink()`
-                  // for a brand-new install with no play history yet —
-                  // never shows an empty titled row.
-                  //
-                  // PERF: wrapped in its own tiny _ListenAgainSection
-                  // instead of a bare context.watch() right here — this
-                  // file went to real trouble (_onlineSectionsNotifier,
-                  // see this State class's own doc comment above) to
-                  // stop every song-change event from rebuilding the
-                  // ENTIRE Home tree; watching RecentlyPlayedProvider
-                  // directly in this top-level build() would reintroduce
-                  // exactly that problem for every single play. The
-                  // extra widget isolates the rebuild to just this shelf.
+                  // ADDED ("mixed for you bhe ekdam top level ka" —
+                  // 2026-09-13): real YT Music web's own "Mixed for you"
+                  // row (My Mix 1/2/3...) sits right after Quick Picks and
+                  // Featured playlists — see reference screenshot. Built
+                  // as genuinely real clusters: RecentlyPlayedProvider.
+                  // topArtists() (real play-frequency ranking, already
+                  // used elsewhere in this app) picks the artists, each
+                  // card's starting songs are the user's own real history
+                  // for that artist, and MixScreen's existing
+                  // enableRefresh/refreshSeed (already built for
+                  // exactly this — see mix_screen.dart's doc comment)
+                  // expands it into a full mix on open. No invented/fake
+                  // "My Mix N" numbering — real YT Music's own numbering
+                  // is internal/arbitrary and not reproducible, so cards
+                  // are named after the real artist instead, matching
+                  // the visual language _HomeShelvesAndSimilarSection's
+                  // "Similar to X" rows already use on this page.
                   const SliverToBoxAdapter(
-                    child: _ListenAgainSection(),
+                    child: _MixedForYouSection(),
+                  ),
+                  // REMOVED ("listen again wala hata do ye akward hai" —
+                  // 2026-09-13): _ListenAgainSection no longer mounted on
+                  // Home. Class left defined below (dead code) rather than
+                  // deleted, in case it's wanted back later.
+                  //
+                  // ADDED in its place ("ekdam youtube music jaisa, top
+                  // level ka" — 2026-09-13): ArchiveTune's real
+                  // HomeScreen.kt has a Speed Dial row and an Account
+                  // Playlists row right here, before Forgotten Favorites —
+                  // see that file's HomeContent(), lines covering
+                  // uiState.speedDialItems and uiState.accountPlaylists.
+                  // Both added below backed by genuinely real on-device
+                  // data (RecentlyPlayedProvider for Speed Dial,
+                  // PlaylistProvider for Account Playlists) — same
+                  // "hide entirely if empty, never show a fake/empty row"
+                  // rule every other optional Home section already follows.
+                  const SliverToBoxAdapter(
+                    child: _SpeedDialSection(),
+                  ),
+                  const SliverToBoxAdapter(
+                    child: _AccountPlaylistsSection(),
                   ),
                   // ADDED ("ekdam youtube music jaisa home page" —
                   // 2026-09-13): real YT Music's own "Forgotten
@@ -2657,9 +2675,313 @@ class _SourceOptionState extends State<_SourceOption> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Speed Dial — small round "jump back in" chips: the last few distinct
+// songs the user actually played, tap to resume instantly. Matches
+// ArchiveTune's real HomeScreen.kt (uiState.speedDialItems, rendered right
+// under Quick Picks/before Forgotten Favorites) — square art, name below,
+// no header row of its own beyond the section title, same visual weight as
+// a YT Music "Speed dial" strip. Backed entirely by
+// RecentlyPlayedProvider.history — genuine on-device play history, no
+// invented/random entries. Hides itself completely (no title, no empty
+// row) when there's no history yet, same rule every optional Home section
+// on this page already follows.
+// ─────────────────────────────────────────────────────────────────────────────
+class _SpeedDialSection extends StatelessWidget {
+  const _SpeedDialSection();
+
+  static const int _kMaxShown = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    final history = context.watch<RecentlyPlayedProvider>().history;
+    if (history.isEmpty) return const SizedBox.shrink();
+    final songs = history.take(_kMaxShown).toList();
+    final player = context.read<PlayerProvider>();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocalizations.of(context)?.homeListenAgain ?? 'Speed dial',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 118,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 500,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: songs.length,
+              itemBuilder: (_, i) => _SafeListenAgainCard(
+                song: songs[i],
+                compact: true,
+                onTap: () {
+                  player.playSong(songs[i], queue: songs, index: i);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account Playlists — the user's own real playlists (PlaylistProvider),
+// matching ArchiveTune's real HomeScreen.kt uiState.accountPlaylists row.
+// Only appears when the user actually has at least one playlist — a
+// brand-new install with zero playlists shows nothing here, same rule
+// every optional Home section already follows.
+// ─────────────────────────────────────────────────────────────────────────────
+class _AccountPlaylistsSection extends StatelessWidget {
+  const _AccountPlaylistsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final playlists = context.watch<PlaylistProvider>().playlists;
+    if (playlists.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your playlists',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 700,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: playlists.length,
+              itemBuilder: (_, i) =>
+                  _AccountPlaylistCard(playlist: playlists[i]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountPlaylistCard extends StatelessWidget {
+  final AurumPlaylist playlist;
+  const _AccountPlaylistCard({required this.playlist});
+
+  @override
+  Widget build(BuildContext context) {
+    return _ErrorBoundary(
+      fallback: const SizedBox(width: 148),
+      child: AurumPressable(
+        scaleAmount: 0.96,
+        onTap: () {
+          AurumHaptics.selection();
+          AurumDepthRoute.to(
+            context,
+            PlaylistDetailScreen(playlistId: playlist.id),
+          );
+        },
+        child: Container(
+          width: 148,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: playlist.coverArt != null
+                    ? AurumArtwork(
+                        url: playlist.coverArt!, size: 296, borderRadius: 12)
+                    : Container(
+                        width: 148,
+                        height: 148,
+                        color: AurumTheme.bgCardOf(context),
+                        child: Icon(Icons.queue_music_rounded,
+                            color: AurumTheme.accentOf(context), size: 40),
+                      ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                playlist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                '${playlist.songCount} songs',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textSecondaryOf(context),
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mixed for you — real YT Music web's "My Mix N" row, rebuilt honestly:
+// each card is a genuine per-artist mix seeded entirely from the user's own
+// RecentlyPlayedProvider history (never invented/random). Artists are
+// ranked by topArtists() — the same real play-frequency ranking
+// ApiService.fetchHome() already trusts elsewhere in this app — so the
+// artists that show up here are the ones the user has actually played
+// most. Tapping a card opens MixScreen pre-seeded with that artist's real
+// history songs, with enableRefresh/refreshSeed wired in so pulling down
+// inside the mix genuinely expands it via ApiService.fetchMixRefreshSongs
+// (existing infra, not new plumbing). Hides entirely for a fresh install
+// with no history yet, same rule every optional Home section follows.
+// ─────────────────────────────────────────────────────────────────────────────
+class _MixedForYouSection extends StatelessWidget {
+  const _MixedForYouSection();
+
+  static const int _kMaxMixes = 6;
+
+  @override
+  Widget build(BuildContext context) {
+    final recently = context.watch<RecentlyPlayedProvider>();
+    final artists = recently.topArtists(count: _kMaxMixes);
+    if (artists.isEmpty) return const SizedBox.shrink();
+
+    final history = recently.history;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mixed for you',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 210,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 700,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: artists.length,
+              itemBuilder: (_, i) {
+                final artistName = artists[i];
+                // Real seed songs: only this artist's own songs, most
+                // recently played first (history is already newest-first).
+                final seedSongs = history
+                    .where((s) => s.artist == artistName)
+                    .take(20)
+                    .toList();
+                if (seedSongs.isEmpty) return const SizedBox.shrink();
+                return _MixCard(artistName: artistName, seedSongs: seedSongs);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MixCard extends StatelessWidget {
+  final String artistName;
+  final List<Song> seedSongs;
+  const _MixCard({required this.artistName, required this.seedSongs});
+
+  @override
+  Widget build(BuildContext context) {
+    return _ErrorBoundary(
+      fallback: const SizedBox(width: 148),
+      child: AurumPressable(
+        scaleAmount: 0.96,
+        onTap: () {
+          AurumHaptics.selection();
+          AurumDepthRoute.to(
+            context,
+            MixScreen(
+              mixId: 'mix_${artistName.hashCode}',
+              mixName: '$artistName Mix',
+              artworkUrl: seedSongs.first.artworkUrl,
+              emoji: '',
+              songs: seedSongs,
+              enableRefresh: true,
+              refreshSeed: artistName,
+            ),
+          );
+        },
+        child: Container(
+          width: 148,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AurumArtwork(
+                    url: seedSongs.first.artworkUrl,
+                    size: 296,
+                    borderRadius: 12),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '$artistName Mix',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Recently Played — square art tiles of the user's own play history, tap to
 // play directly (unlike every other row on this page, these are individual
 // songs, not a mix/album to open — so no MixScreen navigation here).
+//
+// UNMOUNTED ("listen again wala hata do ye akward hai" — 2026-09-13): no
+// longer called anywhere on Home (see _HomeScreenState.build()). Left
+// defined here rather than deleted, in case it's wanted back later.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Thin isolation wrapper so watching RecentlyPlayedProvider (which
@@ -2745,25 +3067,37 @@ class _RecentlyPlayedSection extends StatelessWidget {
 class _SafeListenAgainCard extends StatelessWidget {
   final Song song;
   final VoidCallback onTap;
-  const _SafeListenAgainCard({required this.song, required this.onTap});
+  // Smaller footprint for _SpeedDialSection's round-trip chip row (matches
+  // ArchiveTune's Speed Dial sizing, which sits visually lighter than the
+  // bigger Forgotten Favourites cards). Default (false) keeps the original
+  // 130px size used elsewhere.
+  final bool compact;
+  const _SafeListenAgainCard({
+    required this.song,
+    required this.onTap,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final width = compact ? 92.0 : 130.0;
     return _ErrorBoundary(
-      fallback: const SizedBox(width: 130),
+      fallback: SizedBox(width: width),
       child: AurumPressable(
         scaleAmount: 0.96,
         onTap: onTap,
         child: Container(
-          width: 130,
+          width: width,
           margin: const EdgeInsets.only(right: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(compact ? 10 : 12),
                 child: AurumArtwork(
-                    url: song.artworkUrl, size: 260, borderRadius: 12),
+                    url: song.artworkUrl,
+                    size: compact ? 184 : 260,
+                    borderRadius: compact ? 10 : 12),
               ),
               const SizedBox(height: 6),
               Text(
@@ -2772,19 +3106,20 @@ class _SafeListenAgainCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 13,
+                  fontSize: compact ? 12 : 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              Text(
-                song.artist,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AurumTheme.textSecondaryOf(context),
-                  fontSize: 11,
+              if (!compact)
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 11,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -3748,22 +4083,33 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
             ),
           ),
           const SizedBox(height: 8),
-          // Each column is exactly as tall as 4 real rows — row height is
-          // 68 (52 artwork + 12 vertical padding + 4 bottom margin, see
-          // _QuickPickListRow below) x 4 rows.
+          // FIX ("swipe krne pr ek sath ho rahe hai" — 2026-09-13): this
+          // used to be a plain ListView.builder (free-scroll,
+          // BouncingScrollPhysics) — a fling could carry past several
+          // columns at once and settle at any arbitrary scroll offset, not
+          // on a column boundary, which is what read as multiple columns
+          // moving "together"/unpredictably per swipe. Real YT Music's
+          // Quick Picks carousel snaps exactly one column per swipe no
+          // matter how hard the flick is. PageView.builder gives that for
+          // free (each "page" here being one column-of-4, viewportFraction
+          // slightly under 1 so the next column's edge still peeks, same
+          // as before) — every swipe lands on exactly the next/previous
+          // column, never in between and never skipping one.
           SizedBox(
             height: 68.0 * rowsPerColumn,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              cacheExtent: 900,
-              padding: const EdgeInsets.only(right: 12),
+            child: PageView.builder(
+              controller: PageController(
+                viewportFraction:
+                    (MediaQuery.of(context).size.width - 24) /
+                        MediaQuery.of(context).size.width,
+              ),
+              physics: const PageScrollPhysics(),
+              padEnds: false,
               itemCount: columnCount,
               itemBuilder: (_, colIndex) {
                 final start = colIndex * rowsPerColumn;
                 final end = (start + rowsPerColumn).clamp(0, songs.length);
                 return Container(
-                  width: MediaQuery.of(context).size.width - 24,
                   margin: const EdgeInsets.only(right: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
