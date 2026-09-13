@@ -1498,7 +1498,30 @@ class _TopArtistAndCountRow extends StatelessWidget {
     final id = (top['id'] ?? '').toString();
     final imageUrl = (top['imageUrl'] ?? '').toString();
 
-    return Row(
+    // CRASH FIX ("Artists tab completely blank — no list, no empty state,
+    // no error card, even with the try/catch in place above"): this Row
+    // sits inside a SliverToBoxAdapter (via CustomScrollView), which gives
+    // its child UNBOUNDED height (the sliver's main axis is scroll-driven,
+    // not fixed). CrossAxisAlignment.stretch on a bare Row tells it to
+    // stretch children to fill the Row's cross axis — for a Row that's the
+    // vertical axis — and stretching to an unbounded/infinite height throws
+    // immediately ("RenderFlex children have non-zero flex but incoming
+    // height constraints are unbounded"). That's a LAYOUT-time exception,
+    // not a build-time one, so the try/catch around this widget's caller
+    // never catches it — the whole CustomScrollView's layout pass fails
+    // silently in release mode, taking the SliverAppBar/tab header down
+    // with it (matching exactly what was observed: nothing rendered at
+    // all, not even the empty state).
+    //
+    // Fix: wrap in IntrinsicHeight instead of removing stretch outright.
+    // IntrinsicHeight measures both children's natural height first and
+    // gives the Row a real, bounded height to work with — so stretch can
+    // still do its job (both cards still match each other's height, and
+    // the count card's inner spaceBetween Column still gets a bounded
+    // height to distribute across), just computed from actual content
+    // instead of an unbounded sliver constraint.
+    return IntrinsicHeight(
+      child: Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
@@ -1580,6 +1603,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }
