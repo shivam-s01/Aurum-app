@@ -4736,7 +4736,7 @@ class ApiService {
       final col0 = flexCols.isNotEmpty
           ? flexCols[0]['musicResponsiveListItemFlexColumnRenderer']
           : null;
-      final runs = (col0 is Map ? col0['text']?['runs'] as List? : null) ??
+      final runs = (col0 is Map ? (col0['text']?['runs'] as List?) : null) ??
           const [];
       for (final run in runs) {
         final vid =
