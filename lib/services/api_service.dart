@@ -460,7 +460,31 @@ class HomeShelf {
   // for some shelves, absent for others (e.g. "New releases" has none)
   // — never fabricated when missing, see _parseHomeShelfHeader below.
   final String? strapline;
-  const HomeShelf({required this.title, required this.items, this.strapline});
+  // FEATURE ("ekdam youtube music jaisa home page" — 2026-09-13): real
+  // InnerTube home sections come back as one of two distinct renderer
+  // types — musicCarouselShelfRenderer (a horizontal row of cards, e.g.
+  // "New releases", "Albums for you") or musicShelfRenderer (a flat
+  // VERTICAL list of playable song rows with their own "Play all"
+  // affordance, e.g. real YT Music's "Covers and remixes"). Previously
+  // only the carousel renderer was ever parsed, so every list-style
+  // section from InnerTube was silently dropped entirely (see
+  // fetchRealHomeShelves's loop, which used to `continue` past anything
+  // that wasn't musicCarouselShelfRenderer). This flag lets the UI
+  // (_RealHomeShelfRow) render the two shapes correctly instead of
+  // forcing every shelf into a horizontal carousel.
+  final bool isList;
+  // Populated only when isList is true — the real playable songs for a
+  // list-style shelf, parsed from musicResponsiveListItemRenderer rows
+  // (same shape _parseRelatedListItem already trusts elsewhere). Empty
+  // for carousel shelves, which use `items` instead.
+  final List<Song> songs;
+  const HomeShelf({
+    required this.title,
+    required this.items,
+    this.strapline,
+    this.isList = false,
+    this.songs = const [],
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4580,6 +4604,40 @@ class ApiService {
       final shelves = <HomeShelf>[];
       for (final section in sections) {
         if (section is! Map) continue;
+
+        // FEATURE ("ekdam youtube music jaisa home page" — 2026-09-13):
+        // list-style shelves (musicShelfRenderer, e.g. real InnerTube's
+        // "Covers and remixes") come back as a totally different renderer
+        // from the card carousels below — checked first since a section
+        // is only ever one or the other, never both.
+        final listShelf = section['musicShelfRenderer'];
+        if (listShelf is Map) {
+          final listTitleRuns = (listShelf['title']?['runs'] as List?) ??
+              const [];
+          final listShelfTitle = listTitleRuns.isNotEmpty
+              ? _cleanHomeText((listTitleRuns.first['text'] ?? '').toString())
+              : '';
+          if (listShelfTitle.isEmpty) continue;
+
+          final rows = (listShelf['contents'] as List?) ?? const [];
+          final parsedSongs = <Song>[];
+          for (final raw in rows) {
+            if (raw is! Map<String, dynamic>) continue;
+            final song = _parseHomeShelfSongRow(raw);
+            if (song == null || song.artworkUrl.isEmpty) continue;
+            parsedSongs.add(song);
+          }
+          if (parsedSongs.isEmpty) continue;
+
+          shelves.add(HomeShelf(
+            title: listShelfTitle,
+            items: const [],
+            isList: true,
+            songs: parsedSongs,
+          ));
+          continue;
+        }
+
         final shelf = section['musicCarouselShelfRenderer'];
         // musicTastebuilderShelfRenderer (an onboarding prompt, not
         // content — see doc comment above) and anything else
@@ -4644,6 +4702,76 @@ class ApiService {
       _log('[fetchRealHomeShelves] parse error: $e');
       return const [];
     }
+  }
+
+  // One musicResponsiveListItemRenderer row inside a list-style home
+  // shelf (see the isList branch of fetchRealHomeShelves above) -> a
+  // playable Song. Same renderer shape _parseRelatedListItem already
+  // trusts (title in flexColumns[0], artist in flexColumns[1]), plus a
+  // 3rd flexColumn some list shelves carry for a "plays"/view-count
+  // style caption (e.g. real YT Music's "12M plays" under a cover
+  // version) — read opportunistically into Song.album since Song has no
+  // dedicated free-text caption field, purely for display, never relied
+  // on for playback. videoId is read from playlistItemData first (exact
+  // same guaranteed spot _parseRelatedListItem uses) and falls back to
+  // flexColumns[0]'s own watchEndpoint if that's ever absent, so a row
+  // never silently fails to be playable over a minor shape difference.
+  static Song? _parseHomeShelfSongRow(Map<String, dynamic> item) {
+    final r = item['musicResponsiveListItemRenderer'];
+    if (r is! Map) return null;
+
+    var videoId = (r['playlistItemData']?['videoId'] ?? '').toString();
+
+    final flexCols = (r['flexColumns'] as List?) ?? const [];
+    String colText(int index) {
+      if (index >= flexCols.length) return '';
+      final col = flexCols[index]['musicResponsiveListItemFlexColumnRenderer'];
+      if (col is! Map) return '';
+      final runs = (col['text']?['runs'] as List?) ?? const [];
+      return _cleanHomeText(
+          runs.map((run) => (run['text'] ?? '').toString()).join());
+    }
+
+    if (videoId.isEmpty) {
+      final col0 = flexCols.isNotEmpty
+          ? flexCols[0]['musicResponsiveListItemFlexColumnRenderer']
+          : null;
+      final runs = (col0 is Map ? col0['text']?['runs'] as List? : null) ??
+          const [];
+      for (final run in runs) {
+        final vid =
+            (run['navigationEndpoint']?['watchEndpoint']?['videoId'] ?? '')
+                .toString();
+        if (vid.isNotEmpty) {
+          videoId = vid;
+          break;
+        }
+      }
+    }
+    if (videoId.isEmpty) return null;
+
+    final title = colText(0);
+    if (title.isEmpty) return null;
+    final artist = colText(1);
+    final caption = colText(2); // e.g. "12M plays" — display-only
+
+    final thumbs = (r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+            ?['thumbnails'] as List?) ??
+        const [];
+    String artworkUrl = '';
+    if (thumbs.isNotEmpty) {
+      artworkUrl = (thumbs.last['url'] ?? '').toString();
+    }
+    if (artworkUrl.isEmpty) return null;
+
+    return Song(
+      id: videoId,
+      title: title,
+      artist: artist,
+      album: caption,
+      artworkUrl: _hqArtworkGeneric(artworkUrl),
+      source: SongSource.youtube,
+    );
   }
 
   // Same anonymous, no-Worker InnerTube browse as _ytmHomeRaw, just a

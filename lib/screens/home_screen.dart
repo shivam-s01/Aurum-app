@@ -1141,6 +1141,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SliverToBoxAdapter(
                     child: _ListenAgainSection(),
                   ),
+                  // ADDED ("ekdam youtube music jaisa home page" —
+                  // 2026-09-13): real YT Music's own "Forgotten
+                  // favourites" shelf — big video-style thumbnail cards
+                  // resurfacing genuine on-device favorites the user
+                  // hasn't played in a while (see
+                  // RecommendationEngine.rediscoverCandidateIds's doc
+                  // comment). Sits right after Listen Again, matching the
+                  // reference screenshots' own ordering. Hides itself via
+                  // its own empty-state checks for a fresh install with
+                  // no qualifying history yet, same rule every optional
+                  // Home section already follows.
+                  const SliverToBoxAdapter(
+                    child: _ForgottenFavouritesSection(),
+                  ),
                   SliverToBoxAdapter(
                     child: _ArtistStrip(
                       artists: _homeArtists,
@@ -3182,6 +3196,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
               padding: const EdgeInsets.only(right: 12),
+              itemCount: songs.length,
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () {
@@ -3227,6 +3242,189 @@ class _RecentlyPlayedSection extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Forgotten Favourites — YT Music's own "songs you loved but haven't
+// played lately" shelf: one big 16:9-style artwork card (title overlaid
+// on artwork bottom, same visual language as a video thumbnail on real
+// YT Music's own Home) rather than a small square. Backed entirely by
+// RecommendationEngine.rediscoverCandidateIds — genuine on-device
+// listening history (played 2+ times, or completed at least once, but
+// not played again in 21+ days), never invented/random. Resolves IDs
+// against RecentlyPlayedProvider.history since that's the only place
+// full Song objects for past plays already live in memory; an id with
+// no matching Song (e.g. history since trimmed) is simply skipped.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ForgottenFavouritesSection extends StatelessWidget {
+  const _ForgottenFavouritesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final history = context.watch<RecentlyPlayedProvider>().history;
+    if (history.isEmpty) return const SizedBox.shrink();
+
+    final candidateIds = RecommendationEngine.rediscoverCandidateIds(count: 10);
+    if (candidateIds.isEmpty) return const SizedBox.shrink();
+
+    final byId = {for (final s in history) s.id: s};
+    final songs = candidateIds
+        .map((id) => byId[id])
+        .whereType<Song>()
+        .toList();
+    if (songs.isEmpty) return const SizedBox.shrink();
+
+    final player = context.read<PlayerProvider>();
+    return Padding(
+      padding: const EdgeInsets.only(top: 32, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 4,
+                height: 18,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(3),
+                  gradient: AurumTheme.accentGradientOf(context),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  AppLocalizations.of(context)!.homeForgottenFavourites,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // FIX ("ekdam youtube music jaisa" recheck — 2026-09-13): the
+          // reference is a single full-width card, not a horizontal
+          // carousel — earlier version wrongly rendered this as a
+          // scrollable row. Only the first (strongest-signal) candidate
+          // from rediscoverCandidateIds is shown, matching that exact
+          // one-card layout.
+          _ForgottenFavouriteCard(
+            song: songs.first,
+            onTap: () {
+              AurumHaptics.selection();
+              player.playSong(songs.first, queue: songs, index: 0);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ForgottenFavouriteCard extends StatelessWidget {
+  final Song song;
+  final VoidCallback onTap;
+  const _ForgottenFavouriteCard({required this.song, required this.onTap});
+
+  // Compact view-count formatter (e.g. 8_600_000 -> "8.6M"), matching
+  // YouTube's own convention for this exact caption style. Only ever
+  // called when song.viewCount is genuinely non-null (see the caption
+  // Text above) — never invents a count for a song without one.
+  static String _formatViewCount(int count) {
+    if (count >= 1000000000) {
+      return '${(count / 1000000000).toStringAsFixed(1)}B';
+    }
+    if (count >= 1000000) {
+      return '${(count / 1000000).toStringAsFixed(1)}M';
+    }
+    if (count >= 1000) {
+      return '${(count / 1000).toStringAsFixed(1)}K';
+    }
+    return count.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AurumPressable(
+      scaleAmount: 0.97,
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    AurumArtwork(
+                        url: song.artworkUrl, size: 560, borderRadius: 0),
+                    // Bottom gradient scrim so the title stays legible
+                    // over any artwork, same treatment real YT Music
+                    // uses on its own video-style thumbnail cards.
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.75),
+                          ],
+                          stops: const [0.5, 1.0],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 10,
+                      right: 10,
+                      bottom: 10,
+                      child: Text(
+                        song.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              // FEATURE ("ekdam youtube music jaisa" recheck — 2026-09-13):
+              // real YT Music's own Forgotten Favourites caption reads
+              // "Artist · X views" when a genuine view count is known.
+              // song.viewCount is only ever populated for real YouTube
+              // results (see Song's own doc comment) — never fabricated
+              // here; a song with no known count just shows the artist
+              // name alone, same as before.
+              song.viewCount != null
+                  ? '${song.artist} • ${_formatViewCount(song.viewCount!)} views'
+                  : song.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 12.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4796,9 +4994,110 @@ class _RealHomeShelfRow extends StatelessWidget {
     // wouldn't otherwise clear the >4 threshold below) since its arrow
     // goes to Mood & Genres rather than a see-all of its own 3 items —
     // every other shelf keeps the existing "only show when there's
-    // enough to actually see more of" rule.
-    final showArrow =
-        shelf.title == _kFeaturedForYouTitle || shelf.items.length > 4;
+    // enough to actually see more of" rule. List-style shelves have no
+    // see-all destination of their own yet, so they never show the arrow.
+    final showArrow = !shelf.isList &&
+        (shelf.title == _kFeaturedForYouTitle || shelf.items.length > 4);
+    // FEATURE ("ekdam youtube music jaisa" — 2026-09-13): real InnerTube
+    // list-style shelves (e.g. "Covers and remixes") render as a flat
+    // vertical stack of playable rows with a "Play all" pill in the
+    // header instead of the horizontal card carousel every other shelf
+    // uses — see HomeShelf.isList's doc comment for why the two shapes
+    // exist and how they're told apart at parse time.
+    if (shelf.isList) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 32, left: 12, right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 18,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(3),
+                          gradient: AurumTheme.accentGradientOf(context),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          shelf.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (shelf.songs.isNotEmpty)
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () {
+                        AurumHaptics.selection();
+                        context.read<PlayerProvider>().playSong(
+                              shelf.songs.first,
+                              queue: shelf.songs,
+                              index: 0,
+                            );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: AurumTheme.dividerOf(context),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.play_arrow_rounded,
+                                size: 18,
+                                color: AurumTheme.textPrimaryOf(context)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Play all',
+                              style: TextStyle(
+                                color: AurumTheme.textPrimaryOf(context),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (var i = 0; i < shelf.songs.length; i++)
+              _QuickPickListRow(
+                key: ValueKey('${shelf.title}_shelf_${shelf.songs[i].id}_$i'),
+                song: shelf.songs[i],
+                queue: shelf.songs,
+                index: i,
+              ),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(top: 32, left: 12, right: 12),
       child: Column(
