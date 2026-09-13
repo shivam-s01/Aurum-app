@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
-import '../models/artist.dart' show ArtistAlbum;
+import '../models/artist.dart' show ArtistAlbum, RelatedArtist;
 import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
@@ -1148,31 +1148,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   // are named after the real artist instead, matching
                   // the visual language _HomeShelvesAndSimilarSection's
                   // "Similar to X" rows already use on this page.
-                  const SliverToBoxAdapter(
-                    child: _MixedForYouSection(),
-                  ),
-                  // REMOVED ("listen again wala hata do ye akward hai" —
-                  // 2026-09-13): _ListenAgainSection no longer mounted on
-                  // Home. Class left defined below (dead code) rather than
-                  // deleted, in case it's wanted back later.
-                  //
-                  // ADDED in its place ("ekdam youtube music jaisa, top
-                  // level ka" — 2026-09-13): ArchiveTune's real
-                  // HomeScreen.kt has a Speed Dial row and an Account
-                  // Playlists row right here, before Forgotten Favorites —
-                  // see that file's HomeContent(), lines covering
-                  // uiState.speedDialItems and uiState.accountPlaylists.
-                  // Both added below backed by genuinely real on-device
-                  // data (RecentlyPlayedProvider for Speed Dial,
-                  // PlaylistProvider for Account Playlists) — same
-                  // "hide entirely if empty, never show a fake/empty row"
-                  // rule every other optional Home section already follows.
-                  const SliverToBoxAdapter(
-                    child: _SpeedDialSection(),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: _AccountPlaylistsSection(),
-                  ),
+                  // REMOVED ("your playlist faltu hai hata do, listening
+                  // again hata do, mixed for you fake lag raha hai hata do
+                  // agar 100% real InnerTube shelf nahi mil sakta" —
+                  // 2026-09-13): all three of _MixedForYouSection (local
+                  // play-history mix, not a genuine InnerTube carousel —
+                  // anonymous FEmusic_home never returns a "Mixed for
+                  // you"/"My Mix N" shelf, that only exists for a
+                  // logged-in Google account, see _ytmHomeRaw's own doc
+                  // comment above), _SpeedDialSection (displays as
+                  // "Listen again" via homeListenAgain localization key),
+                  // and _AccountPlaylistsSection ("Your playlists") are no
+                  // longer mounted on Home. Classes left defined below
+                  // (dead code) rather than deleted, in case wanted back
+                  // later.
                   // ADDED ("ekdam youtube music jaisa home page" —
                   // 2026-09-13): real YT Music's own "Forgotten
                   // favourites" shelf — big video-style thumbnail cards
@@ -3636,11 +3625,13 @@ class _ArtistChip extends StatelessWidget {
 class _SimilarArtistsRow extends StatelessWidget {
   final String seedArtistName;
   final String? seedArtistImageUrl;
+  final RelatedArtist? relatedArtist;
   final List<ArtistAlbum> albums;
   const _SimilarArtistsRow({
     super.key,
     required this.seedArtistName,
     required this.seedArtistImageUrl,
+    required this.relatedArtist,
     required this.albums,
   });
 
@@ -3735,14 +3726,267 @@ class _SimilarArtistsRow extends StatelessWidget {
               physics: const BouncingScrollPhysics(),
               cacheExtent: 500,
               padding: const EdgeInsets.only(right: 12),
-              itemCount: albums.length,
-              itemBuilder: (_, i) => _SimilarArtistAlbumCard(
-                key: ValueKey('${albums[i].id}_$i'),
-                album: albums[i],
+              // Related-artist chip (real InnerTube "Fans might also
+              // like" data, see fetchSimilarArtistAlbums' doc comment)
+              // takes slot 0 when present, matching the real reference
+              // row's shape — everything after it is the seed artist's
+              // own real albums.
+              itemCount: albums.length + (relatedArtist != null ? 1 : 0),
+              itemBuilder: (_, i) {
+                if (relatedArtist != null) {
+                  if (i == 0) {
+                    return _RelatedArtistChipCard(
+                      key: ValueKey('related_${relatedArtist!.id}'),
+                      artist: relatedArtist!,
+                    );
+                  }
+                  return _SimilarArtistAlbumCard(
+                    key: ValueKey('${albums[i - 1].id}_${i - 1}'),
+                    album: albums[i - 1],
+                  );
+                }
+                return _SimilarArtistAlbumCard(
+                  key: ValueKey('${albums[i].id}_$i'),
+                  album: albums[i],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// One real related-artist chip inside a "Similar to X" row — circular
+// photo (real InnerTube channel thumbnail, from Artist.relatedArtists,
+// itself parsed straight off that artist's own browse page's real "Fans
+// might also like" carousel, never guessed/derived) + name, matching the
+// real reference screenshot's first card under "Similar to Udit Narayan"
+// (Alka Yagnik, circular photo, tap opens her own artist page). No
+// subscriber-count field exists anywhere in this app's Artist/RelatedArtist
+// models (that's a YT Music web-only display detail, not something the
+// InnerTube artist browse endpoint this app calls returns per-related-chip)
+// — name-only under the photo, same real-data-only standard every other
+// card on this row already holds to.
+class _RelatedArtistChipCard extends StatelessWidget {
+  final RelatedArtist artist;
+  const _RelatedArtistChipCard({super.key, required this.artist});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () {
+          AurumHaptics.light();
+          AurumDepthRoute.to(
+            context,
+            ArtistScreen(artistId: artist.id, artistName: artist.name),
+          );
+        },
+        child: Container(
+          width: 148,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipOval(
+                child: AurumArtwork(
+                  url: artist.imageUrl,
+                  size: 148,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                artist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "Similar to <song>" — ArchiveTune parity (recheck 2026-09-13, "songs ko
+// bhi seed banao"): ArchiveTune's SimilarRecommendation model seeds from
+// any real on-device LocalItem, Song included (see SimilarRecommendation
+// .kt), not artists only. This is that Song case: header = seed song's
+// own square artwork (matches ArchiveTune's own
+// SimilarRecommendationsTitle — CircleShape only `if (recommendation.title
+// is Artist)`, RoundedCornerShape for every other LocalItem type,
+// including Song) + "Similar to <song title>", row underneath = real
+// InnerTube "You might also like" results for that exact song
+// (ApiService.fetchYouMightAlsoLike — same real MPTR... browse this app's
+// player screen already uses, see that function's own doc comment).
+// Tapping a result plays it immediately (this row's items are individual
+// playable songs, not albums/artists to browse into — unlike
+// _SimilarArtistsRow's album cards).
+class _SimilarSongsRow extends StatelessWidget {
+  final Song seedSong;
+  final List<Song> related;
+  const _SimilarSongsRow({
+    super.key,
+    required this.seedSong,
+    required this.related,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AurumArtwork(
+                  url: seedSong.artworkUrl,
+                  size: 44,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      // Plain (non-localized) label — same precedent as
+                      // _SimilarArtistsRow's own "Similar to" eyebrow
+                      // above (see its doc comment): a real song title
+                      // is never translatable either.
+                      'Similar to',
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      seedSong.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FadedHorizontalList(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 500,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: related.length,
+              itemBuilder: (_, i) => _SimilarSongCard(
+                key: ValueKey('${related[i].id}_$i'),
+                song: related[i],
+                queue: related,
+                index: i,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// One real playable song card inside a "Similar to <song>" row — same
+// visual language (radius, shadow, sizing) as _SimilarArtistAlbumCard,
+// but tapping plays the song directly (queued against the rest of this
+// row's real InnerTube results) rather than navigating into an album.
+class _SimilarSongCard extends StatelessWidget {
+  final Song song;
+  final List<Song> queue;
+  final int index;
+  const _SimilarSongCard({
+    super.key,
+    required this.song,
+    required this.queue,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () {
+          AurumHaptics.light();
+          context.read<PlayerProvider>().playSong(
+                song,
+                queue: queue,
+                index: index,
+              );
+        },
+        child: Container(
+          width: 148,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AurumArtwork(url: song.artworkUrl, size: 148, borderRadius: 16),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (song.artist.isNotEmpty)
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -4251,7 +4495,8 @@ class _HomeShelvesAndSimilarSection extends StatefulWidget {
 class _HomeShelvesAndSimilarSectionState
     extends State<_HomeShelvesAndSimilarSection> {
   List<HomeShelf>? _shelves;
-  List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>? _similarRows;
+  List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})>? _similarRows;
+  List<({Song seedSong, List<Song> related})>? _similarSongRows;
   bool _shelvesFailed = false;
 
   @override
@@ -4267,6 +4512,7 @@ class _HomeShelvesAndSimilarSectionState
       setState(() {
         _shelves = null;
         _similarRows = null;
+        _similarSongRows = null;
         _shelvesFailed = false;
       });
       _load();
@@ -4287,6 +4533,7 @@ class _HomeShelvesAndSimilarSectionState
       refreshSeed: widget.refreshKey,
     );
     final similarFuture = _loadSimilarRows();
+    final similarSongsFuture = _loadSimilarSongRows();
 
     List<HomeShelf> shelves = const [];
     bool failed = false;
@@ -4297,18 +4544,36 @@ class _HomeShelvesAndSimilarSectionState
       failed = true;
     }
     final similar = await similarFuture;
+    final similarSongs = await similarSongsFuture;
 
     if (!mounted) return;
     setState(() {
       _shelves = shelves;
       _shelvesFailed = failed;
       _similarRows = similar;
+      _similarSongRows = similarSongs;
     });
   }
 
-  Future<List<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})>>
+  Future<List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})>>
       _loadSimilarRows() async {
     try {
+      // FIX (recheck — "artist wala section show kyu nahi hota" —
+      // 2026-09-13): this used to call rotatingAffinityArtists() straight
+      // away without ever awaiting RecommendationEngine.load() itself.
+      // RecommendationEngine._loaded only flips true once something else
+      // (RecentlyPlayedProvider/PlayerProvider's own startup load()) has
+      // finished — if Home built before that finished, _loaded was still
+      // false at this exact call, so rotatingAffinityArtists() hit its
+      // own `if (!_loaded) return [];` guard and this row silently never
+      // showed for that screen instance (no retry short of a refreshKey
+      // change). load() is idempotent (already called this way from
+      // several other real call sites in api_service.dart/player_provider
+      // .dart), so awaiting it here just guarantees real on-device
+      // affinity data is actually loaded before it's read — no fake data,
+      // no invented fallback, just fixing the race so the real data that
+      // already exists on-device gets seen.
+      await RecommendationEngine.load();
       final seedArtists = RecommendationEngine.rotatingAffinityArtists(
         count: 3,
         seed: widget.refreshKey,
@@ -4318,6 +4583,53 @@ class _HomeShelvesAndSimilarSectionState
         seedArtists.map((a) => ApiService.fetchSimilarArtistAlbums(a)),
       );
       return results.where((r) => r != null).map((r) => r!).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  // ADDED (ArchiveTune parity, recheck 2026-09-13 — "songs ko bhi seed
+  // banao"): ArchiveTune's own SimilarRecommendation model seeds from
+  // ANY real LocalItem (its on-device history entity — Song, Album, or
+  // Artist), not artists only (see SimilarRecommendation.kt: `title:
+  // LocalItem, items: List<YTItem>`). This mirrors that for the Song
+  // case — seeds come from RecentlyPlayedProvider.history (the exact
+  // same real on-device play-history list _SpeedDialSection used to
+  // read), and each seed's row is fetched via fetchYouMightAlsoLike,
+  // this app's own real InnerTube per-song "You might also like"
+  // (verified two-step next->Related tab->MPTR... browse — see that
+  // function's own doc comment above _fetchRelatedBrowseId; the exact
+  // real endpoint YT Music itself uses for this). Local-file songs
+  // (song.isLocal) are skipped — they have no YouTube videoId, so this
+  // endpoint has nothing real to query for them; never a fake stand-in.
+  // Rotates which 2 recent songs get used the same way
+  // rotatingAffinityArtists rotates artists (seeded by refreshKey), so
+  // pull-to-refresh varies this too instead of freezing on the same
+  // pair.
+  Future<List<({Song seedSong, List<Song> related})>> _loadSimilarSongRows() async {
+    try {
+      final history = context.read<RecentlyPlayedProvider>().history;
+      final streamable = <Song>[];
+      final seenIds = <String>{};
+      for (final s in history) {
+        if (s.isLocal || s.id.isEmpty) continue;
+        if (!seenIds.add(s.id)) continue;
+        streamable.add(s);
+      }
+      if (streamable.isEmpty) return const [];
+      // Same "wider pool, shuffle with refreshKey, take N" rotation
+      // shape as rotatingAffinityArtists — real recent songs only,
+      // never invented, just which ones surface this pull varies.
+      final pool = streamable.take(10).toList()
+        ..shuffle(math.Random(widget.refreshKey));
+      final seeds = pool.take(2).toList();
+
+      final results = await Future.wait(seeds.map((song) async {
+        final related = await ApiService.fetchYouMightAlsoLike(song.id)
+            .timeout(const Duration(seconds: 8), onTimeout: () => const <Song>[]);
+        return (seedSong: song, related: related);
+      }));
+      return results.where((r) => r.related.isNotEmpty).toList();
     } catch (_) {
       return const [];
     }
@@ -4362,12 +4674,14 @@ class _HomeShelvesAndSimilarSectionState
       // .forEach` and `homePage.sections.forEachIndexed`), so one being
       // empty never affects the other. Falls through to the render path
       // below instead, which already handles an empty shelves list fine.
-      if ((_similarRows ?? const []).isEmpty) {
+      if ((_similarRows ?? const []).isEmpty &&
+          (_similarSongRows ?? const []).isEmpty) {
         return const SizedBox.shrink();
       }
     }
 
     final similar = _similarRows ?? const [];
+    final similarSongs = _similarSongRows ?? const [];
     final realShelves = shelves ?? const [];
 
     // ARCHIVETUNE ORDER MATCH ("category aur artist ekdam ArchiveTune
@@ -4379,14 +4693,25 @@ class _HomeShelvesAndSimilarSectionState
     // { ... }` as its own complete loop AFTER — i.e. every "Similar to X"
     // row together, then every real remote shelf together, never mixed.
     // Reordered here to match that exactly: all similar-artist rows
-    // render first, then all real shelves.
+    // render first, then all real shelves. Song-seeded rows are the
+    // same kind of "Similar to X" row ArchiveTune's own single
+    // similarRecommendations loop already covers (its LocalItem seed can
+    // be a Song too) — grouped into that same first block, artist rows
+    // then song rows, never interleaved with the remote shelves after.
     final children = <Widget>[
       for (final row in similar)
         _SimilarArtistsRow(
           key: ValueKey('${row.artistName}_${widget.refreshKey}'),
           seedArtistName: row.artistName,
           seedArtistImageUrl: row.artistImageUrl,
+          relatedArtist: row.relatedArtist,
           albums: row.albums,
+        ),
+      for (final row in similarSongs)
+        _SimilarSongsRow(
+          key: ValueKey('${row.seedSong.id}_${widget.refreshKey}'),
+          seedSong: row.seedSong,
+          related: row.related,
         ),
       for (final shelf in realShelves)
         _RealHomeShelfRow(

@@ -5223,8 +5223,25 @@ class ApiService {
   // exactly the one InnerTube browse fetchArtist already makes either way
   // (see that function's own doc comment) — only albumCount actually
   // matters for what gets parsed out of the response.
-  static Future<({String artistName, String? artistImageUrl, List<ArtistAlbum> albums})?>
-      fetchSimilarArtistAlbums(String artistName, {int albumCount = 10}) async {
+  //
+  // CORRECTION (recheck, 2026-09-13 — "ekdam top garde innertube jaisa"):
+  // the real reference screenshot's "Similar to Udit Narayan" row isn't
+  // pure albums — its FIRST card is a related-artist chip (Alka Yagnik,
+  // circular photo + subscriber count), and only the cards after that are
+  // Udit Narayan's own albums (Diljale, Khal Nayak). That's InnerTube's
+  // own real shape: the artist browse page's "Fans might also like"
+  // carousel (Artist.relatedArtists — see that field's own doc comment,
+  // never guessed/derived) rendered first, then Top Albums. Both already
+  // come back from the exact same fetchArtist call this function already
+  // made — relatedArtists just wasn't being read out of the result.
+  // Reusing it here means zero extra network cost, and it now genuinely
+  // matches the reference's real (not invented) mixed shape.
+  static Future<({
+    String artistName,
+    String? artistImageUrl,
+    RelatedArtist? relatedArtist,
+    List<ArtistAlbum> albums,
+  })?> fetchSimilarArtistAlbums(String artistName, {int albumCount = 10}) async {
     try {
       final id = await resolveArtistId(artistName);
       if (id == null) return null;
@@ -5233,6 +5250,8 @@ class ApiService {
       return (
         artistName: artistName,
         artistImageUrl: artist.imageUrl,
+        relatedArtist:
+            artist.relatedArtists.isNotEmpty ? artist.relatedArtists.first : null,
         albums: artist.topAlbums.take(albumCount).toList(),
       );
     } catch (_) {
