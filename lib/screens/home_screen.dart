@@ -4508,18 +4508,29 @@ class _HomeShelvesAndSimilarSectionState
   @override
   void didUpdateWidget(_HomeShelvesAndSimilarSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // FIX ("refresh krta hu to sb section gayab ho ja rahe hai aur dubara
+    // aa hi nhi rahe" — 2026-09-14): this used to null out _shelves/
+    // _similarRows/_similarSongRows IMMEDIATELY on every refresh, before
+    // the new fetch even started. That's fine while the new fetch is
+    // fast and succeeds — but if the refreshed fetch comes back empty or
+    // throws (a single slow/rate-limited/failed network call is enough),
+    // _load() below sets _shelvesFailed = true (or leaves _similarRows/
+    // _similarSongRows as empty lists) and build() renders
+    // SizedBox.shrink() — the ENTIRE section vanishes, even though it had
+    // perfectly good real content on screen one refresh ago. Worse, that
+    // empty state doesn't self-heal: it stays gone until the NEXT
+    // successful refresh, since nothing here ever restores the old data.
+    // Same "instant paint from what's already there, silent refetch
+    // underneath" contract _QuickPicksSection already uses (see its own
+    // _hydrateFromCache/_load(silent: true)) — just don't clear anything
+    // here; _load() below now only overwrites each field when the
+    // refreshed fetch for it actually produced something.
     if (oldWidget.refreshKey != widget.refreshKey) {
-      setState(() {
-        _shelves = null;
-        _similarRows = null;
-        _similarSongRows = null;
-        _shelvesFailed = false;
-      });
-      _load();
+      _load(refreshKey: widget.refreshKey);
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int? refreshKey}) async {
     // FIX (recheck, 2026-09-07): shelves used to setState as soon as
     // they resolved, then similar-artist rows setState again moments
     // later once THEY resolved — since both are interleaved into one
@@ -4529,8 +4540,9 @@ class _HomeShelvesAndSimilarSectionState
     // concurrently (no added latency), but now committed to state
     // together in one setState — Home goes straight from skeleton to
     // its final interleaved order, no mid-scroll layout shift.
+    final seed = refreshKey ?? widget.refreshKey;
     final shelvesFuture = ApiService.fetchHomeShelvesForDisplay(
-      refreshSeed: widget.refreshKey,
+      refreshSeed: seed,
     );
     final similarFuture = _loadSimilarRows();
     final similarSongsFuture = _loadSimilarSongRows();
@@ -4548,12 +4560,25 @@ class _HomeShelvesAndSimilarSectionState
 
     if (!mounted) return;
     setState(() {
-      _shelves = shelves;
-      _shelvesFailed = failed;
-      _similarRows = similar;
-      _similarSongRows = similarSongs;
+      // Only overwrite each field when this refresh actually produced
+      // something for it — an empty/failed result on a REFRESH (i.e.
+      // _shelves was already non-null/non-empty from before) keeps
+      // whatever was already showing instead of wiping it. A genuinely
+      // empty result on first load (both still null, nothing to
+      // preserve) still renders as empty exactly as before.
+      if (shelves.isNotEmpty || _shelves == null) {
+        _shelves = shelves;
+        _shelvesFailed = failed;
+      }
+      if (similar.isNotEmpty || _similarRows == null) {
+        _similarRows = similar;
+      }
+      if (similarSongs.isNotEmpty || _similarSongRows == null) {
+        _similarSongRows = similarSongs;
+      }
     });
   }
+
 
   Future<List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})>>
       _loadSimilarRows() async {

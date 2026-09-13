@@ -126,6 +126,7 @@ class RecommendationEngine {
   static const _kSkips     = 'aurum_rec_skips';
   static const _kReplays   = 'aurum_rec_replays';
   static const _kArtistW   = 'aurum_rec_artist_w';
+  static const _kArtistDisplayName = 'aurum_rec_artist_display_name';
   static const _kGenreW    = 'aurum_rec_genre_w';
   static const _kLangW     = 'aurum_rec_lang_w';
   static const _kSession   = 'aurum_rec_session';
@@ -147,6 +148,20 @@ class RecommendationEngine {
   static Map<String, int>    _skips     = {};
   static Map<String, int>    _replays   = {};
   static Map<String, double> _artistW   = {};
+  // BUG FIX ("similar artists/home shelves gayab ho rahe hain" —
+  // 2026-09-14): _artistW is keyed by _normalizeKey(artist), which strips
+  // everything except lowercase letters/digits — "Arijit Singh" becomes
+  // "arijitsingh". rotatingAffinityArtists() was returning these mangled
+  // KEYS directly as if they were real artist names, and
+  // _loadSimilarRows() (home_screen.dart) fed that straight into
+  // ApiService.fetchSimilarArtistAlbums() as a search query. A query like
+  // "arijitsingh" (no space) doesn't real-search-match the actual artist
+  // on InnerTube, so the fetch came back empty/null and the whole
+  // "Similar to X" row silently dropped — no crash, no error, just gone.
+  // This map preserves the ORIGINAL display name the first time each
+  // normalized key is boosted, so rotatingAffinityArtists can return real,
+  // searchable names instead of the normalized key.
+  static Map<String, String> _artistDisplayName = {};
   static Map<String, double> _genreW    = {};
   static Map<String, double> _langW     = {};
   static _SessionState?      _session;
@@ -252,6 +267,15 @@ class RecommendationEngine {
     _skips     = _loadIntMap(p, _kSkips);
     _replays   = _loadIntMap(p, _kReplays);
     _artistW   = _loadDoubleMap(p, _kArtistW);
+    try {
+      final raw = p.getString(_kArtistDisplayName);
+      _artistDisplayName = raw == null
+          ? {}
+          : (jsonDecode(raw) as Map<String, dynamic>)
+              .map((k, v) => MapEntry(k, v as String));
+    } catch (_) {
+      _artistDisplayName = {};
+    }
     _genreW    = _loadDoubleMap(p, _kGenreW);
     _langW     = _loadDoubleMap(p, _kLangW);
     _albumPlays   = _loadIntMap(p, _kAlbumPlays);
@@ -289,6 +313,7 @@ class RecommendationEngine {
     _skips.clear();
     _replays.clear();
     _artistW.clear();
+    _artistDisplayName.clear();
     _genreW.clear();
     _langW.clear();
     _session = null;
@@ -303,6 +328,7 @@ class RecommendationEngine {
     await p.remove(_kSkips);
     await p.remove(_kReplays);
     await p.remove(_kArtistW);
+    await p.remove(_kArtistDisplayName);
     await p.remove(_kGenreW);
     await p.remove(_kLangW);
     await p.remove(_kSession);
@@ -490,6 +516,13 @@ class RecommendationEngine {
     if (key.isEmpty) return;
     final current = _artistW[key] ?? 0.5;  // start at 0.5 (neutral)
     _artistW[key] = (current + delta).clamp(0.0, 1.0);
+    // Keep the real display name alongside the normalized key (see
+    // _artistDisplayName's own doc comment) — only set once per key so an
+    // artist's canonical casing/spacing doesn't flip-flop between plays.
+    final trimmed = artist.trim();
+    if (trimmed.isNotEmpty) {
+      _artistDisplayName.putIfAbsent(key, () => trimmed);
+    }
   }
 
   static void _boostGenre(String genre, {required double delta}) {
@@ -2303,7 +2336,15 @@ class RecommendationEngine {
     if (!_loaded) return [];
     final sorted = _artistW.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    return sorted.where((e) => e.value > 0.5).take(count).map((e) => e.key).toList();
+    // Return the real display name (see _artistDisplayName's doc comment),
+    // not the normalized key — callers use this as a real, searchable
+    // artist name. Falls back to the raw key only for entries saved
+    // before this fix existed (no display name recorded yet).
+    return sorted
+        .where((e) => e.value > 0.5)
+        .take(count)
+        .map((e) => _artistDisplayName[e.key] ?? e.key)
+        .toList();
   }
 
   /// Same ranking as [topAffinityArtists] but pulls `count` artists from a
@@ -2325,7 +2366,17 @@ class RecommendationEngine {
     if (!_loaded) return [];
     final sorted = _artistW.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final pool = sorted.where((e) => e.value > 0.5).take(12).map((e) => e.key).toList();
+    // Real display name, not the normalized key — see topAffinityArtists'
+    // identical fix and _artistDisplayName's doc comment above for why:
+    // the mangled key ("arijitsingh") was silently breaking every
+    // downstream search-by-name call this feeds (fetchSimilarArtistAlbums
+    // in home_screen.dart, plus every other rotatingAffinityArtists call
+    // site in api_service.dart).
+    final pool = sorted
+        .where((e) => e.value > 0.5)
+        .take(12)
+        .map((e) => _artistDisplayName[e.key] ?? e.key)
+        .toList();
     if (pool.length <= count) return pool;
     pool.shuffle(math.Random(seed));
     return pool.take(count).toList();
@@ -2629,6 +2680,7 @@ class RecommendationEngine {
       p.setString(_kSkips,     jsonEncode(_skips)),
       p.setString(_kReplays,   jsonEncode(_replays)),
       p.setString(_kArtistW,   jsonEncode(_artistW)),
+      p.setString(_kArtistDisplayName, jsonEncode(_artistDisplayName)),
       p.setString(_kGenreW,    jsonEncode(_genreW)),
       p.setString(_kLangW,     jsonEncode(_langW)),
       p.setString(_kAlbumPlays, jsonEncode(_albumPlays)),

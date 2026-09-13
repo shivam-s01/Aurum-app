@@ -3320,17 +3320,19 @@ class ApiService {
     //     meaningfully-more-relevant one.
     if (score < 60 && score > 0) {
       double tasteBoost = 0;
-      // BUG FIX (found before shipping): RecommendationEngine stores
-      // artist-affinity keys through its own normalization, which strips
-      // ALL non-alphanumeric characters INCLUDING SPACES (e.g. "Arijit
-      // Singh" -> "arijitsingh"). Comparing against a plain
-      // lowercase-with-spaces string would never match anything, silently
-      // making this whole check dead code. Replicating the exact same
-      // stripping here so the comparison actually lines up with what
-      // topAffinityArtists() returns.
-      final artistKey = song.artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-      if (artistKey.isNotEmpty &&
-          RecommendationEngine.topAffinityArtists(count: 8).contains(artistKey)) {
+      // UPDATED (2026-09-14): topAffinityArtists() now returns real
+      // display names (see RecommendationEngine._artistDisplayName's doc
+      // comment — the old normalized-key-as-name bug was silently
+      // breaking Similar Artists/Home Shelves on Home, so the artist
+      // list itself had to switch to real names). This call site used to
+      // replicate the normalization to match that raw-key output; now
+      // compares real names case-insensitively instead, which is more
+      // robust than the old exact-normalized-string match anyway (no
+      // longer sensitive to punctuation the normalizer used to erase).
+      final artistName = song.artist.trim().toLowerCase();
+      if (artistName.isNotEmpty &&
+          RecommendationEngine.topAffinityArtists(count: 8)
+              .any((a) => a.trim().toLowerCase() == artistName)) {
         tasteBoost += 5;
       }
       if (RecommendationEngine.topAffinityGenres(count: 3)
@@ -5160,6 +5162,21 @@ class ApiService {
   // only how many exist.
   static const List<({String label, String query, String? strapline})> _kSeedHomeShelfQueries = [
     (
+      label: 'Fresh finds, old favorites',
+      // ADDED ("fresh finds old feavraite wala add kro real innertube se"
+      // — 2026-09-14): matches real YT Music web's own shelf title (see
+      // reference screenshot). Anonymous FEmusic_home doesn't reliably
+      // return this shelf itself (only a small fixed pool — see the doc
+      // comment above this list), so it's seeded the same way every
+      // other row in this list already is: a real InnerTube playlist
+      // SEARCH, not a fabricated one. Query mixes a recent-release signal
+      // with a throwback one so results genuinely span both "fresh" and
+      // "old favorite" the title promises, rather than skewing to only
+      // new or only old.
+      query: 'new releases and old favorites mix playlist',
+      strapline: null,
+    ),
+    (
       label: 'Dancing on your own',
       query: 'dancing on your own playlist',
       strapline: 'Dance your stress away',
@@ -5498,7 +5515,16 @@ class ApiService {
     // Artists). Hard cap here rather than trusting every source to stay
     // small — a future real/similar shelf count creeping up should never
     // silently re-flood Home again.
-    const maxShelves = 6;
+    // BUMPED 6 -> 7 ("fresh finds old feavraite wala add kro" —
+    // 2026-09-14): the new seeded "Fresh finds, old favorites" row sits
+    // first in _kSeedHomeShelfQueries, but seeded shelves are appended
+    // LAST in `combined` (after real/similar/featured) — with the old
+    // cap of 6, any day real+similar+featured alone already filled 6
+    // slots would silently drop the entire seeded block, including this
+    // new row, even though reference screenshots do show it. One extra
+    // slot keeps that from starving out just because upstream real
+    // shelves happened to return a full set that day.
+    const maxShelves = 7;
     return combined.take(maxShelves).toList();
   }
 
