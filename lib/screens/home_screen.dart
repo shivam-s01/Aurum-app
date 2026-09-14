@@ -1185,17 +1185,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   // before the generic remote InnerTube sections, is a
                   // `uiState.similarRecommendations.forEach { ... }` loop:
                   // one real "Similar to <Artist>" header+row PER artist,
-                  // never a generic combined artist strip. _ArtistStrip
-                  // (Popular Artists) removed to match — it had no
-                  // ArchiveTune equivalent. Class left defined below
-                  // (dead code) rather than deleted, in case it's wanted
-                  // back later. The real "Similar to X" rows already
-                  // exist here as _HomeShelvesAndSimilarSection, which
-                  // now also renders its similar-artist rows in one
-                  // sequential block BEFORE the remote shelves block
-                  // (previously alternated/interleaved one-shelf-one-
-                  // similar-row, which is not how ArchiveTune orders
-                  // them) — see that widget's own build() for the fix.
+                  // never a generic combined artist strip.
+                  // RESTORED ("artist wala show nhi ho raha hai" —
+                  // 2026-09-14): removing _ArtistStrip entirely also
+                  // removed the only place on Home that ever rendered
+                  // _homeArtists (still fetched every load via
+                  // _loadArtists()/fetchHomeArtistsStreaming and cached
+                  // via HomeFeedCache.saveArtists/loadArtists — that
+                  // pipeline was never broken, just orphaned from the
+                  // widget tree). Put back as its own small real-artist
+                  // shelf, ahead of the generic "Similar to X" rows below,
+                  // so the artist strip users expect on Home actually
+                  // shows again.
+                  SliverToBoxAdapter(
+                    child: _ArtistStrip(
+                      artists: _homeArtists,
+                      loading: _artistsLoading,
+                    ),
+                  ),
                   SliverToBoxAdapter(
                     child: _HomeShelvesAndSimilarSection(
                       refreshKey: _playlistRefreshKey,

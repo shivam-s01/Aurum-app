@@ -5262,7 +5262,25 @@ class ApiService {
     try {
       final id = await resolveArtistId(artistName);
       if (id == null) return null;
-      final artist = await fetchArtist(id, songCount: 0, albumCount: albumCount);
+      // BUG FIX ("Similar to X" row silently never showing, even after
+      // heavy real listening built up genuine affinity weight, 2026-09-14):
+      // this used to call fetchArtist(id, songCount: 0, ...). Inside
+      // fetchArtist -> _fetchArtistFromYtMusicBrowse, the Top Songs loop is
+      // `if (topSongs.length >= songCount) break;` — with songCount: 0 that
+      // breaks on its very first iteration, so topSongs comes back
+      // completely empty regardless of what the artist's real browse page
+      // actually has. fetchArtist's own topSongs.isNotEmpty gate then reads
+      // that empty result as "browse found nothing" and falls through to
+      // the uploads-scraping fallback path (_fetchArtistFromYoutube) —
+      // which, per that path's own doc comment, NEVER populates topAlbums
+      // at all. This function only needs albums, but was accidentally
+      // routing itself onto the one artist-fetch path that can't produce
+      // them, so artist.topAlbums.isEmpty below was true for every single
+      // artist, every time, and the whole row silently dropped — a data-
+      // shape bug, not a "not enough listening history" issue. Passing a
+      // small positive songCount keeps the browse (rich) path engaged so
+      // its real topAlbums shelf actually gets read.
+      final artist = await fetchArtist(id, songCount: 5, albumCount: albumCount);
       if (artist == null || artist.topAlbums.isEmpty) return null;
       return (
         artistName: artistName,
