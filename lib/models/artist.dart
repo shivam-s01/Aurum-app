@@ -18,6 +18,30 @@ class ArtistAlbum {
     this.year,
     this.type = 'album',
   });
+
+  // ADDED (home-feed disk cache for "Similar to X" rows — "MB kam use ho
+  // aur similar to artist wala section refresh pe gayab na ho"): lets
+  // HomeFeedCache persist a seed artist's own real topAlbums to disk the
+  // same way it already persists Quick Picks/shelves/artist-strip data
+  // (see HomeFeedCache.saveQuickPicks' own doc comment for the full
+  // "paint instantly from cache, refetch silently underneath" contract
+  // this plugs into) — no new fields, just serializing the ones already
+  // fetched from the real InnerTube artist browse page.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'artworkUrl': artworkUrl,
+        'year': year,
+        'type': type,
+      };
+
+  factory ArtistAlbum.fromJson(Map<String, dynamic> json) => ArtistAlbum(
+        id: (json['id'] ?? '').toString(),
+        name: (json['name'] ?? '').toString(),
+        artworkUrl: (json['artworkUrl'] ?? '').toString(),
+        year: json['year']?.toString(),
+        type: (json['type'] ?? 'album').toString(),
+      );
 }
 
 /// One titled shelf of related album cards on an album's own page — e.g.
@@ -48,6 +72,19 @@ class RelatedArtist {
     required this.name,
     required this.imageUrl,
   });
+
+  // ADDED (same disk-cache reason as ArtistAlbum.toJson/fromJson above).
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'imageUrl': imageUrl,
+      };
+
+  factory RelatedArtist.fromJson(Map<String, dynamic> json) => RelatedArtist(
+        id: (json['id'] ?? '').toString(),
+        name: (json['name'] ?? '').toString(),
+        imageUrl: (json['imageUrl'] ?? '').toString(),
+      );
 }
 
 class Artist {

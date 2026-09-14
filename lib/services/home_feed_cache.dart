@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
+import '../models/artist.dart';
 import 'api_service.dart';
 
 /// Cold-start home feed cache (Spotify-style "show what we last had
@@ -482,6 +483,164 @@ class HomeFeedCache {
     try {
       final prefs = await SharedPreferences.getInstance();
       return _isRecent(prefs.getInt(_quickPicksSavedAtKey));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── "Similar to <Artist>" rows cache — ADDED ("MB kam use ho... na
+  // koi feature cut ho, aur ye similar to artist wala refresh pe
+  // automatically gayab ho ja raha hai" — 2026-09-14).
+  //
+  // Two separate problems this solves together:
+  //   1. MB: before this cache existed, _HomeShelvesAndSimilarSection's
+  //      _similarRows/_similarSongRows lived ONLY in that State object's
+  //      memory — gone the instant the widget was disposed (app
+  //      backgrounded+killed by the OS, or the Home screen itself
+  //      rebuilt fresh), forcing a full re-fetch of 3 artists' worth of
+  //      InnerTube browse data + fresh album artwork on every cold
+  //      start, even when nothing about the user's taste had changed
+  //      since the last successful fetch minutes/hours earlier. Same
+  //      "instant paint from disk, silent background refetch" contract
+  //      as saveQuickPicks/loadQuickPicks above — cold starts inside the
+  //      6-hour freshness window now paint the last real result
+  //      immediately with ZERO network call, instead of unconditionally
+  //      re-downloading it.
+  //   2. Disappearing rows: home_screen.dart's own _loadSimilarRows fix
+  //      (2026-09-14, see that function's doc comment) already stops one
+  //      flaky artist lookup from wiping the other 1-2 that succeeded
+  //      WITHIN a single fetch. This cache is the complementary fix
+  //      ACROSS fetches — if a cold start's fresh fetch comes back fully
+  //      empty (e.g. opened the app with zero connectivity for a moment),
+  //      there's now a real last-known-good result on disk to fall back
+  //      to instead of the row just not existing for that session.
+  //
+  // No feature/quality is reduced by this — it's the exact same real
+  // fetched data (topAlbums, related artist, images), just not
+  // re-requested from the network when a recent copy is already sitting
+  // on disk. A manual pull-to-refresh still always forces a real fetch
+  // (didUpdateWidget's refreshKey check in home_screen.dart bypasses
+  // this cache entirely), so refreshing never shows stale data on
+  // purpose — this only shortcuts the passive "just reopened the app"
+  // path.
+  static const _similarArtistRowsKey = 'home_similar_artist_rows_v1';
+  static const _similarArtistRowsSavedAtKey =
+      'home_similar_artist_rows_saved_at_ms';
+
+  static Future<void> saveSimilarArtistRows(
+      List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})> rows) async {
+    if (rows.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(rows
+          .map((r) => {
+                'artistName': r.artistName,
+                'artistImageUrl': r.artistImageUrl,
+                'relatedArtist': r.relatedArtist?.toJson(),
+                'albums': r.albums.map((a) => a.toJson()).toList(),
+              })
+          .toList());
+      await prefs.setString(_similarArtistRowsKey, encoded);
+      await prefs.setInt(_similarArtistRowsSavedAtKey,
+          DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})>>
+      loadSimilarArtistRows() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_similarArtistRowsSavedAtKey);
+      if (savedAtMs == null) return [];
+      final raw = prefs.getString(_similarArtistRowsKey);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded.whereType<Map>().map((e) {
+        final m = Map<String, dynamic>.from(e);
+        final relatedJson = m['relatedArtist'];
+        return (
+          artistName: (m['artistName'] ?? '').toString(),
+          artistImageUrl: m['artistImageUrl']?.toString(),
+          relatedArtist: relatedJson is Map
+              ? RelatedArtist.fromJson(Map<String, dynamic>.from(relatedJson))
+              : null,
+          albums: ((m['albums'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((a) => ArtistAlbum.fromJson(Map<String, dynamic>.from(a)))
+              .toList(),
+        );
+      }).where((r) => r.artistName.isNotEmpty && r.albums.isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isSimilarArtistRowsFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _isRecent(prefs.getInt(_similarArtistRowsSavedAtKey));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── "Similar to <Song>" rows cache — same reasoning and contract as
+  // the artist-rows cache directly above; kept as its own key since it's
+  // a structurally different shape (song seed + related songs, not
+  // artist seed + albums).
+  static const _similarSongRowsKey = 'home_similar_song_rows_v1';
+  static const _similarSongRowsSavedAtKey =
+      'home_similar_song_rows_saved_at_ms';
+
+  static Future<void> saveSimilarSongRows(
+      List<({Song seedSong, List<Song> related})> rows) async {
+    if (rows.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(rows
+          .map((r) => {
+                'seedSong': r.seedSong.toJson(),
+                'related': r.related.map((s) => s.toJson()).toList(),
+              })
+          .toList());
+      await prefs.setString(_similarSongRowsKey, encoded);
+      await prefs.setInt(
+          _similarSongRowsSavedAtKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<({Song seedSong, List<Song> related})>>
+      loadSimilarSongRows() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_similarSongRowsSavedAtKey);
+      if (savedAtMs == null) return [];
+      final raw = prefs.getString(_similarSongRowsKey);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded.whereType<Map>().map((e) {
+        final m = Map<String, dynamic>.from(e);
+        final seedJson = m['seedSong'];
+        final related = ((m['related'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((s) => Song.fromJson(Map<String, dynamic>.from(s)))
+            .toList();
+        return (
+          seedSong: seedJson is Map
+              ? Song.fromJson(Map<String, dynamic>.from(seedJson))
+              : Song(id: '', title: '', artist: '', album: '', artworkUrl: ''),
+          related: related,
+        );
+      }).where((r) => r.seedSong.id.isNotEmpty && r.related.isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isSimilarSongRowsFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _isRecent(prefs.getInt(_similarSongRowsSavedAtKey));
     } catch (_) {
       return false;
     }

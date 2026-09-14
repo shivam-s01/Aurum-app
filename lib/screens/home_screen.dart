@@ -4509,7 +4509,43 @@ class _HomeShelvesAndSimilarSectionState
   @override
   void initState() {
     super.initState();
-    _load();
+    _hydrateFromCache();
+  }
+
+  // ADDED ("MB kam use ho... koi feature cut na ho" — 2026-09-14): paints
+  // last session's real similar-artist/similar-song rows instantly from
+  // disk (HomeFeedCache.loadSimilarArtistRows/loadSimilarSongRows — see
+  // those functions' own doc comments) instead of unconditionally
+  // re-fetching from the network on every cold start, exactly the same
+  // "instant paint, silent background refresh" contract
+  // _QuickPicksSection's _hydrateFromCache already uses. Real shelves
+  // (fetchHomeShelvesForDisplay) still always fetch fresh here — that
+  // endpoint isn't cached the same way and _load() already has its own
+  // skeleton-loading state for it, so this only short-circuits the two
+  // similar-rows fetches specifically. If nothing is cached yet (first
+  // ever launch), falls straight through to a normal full _load().
+  Future<void> _hydrateFromCache() async {
+    final cachedSimilar = await HomeFeedCache.loadSimilarArtistRows();
+    final cachedSimilarSongs = await HomeFeedCache.loadSimilarSongRows();
+    if (!mounted) return;
+    if (cachedSimilar.isNotEmpty || cachedSimilarSongs.isNotEmpty) {
+      setState(() {
+        if (cachedSimilar.isNotEmpty) _similarRows = cachedSimilar;
+        if (cachedSimilarSongs.isNotEmpty) _similarSongRows = cachedSimilarSongs;
+      });
+    }
+    final artistCacheFresh = await HomeFeedCache.isSimilarArtistRowsFresh();
+    final songCacheFresh = await HomeFeedCache.isSimilarSongRowsFresh();
+    final similarFresh = cachedSimilar.isNotEmpty && artistCacheFresh;
+    final similarSongsFresh = cachedSimilarSongs.isNotEmpty && songCacheFresh;
+    // Real shelves have no disk cache of their own (fetchHomeShelvesForDisplay
+    // — not covered by this fix), so _load() always needs to run for
+    // those regardless of the two flags below. skipSimilar/
+    // skipSimilarSongs tell it not to re-fetch the ones that are already
+    // fresh on disk — the actual MB saving. When a flag is false (no
+    // cache yet, or aged past the 6-hour window), _load() fetches that
+    // one exactly as it always did.
+    _load(skipSimilar: similarFresh, skipSimilarSongs: similarSongsFresh);
   }
 
   @override
@@ -4537,7 +4573,11 @@ class _HomeShelvesAndSimilarSectionState
     }
   }
 
-  Future<void> _load({int? refreshKey}) async {
+  Future<void> _load({
+    int? refreshKey,
+    bool skipSimilar = false,
+    bool skipSimilarSongs = false,
+  }) async {
     // FIX (recheck, 2026-09-07): shelves used to setState as soon as
     // they resolved, then similar-artist rows setState again moments
     // later once THEY resolved — since both are interleaved into one
@@ -4551,8 +4591,20 @@ class _HomeShelvesAndSimilarSectionState
     final shelvesFuture = ApiService.fetchHomeShelvesForDisplay(
       refreshSeed: seed,
     );
-    final similarFuture = _loadSimilarRows();
-    final similarSongsFuture = _loadSimilarSongRows();
+    // MB FIX ("MB kam use ho, koi feature cut na ho" — 2026-09-14): a
+    // fresh HomeFeedCache copy (checked by the caller — _hydrateFromCache
+    // on cold start, or simply never true on an explicit pull-to-refresh
+    // since that always calls _load with these left false) means the
+    // exact same real network fetch would just be re-requesting data
+    // that's already sitting on disk from minutes/hours ago. Skipping it
+    // here saves that round-trip and its artwork downloads entirely —
+    // nothing about WHAT gets shown changes, only whether it's fetched
+    // again unnecessarily. A manual pull-to-refresh (didUpdateWidget
+    // below) never sets these, so it always forces a real fetch same as
+    // before.
+    final similarFuture = skipSimilar ? null : _loadSimilarRows();
+    final similarSongsFuture =
+        skipSimilarSongs ? null : _loadSimilarSongRows();
 
     List<HomeShelf> shelves = const [];
     bool failed = false;
@@ -4562,8 +4614,9 @@ class _HomeShelvesAndSimilarSectionState
     } catch (_) {
       failed = true;
     }
-    final similar = await similarFuture;
-    final similarSongs = await similarSongsFuture;
+    final similar = similarFuture == null ? null : await similarFuture;
+    final similarSongs =
+        similarSongsFuture == null ? null : await similarSongsFuture;
 
     if (!mounted) return;
     setState(() {
@@ -4577,13 +4630,32 @@ class _HomeShelvesAndSimilarSectionState
         _shelves = shelves;
         _shelvesFailed = failed;
       }
-      if (similar.isNotEmpty || _similarRows == null) {
+      // similar/similarSongs are null when that fetch was skipped
+      // (fresh cache already hydrated _similarRows/_similarSongRows in
+      // _hydrateFromCache) — leave whatever's already in state alone in
+      // that case rather than treating "skipped" the same as "fetched
+      // and came back empty".
+      if (similar != null && (similar.isNotEmpty || _similarRows == null)) {
         _similarRows = similar;
       }
-      if (similarSongs.isNotEmpty || _similarSongRows == null) {
+      if (similarSongs != null &&
+          (similarSongs.isNotEmpty || _similarSongRows == null)) {
         _similarSongRows = similarSongs;
       }
     });
+
+    // Persist real fetched results to disk so the NEXT cold start can
+    // paint instantly instead of re-fetching (see HomeFeedCache.
+    // saveSimilarArtistRows/saveSimilarSongRows' own doc comment). Only
+    // saves when this call actually fetched fresh data — a skipped fetch
+    // has nothing new to save, and both save functions already no-op on
+    // an empty list.
+    if (similar != null) {
+      unawaited(HomeFeedCache.saveSimilarArtistRows(similar));
+    }
+    if (similarSongs != null) {
+      unawaited(HomeFeedCache.saveSimilarSongRows(similarSongs));
+    }
   }
 
 
@@ -4611,9 +4683,33 @@ class _HomeShelvesAndSimilarSectionState
         seed: widget.refreshKey,
       );
       if (seedArtists.isEmpty) return const [];
-      final results = await Future.wait(
-        seedArtists.map((a) => ApiService.fetchSimilarArtistAlbums(a)),
-      );
+      // FIX ("similar to artist wala section refresh pe automatically
+      // gayab ho ja raha hai" — 2026-09-14): Future.wait is fail-fast by
+      // default — if ANY single one of the 3 parallel
+      // fetchSimilarArtistAlbums calls throws an uncaught error (a
+      // connection drop or reset mid-request on a weak/slow network,
+      // distinct from a clean timeout or a normal "not found" which
+      // fetchSimilarArtistAlbums already catches internally and turns
+      // into a null return), Future.wait rejects immediately and this
+      // function's own outer try/catch below discards ALL 3 results —
+      // including the other 1-2 that had already resolved successfully
+      // — returning const [] for the whole row set. _QuickPicksSection's
+      // near-identical Future.wait (see its own seedIds.map call site
+      // above) already guards each future individually with
+      // .catchError((_) => ...) for exactly this reason; this one never
+      // got the same treatment. Same fix here: each artist's fetch now
+      // independently catches its own error and resolves to null rather
+      // than being able to reject the shared Future.wait, so one flaky
+      // lookup can never take down rows that already succeeded.
+      Future<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})?>
+          fetchOne(String artist) async {
+        try {
+          return await ApiService.fetchSimilarArtistAlbums(artist);
+        } catch (_) {
+          return null;
+        }
+      }
+      final results = await Future.wait(seedArtists.map(fetchOne));
       return results.where((r) => r != null).map((r) => r!).toList();
     } catch (_) {
       return const [];
@@ -4656,11 +4752,27 @@ class _HomeShelvesAndSimilarSectionState
         ..shuffle(math.Random(widget.refreshKey));
       final seeds = pool.take(2).toList();
 
-      final results = await Future.wait(seeds.map((song) async {
-        final related = await ApiService.fetchYouMightAlsoLike(song.id)
-            .timeout(const Duration(seconds: 8), onTimeout: () => const <Song>[]);
-        return (seedSong: song, related: related);
-      }));
+      // FIX (same class as _loadSimilarRows' fix above — "similar to X
+      // rows disappearing on refresh"): the .timeout() here only covers
+      // a SLOW response; a genuine thrown error (connection reset mid-
+      // request, DNS failure) inside this async block was still
+      // uncaught, so it could still reject the whole Future.wait and
+      // wipe out the other seed's already-successful result via the
+      // outer try/catch below. Each seed's own future now independently
+      // catches its own error and falls back to an empty related-list
+      // for just that seed, rather than being able to reject the shared
+      // Future.wait — one flaky lookup can no longer take the other
+      // seed's already-successful result down with it.
+      Future<({Song seedSong, List<Song> related})> fetchOne(Song song) async {
+        try {
+          final related = await ApiService.fetchYouMightAlsoLike(song.id)
+              .timeout(const Duration(seconds: 8), onTimeout: () => const <Song>[]);
+          return (seedSong: song, related: related);
+        } catch (_) {
+          return (seedSong: song, related: const <Song>[]);
+        }
+      }
+      final results = await Future.wait(seeds.map(fetchOne));
       return results.where((r) => r.related.isNotEmpty).toList();
     } catch (_) {
       return const [];
@@ -4688,8 +4800,7 @@ class _HomeShelvesAndSimilarSectionState
             // the instant real shelves resolved.
             FadedHorizontalList(
               height: 172,
-              child: _YtPlaylistsForYouSkeleton(
-                  scrollController: ScrollController()),
+              child: const _YtPlaylistsForYouSkeleton(),
             ),
           ],
         ),
@@ -5690,8 +5801,7 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
                 padding: const EdgeInsets.only(left: 12, right: 12),
                 child: FadedHorizontalList(
                   height: 172,
-                  child: _YtPlaylistsForYouSkeleton(
-                      scrollController: ScrollController()),
+                  child: const _YtPlaylistsForYouSkeleton(),
                 ),
               )
             else if (_categoryFailed || (_categoryShelves?.isEmpty ?? true))
@@ -5714,14 +5824,29 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
   }
 }
 
+// PERF FIX ("ekdam lightweight aur top garde chalna chahiye" — memory-leak
+// audit, 2026-09-14): scrollController used to be a REQUIRED param, and
+// both call sites below passed a brand-new `ScrollController()` inline on
+// every single build() — this widget's own ListView.builder uses
+// NeverScrollableScrollPhysics (it's a static shimmer placeholder, the
+// user can never actually scroll it), so that controller was never
+// serving any real scroll purpose in the first place, just being
+// allocated and immediately discarded unclosed on every rebuild (e.g.
+// every time a parent StatefulWidget's build() re-runs while still in
+// its loading state — which for a slow/flaky connection can be many
+// times). A ScrollController holds real ChangeNotifier/AnimationController-
+// adjacent resources that are meant to be explicitly disposed; creating
+// one inline like `ListView.builder(controller: ScrollController())` with
+// no owning State to call .dispose() on it is a textbook Flutter memory
+// leak. Since the physics already make it non-interactive, the controller
+// serves no purpose here at all — dropped entirely instead of trying to
+// manage its lifecycle.
 class _YtPlaylistsForYouSkeleton extends StatelessWidget {
-  final ScrollController scrollController;
-  const _YtPlaylistsForYouSkeleton({required this.scrollController});
+  const _YtPlaylistsForYouSkeleton();
 
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      controller: scrollController,
       scrollDirection: Axis.horizontal,
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.only(right: 12),
