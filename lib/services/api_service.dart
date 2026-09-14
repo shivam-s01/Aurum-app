@@ -258,6 +258,24 @@ class HomeShelfItem {
     required this.isAlbum,
     this.isRadioMix = false,
   });
+
+  Map<String, dynamic> toJson() => {
+        'browseId': browseId,
+        'title': title,
+        'subtitle': subtitle,
+        'artworkUrl': artworkUrl,
+        'isAlbum': isAlbum,
+        'isRadioMix': isRadioMix,
+      };
+
+  factory HomeShelfItem.fromJson(Map<String, dynamic> json) => HomeShelfItem(
+        browseId: (json['browseId'] ?? '').toString(),
+        title: (json['title'] ?? '').toString(),
+        subtitle: (json['subtitle'] ?? '').toString(),
+        artworkUrl: (json['artworkUrl'] ?? '').toString(),
+        isAlbum: json['isAlbum'] == true,
+        isRadioMix: json['isRadioMix'] == true,
+      );
 }
 
 class HomeShelf {
@@ -276,6 +294,28 @@ class HomeShelf {
     this.isList = false,
     this.songs = const [],
   });
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'items': items.map((i) => i.toJson()).toList(),
+        'strapline': strapline,
+        'isList': isList,
+        'songs': songs.map((s) => s.toJson()).toList(),
+      };
+
+  factory HomeShelf.fromJson(Map<String, dynamic> json) => HomeShelf(
+        title: (json['title'] ?? '').toString(),
+        items: ((json['items'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((i) => HomeShelfItem.fromJson(Map<String, dynamic>.from(i)))
+            .toList(),
+        strapline: json['strapline']?.toString(),
+        isList: json['isList'] == true,
+        songs: ((json['songs'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((s) => Song.fromJson(Map<String, dynamic>.from(s)))
+            .toList(),
+      );
 }
 
 class MoodGenreCategory {

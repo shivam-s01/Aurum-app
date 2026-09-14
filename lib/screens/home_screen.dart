@@ -509,6 +509,20 @@ class _HomeScreenState extends State<HomeScreen> {
   // cache their own art/songs in initState) get fresh widget identities and
   // refetch a brand-new random Saavn-first set instead of showing stale data.
   int _playlistRefreshKey = 0;
+  // LIGHT REFRESH ("10 baar refresh kre tab jaake poora fresh content
+  // aaye" — 2026-09-15): bumped on EVERY pull-to-refresh, unlike
+  // _playlistRefreshKey above which only bumps on the 1-in-10 "full"
+  // refresh (see onRefresh below). Only _QuickPicksSection listens to
+  // this — every refresh rotates that one cheap row (a handful of
+  // fetchYouMightAlsoLike seed calls) so pull-to-refresh always feels
+  // like it did something, without the heavier shelves/similar-rows/
+  // artist-strip network cost firing every single time.
+  int _quickPicksRefreshKey = 0;
+  // Whether the CURRENT _quickPicksRefreshKey bump was a full (1-in-10)
+  // refresh or a light one — read by _QuickPicksSection's didUpdateWidget
+  // via the fullRefresh prop to decide between a real fetch and a
+  // zero-network local pool reshuffle. See _onPullToRefresh below.
+  bool _quickPicksFullRefresh = false;
 
   List<ArtistSimple> _homeArtists = [];
   bool _artistsLoading = true;
@@ -783,6 +797,24 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _playlistRefreshKey++);
   }
 
+  // Throttled pull-to-refresh entry point — see onRefresh's doc comment
+  // above for the full reasoning. Only ever called from the
+  // RefreshIndicator (isOnline branch), never from initState/cold start.
+  Future<void> _onPullToRefresh() async {
+    final full = await HomeFeedCache.bumpPullRefreshAndCheckFull();
+    if (!mounted) return;
+    // Flag set BEFORE the key bump below so _QuickPicksSection's
+    // didUpdateWidget (fired by the setState this triggers) reads the
+    // correct fullRefresh value for THIS refresh.
+    setState(() {
+      _quickPicksFullRefresh = full;
+      _quickPicksRefreshKey++;
+    });
+    if (full) {
+      await Future.wait([_bumpPlaylistRefreshKey(), _loadArtists()]);
+    }
+  }
+
   // ignore: unused_element
   Future<void> _loadOnline({bool clearExisting = true}) async {
     setState(() {
@@ -1015,16 +1047,17 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
             displacement: 48,
-            // _loadOnline() removed from here (2026-09-06) — it only ever
-            // repopulated the old, now permanently unrendered
-            // _onlineSections pipeline. _bumpPlaylistRefreshKey() replaces
-            // just the one line of _loadOnline this screen still actually
-            // needs: incrementing _playlistRefreshKey, which is what makes
-            // _RealHomeShelvesSection (the real InnerTube shelves) and the
-            // mood-chip row actually refetch on pull-to-refresh.
-            onRefresh: () => isOnline
-                ? Future.wait([_bumpPlaylistRefreshKey(), _loadArtists()])
-                : context.read<LibraryProvider>().refresh(),
+            // THROTTLED REFRESH ("10 baar refresh kre tab jaake poora fresh
+            // content aaye, MB/heating kam ho" — 2026-09-15): every pull no
+            // longer unconditionally re-fetches shelves + similar rows +
+            // artists together — HomeFeedCache.bumpPullRefreshAndCheckFull()
+            // persists a counter and only returns true on every 10th pull.
+            // On a non-full pull, only _quickPicksRefreshKey bumps (light —
+            // rotates just the Quick Picks row). On the 10th, it's exactly
+            // the old behavior: _playlistRefreshKey bumps too (which drives
+            // _HomeShelvesAndSimilarSection's real InnerTube shelves) and
+            // _loadArtists() runs for a real full refresh.
+            onRefresh: () => isOnline ? _onPullToRefresh() : context.read<LibraryProvider>().refresh(),
             child: AurumScrollDeltaScope(
               notifier: _scrollDelta.notifier,
               child: CustomScrollView(
@@ -1128,7 +1161,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   // top-level ordering.
                   SliverToBoxAdapter(
                     child: _QuickPicksSection(
-                      refreshKey: _playlistRefreshKey,
+                      refreshKey: _quickPicksRefreshKey,
+                      fullRefresh: _quickPicksFullRefresh,
                     ),
                   ),
                   // ADDED ("mixed for you bhe ekdam top level ka" —
@@ -4087,11 +4121,20 @@ class _SimilarArtistAlbumCard extends StatelessWidget {
 // Cold-start: hydrates instantly from HomeFeedCache.loadQuickPicks() (same
 // "show last session's result now, refresh quietly after" contract as every
 // other Home row) and only fires a real fetch when there's no cache yet or
-// the 6-hour freshness window has lapsed. Pull-to-refresh always forces a
-// real refetch regardless.
+// the 6-hour freshness window has lapsed. Pull-to-refresh: a real refetch
+// only on the 1-in-10 "full" refresh (see fullRefresh below) — every other
+// pull does a zero-network local reshuffle instead.
 class _QuickPicksSection extends StatefulWidget {
   final int refreshKey;
-  const _QuickPicksSection({this.refreshKey = 0});
+  // THROTTLED REFRESH ("10 baar refresh kre tab jaake poora fresh content
+  // aaye, MB/heating kam ho" — 2026-09-15): true only on the 1-in-10 "full"
+  // pull-to-refresh (see HomeScreen._onPullToRefresh). On every OTHER
+  // refreshKey bump, this stays false and _load() below does a zero-network
+  // local reshuffle of the already-fetched ranked pool instead of a real
+  // fetch — still visibly rotates the row (feels like something happened)
+  // without the network/MB/heat cost of re-fetching on every single pull.
+  final bool fullRefresh;
+  const _QuickPicksSection({this.refreshKey = 0, this.fullRefresh = false});
 
   @override
   State<_QuickPicksSection> createState() => _QuickPicksSectionState();
@@ -4100,6 +4143,12 @@ class _QuickPicksSection extends StatefulWidget {
 class _QuickPicksSectionState extends State<_QuickPicksSection> {
   List<Song>? _songs;
   bool _failed = false;
+  // Full ranked pool from the last real fetch (up to poolCap songs, not
+  // just the _kMaxShown shown at once) — kept around so a light refresh
+  // can pull a different genuinely-ranked slice/order out of real data
+  // already fetched, instead of needing a new network call just to look
+  // different on screen.
+  List<Song> _pool = const [];
 
   // Cap how many seed songs we fan out to InnerTube for — each seed is a
   // full network round-trip (fetchYouMightAlsoLike), so this bounds worst-
@@ -4122,7 +4171,14 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     final cached = await HomeFeedCache.loadQuickPicks();
     if (!mounted) return;
     if (cached.isNotEmpty) {
-      setState(() => _songs = cached);
+      setState(() {
+        _songs = cached.take(_kMaxShown).toList();
+        // The disk cache now holds the FULL pool (see saveQuickPicks'
+        // doc comment) — restoring it here means a light pull-to-refresh
+        // can reshuffle real cached songs immediately, even before any
+        // real fetch has run this session.
+        _pool = cached;
+      });
       // Still refresh quietly in the background once the cache has aged
       // out, same "instant paint, silent refresh" contract as every other
       // Home row — never re-shows a loading state over already-visible
@@ -4139,8 +4195,42 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     // Pull-to-refresh bumps refreshKey — rotate Quick Picks along with
     // every other section rather than leaving it frozen from cold start.
     if (oldWidget.refreshKey != widget.refreshKey) {
-      _load(silent: true);
+      if (widget.fullRefresh) {
+        _load(silent: true);
+      } else {
+        _rotateFromPool();
+      }
     }
+  }
+
+  // LIGHT REFRESH — zero network. Reshuffles the already-fetched ranked
+  // pool (_pool, up to 4x _kMaxShown from the last real fetch) into a
+  // different genuinely-ranked slice, so the row visibly changes on a
+  // normal pull-to-refresh without a new fetchYouMightAlsoLike round-trip.
+  // Falls back to a real fetch only if there's no pool yet at all (e.g.
+  // this session's very first load somehow never populated one) so the
+  // row never just does nothing on a refresh.
+  void _rotateFromPool() {
+    if (_pool.length <= _kMaxShown) {
+      // Nothing meaningfully different to slice out of a pool this
+      // small — a real fetch is the only way to actually look different.
+      _load(silent: true);
+      return;
+    }
+    // BUG FIX (recheck, 2026-09-15): this used to save only the shown
+    // 24-song slice back to disk, which silently shrank the persisted
+    // pool down to exactly _kMaxShown — the NEXT light refresh (even
+    // next app session) would then always fail the length check above
+    // and fall back to a real fetch every time, quietly defeating the
+    // whole point of a network-free reshuffle after the very first one.
+    // Reshuffling _pool itself (not just slicing a display-copy of it)
+    // and persisting the FULL reshuffled pool keeps every future light
+    // refresh able to reshuffle for real, indefinitely.
+    _pool = List<Song>.from(_pool)..shuffle(math.Random(widget.refreshKey));
+    final next = _pool.take(_kMaxShown).toList();
+    if (!mounted) return;
+    setState(() => _songs = next);
+    unawaited(HomeFeedCache.saveQuickPicks(_pool));
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -4225,10 +4315,21 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
         setState(() { if (!silent) _failed = true; });
         return;
       }
-      unawaited(HomeFeedCache.saveQuickPicks(merged));
+      final fullPool = pool.reversed.toList();
+      // Persist the FULL pool (not just the shown _kMaxShown) — see
+      // HomeFeedCache.saveQuickPicks' own doc comment — so a light
+      // pull-to-refresh after a fresh cold start (no real fetch needed
+      // yet, since the disk cache was still fresh) can still reshuffle
+      // real cached songs immediately instead of falling back to a
+      // network call for lack of anything to reshuffle from.
+      unawaited(HomeFeedCache.saveQuickPicks(fullPool));
       setState(() {
         _songs = merged;
         _failed = false;
+        // Keep the FULL ranked pool (not just the shown _kMaxShown) —
+        // _rotateFromPool() reshuffles this on a light pull-to-refresh
+        // instead of hitting the network again.
+        _pool = fullPool;
       });
     } catch (_) {
       if (mounted && !silent) setState(() => _failed = true);
@@ -4512,40 +4613,56 @@ class _HomeShelvesAndSimilarSectionState
     _hydrateFromCache();
   }
 
-  // ADDED ("MB kam use ho... koi feature cut na ho" — 2026-09-14): paints
-  // last session's real similar-artist/similar-song rows instantly from
-  // disk (HomeFeedCache.loadSimilarArtistRows/loadSimilarSongRows — see
-  // those functions' own doc comments) instead of unconditionally
-  // re-fetching from the network on every cold start, exactly the same
-  // "instant paint, silent background refresh" contract
-  // _QuickPicksSection's _hydrateFromCache already uses. Real shelves
-  // (fetchHomeShelvesForDisplay) still always fetch fresh here — that
-  // endpoint isn't cached the same way and _load() already has its own
-  // skeleton-loading state for it, so this only short-circuits the two
-  // similar-rows fetches specifically. If nothing is cached yet (first
-  // ever launch), falls straight through to a normal full _load().
+  // ADDED ("MB kam use ho... koi feature cut na ho" — 2026-09-14, extended
+  // to real shelves too — "poora home page reopen pe shimmer karta hai" —
+  // 2026-09-15): paints last session's real shelves/similar-artist/
+  // similar-song rows instantly from disk (HomeFeedCache.loadHomeShelves/
+  // loadSimilarArtistRows/loadSimilarSongRows — see those functions' own
+  // doc comments) instead of unconditionally re-fetching from the network
+  // on every cold start, exactly the same "instant paint, silent
+  // background refresh" contract _QuickPicksSection's _hydrateFromCache
+  // already uses. If nothing is cached yet (first ever launch), falls
+  // straight through to a normal full _load().
   Future<void> _hydrateFromCache() async {
+    final cachedShelves = await HomeFeedCache.loadHomeShelves();
     final cachedSimilar = await HomeFeedCache.loadSimilarArtistRows();
     final cachedSimilarSongs = await HomeFeedCache.loadSimilarSongRows();
     if (!mounted) return;
-    if (cachedSimilar.isNotEmpty || cachedSimilarSongs.isNotEmpty) {
+    if (cachedShelves.isNotEmpty ||
+        cachedSimilar.isNotEmpty ||
+        cachedSimilarSongs.isNotEmpty) {
       setState(() {
+        if (cachedShelves.isNotEmpty) _shelves = cachedShelves;
         if (cachedSimilar.isNotEmpty) _similarRows = cachedSimilar;
         if (cachedSimilarSongs.isNotEmpty) _similarSongRows = cachedSimilarSongs;
       });
     }
+    // FIX ("poora home page reopen pe shimmer karta hai" — 2026-09-15):
+    // real shelves now follow the exact same disk-cache contract as
+    // similar rows/quick picks/artists — instant paint above, then a
+    // real fetch only when there's no cache yet or it's aged past the
+    // 6-hour freshness window (skipShelves below), instead of always
+    // fetching on every single cold start regardless of how recent the
+    // last real fetch was.
+    final shelvesCacheFresh = await HomeFeedCache.isHomeShelvesFresh();
     final artistCacheFresh = await HomeFeedCache.isSimilarArtistRowsFresh();
     final songCacheFresh = await HomeFeedCache.isSimilarSongRowsFresh();
+    final shelvesFresh = cachedShelves.isNotEmpty && shelvesCacheFresh;
     final similarFresh = cachedSimilar.isNotEmpty && artistCacheFresh;
     final similarSongsFresh = cachedSimilarSongs.isNotEmpty && songCacheFresh;
-    // Real shelves have no disk cache of their own (fetchHomeShelvesForDisplay
-    // — not covered by this fix), so _load() always needs to run for
-    // those regardless of the two flags below. skipSimilar/
-    // skipSimilarSongs tell it not to re-fetch the ones that are already
-    // fresh on disk — the actual MB saving. When a flag is false (no
-    // cache yet, or aged past the 6-hour window), _load() fetches that
-    // one exactly as it always did.
-    _load(skipSimilar: similarFresh, skipSimilarSongs: similarSongsFresh);
+    // skipShelves/skipSimilar/skipSimilarSongs tell _load() not to
+    // re-fetch whichever ones are already fresh on disk — the actual
+    // MB/latency saving. When a flag is false (no cache yet, or aged
+    // past the 6-hour window), _load() fetches that one exactly as it
+    // always did. A manual pull-to-refresh (didUpdateWidget below) never
+    // sets these, so it always forces a real fetch for all three, same
+    // as before.
+    if (shelvesFresh && similarFresh && similarSongsFresh) return;
+    _load(
+      skipShelves: shelvesFresh,
+      skipSimilar: similarFresh,
+      skipSimilarSongs: similarSongsFresh,
+    );
   }
 
   @override
@@ -4575,6 +4692,7 @@ class _HomeShelvesAndSimilarSectionState
 
   Future<void> _load({
     int? refreshKey,
+    bool skipShelves = false,
     bool skipSimilar = false,
     bool skipSimilarSongs = false,
   }) async {
@@ -4588,10 +4706,8 @@ class _HomeShelvesAndSimilarSectionState
     // together in one setState — Home goes straight from skeleton to
     // its final interleaved order, no mid-scroll layout shift.
     final seed = refreshKey ?? widget.refreshKey;
-    final shelvesFuture = ApiService.fetchHomeShelvesForDisplay(
-      refreshSeed: seed,
-    );
-    // MB FIX ("MB kam use ho, koi feature cut na ho" — 2026-09-14): a
+    // MB FIX ("MB kam use ho, koi feature cut na ho" — 2026-09-14, and
+    // "poora home page reopen pe shimmer karta hai" — 2026-09-15): a
     // fresh HomeFeedCache copy (checked by the caller — _hydrateFromCache
     // on cold start, or simply never true on an explicit pull-to-refresh
     // since that always calls _load with these left false) means the
@@ -4602,17 +4718,24 @@ class _HomeShelvesAndSimilarSectionState
     // again unnecessarily. A manual pull-to-refresh (didUpdateWidget
     // below) never sets these, so it always forces a real fetch same as
     // before.
+    final shelvesFuture =
+        skipShelves ? null : ApiService.fetchHomeShelvesForDisplay(
+      refreshSeed: seed,
+    );
     final similarFuture = skipSimilar ? null : _loadSimilarRows();
     final similarSongsFuture =
         skipSimilarSongs ? null : _loadSimilarSongRows();
 
-    List<HomeShelf> shelves = const [];
+    List<HomeShelf>? shelves;
     bool failed = false;
-    try {
-      shelves = await shelvesFuture;
-      failed = shelves.isEmpty;
-    } catch (_) {
-      failed = true;
+    if (shelvesFuture != null) {
+      try {
+        shelves = await shelvesFuture;
+        failed = shelves.isEmpty;
+      } catch (_) {
+        shelves = const [];
+        failed = true;
+      }
     }
     final similar = similarFuture == null ? null : await similarFuture;
     final similarSongs =
@@ -4620,13 +4743,12 @@ class _HomeShelvesAndSimilarSectionState
 
     if (!mounted) return;
     setState(() {
-      // Only overwrite each field when this refresh actually produced
-      // something for it — an empty/failed result on a REFRESH (i.e.
-      // _shelves was already non-null/non-empty from before) keeps
-      // whatever was already showing instead of wiping it. A genuinely
-      // empty result on first load (both still null, nothing to
-      // preserve) still renders as empty exactly as before.
-      if (shelves.isNotEmpty || _shelves == null) {
+      // shelves is null when this fetch was skipped (fresh cache already
+      // hydrated _shelves in _hydrateFromCache) — leave whatever's
+      // already in state alone in that case. Only overwrite when this
+      // refresh actually produced something (or genuinely came back
+      // empty on a first load, same as before).
+      if (shelves != null && (shelves.isNotEmpty || _shelves == null)) {
         _shelves = shelves;
         _shelvesFailed = failed;
       }
@@ -4646,10 +4768,13 @@ class _HomeShelvesAndSimilarSectionState
 
     // Persist real fetched results to disk so the NEXT cold start can
     // paint instantly instead of re-fetching (see HomeFeedCache.
-    // saveSimilarArtistRows/saveSimilarSongRows' own doc comment). Only
-    // saves when this call actually fetched fresh data — a skipped fetch
-    // has nothing new to save, and both save functions already no-op on
-    // an empty list.
+    // saveHomeShelves/saveSimilarArtistRows/saveSimilarSongRows' own doc
+    // comments). Only saves when this call actually fetched fresh data —
+    // a skipped fetch has nothing new to save, and all three save
+    // functions already no-op on an empty list.
+    if (shelves != null) {
+      unawaited(HomeFeedCache.saveHomeShelves(shelves));
+    }
     if (similar != null) {
       unawaited(HomeFeedCache.saveSimilarArtistRows(similar));
     }

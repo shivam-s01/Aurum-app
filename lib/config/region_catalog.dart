@@ -419,7 +419,7 @@ Future<Country?> detectCountryReal() async {
   Future<Country?> viaIpApiCo() async {
     final res = await client
         .get(Uri.parse('https://ipapi.co/country/'))
-        .timeout(const Duration(seconds: 3));
+        .timeout(const Duration(milliseconds: 3500));
     if (res.statusCode != 200) return null;
     final code = res.body.trim().toUpperCase();
     if (code.length != 2) return null;
@@ -429,7 +429,7 @@ Future<Country?> detectCountryReal() async {
   Future<Country?> viaIpwhois() async {
     final res = await client
         .get(Uri.parse('https://ipwho.is/?fields=success,country_code'))
-        .timeout(const Duration(seconds: 3));
+        .timeout(const Duration(milliseconds: 3500));
     if (res.statusCode != 200) return null;
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     if (json['success'] != true) return null;
@@ -447,7 +447,14 @@ Future<Country?> detectCountryReal() async {
   // that call would be silently blocked exactly like the Worker/YouTube
   // domains were before those got added. Two domain-based providers
   // (both whitelisted below) keep this reliable without hitting that
-  // trap again. This whole race is capped at 3.5s total.
+  // trap again.
+  // TUNED (2026-09-14, "ekdam natural 4 sec rahe"): outer cap raised
+  // 3.5s -> 4s, with each individual provider given 3.5s (was 3s) so a
+  // slightly slow-but-successful response isn't cut off right at the
+  // finish line — the extra ~500ms is slack for exactly that case, not
+  // wasted waiting. The onboarding screen already shows a loading state
+  // (_detecting) the whole time, so this reads as a calm, deliberate
+  // lookup rather than a rushed one, without ever feeling stuck.
   final attempts = <Future<Country?>>[
     viaIpApiCo().catchError((_) => null),
     viaIpwhois().catchError((_) => null),
@@ -455,7 +462,7 @@ Future<Country?> detectCountryReal() async {
 
   try {
     final results = await Future.wait(attempts)
-        .timeout(const Duration(milliseconds: 3500), onTimeout: () => const []);
+        .timeout(const Duration(seconds: 4), onTimeout: () => const []);
     final codes = results.whereType<Country>().map((c) => c.code).toList();
     if (codes.isEmpty) return detectCountryFromLocale();
 

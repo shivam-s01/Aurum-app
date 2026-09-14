@@ -450,6 +450,17 @@ class HomeFeedCache {
   static const _quickPicksKey = 'home_quick_picks_v1';
   static const _quickPicksSavedAtKey = 'home_quick_picks_saved_at_ms';
 
+  // FIX ("refresh pe artist/content aane mein problem na ho" — 2026-09-15):
+  // this now saves the FULL ranked pool (up to 4x the shown count, not
+  // just the ~24 actually displayed) — _QuickPicksSectionState._pool reads
+  // this back on cold start so a light pull-to-refresh can immediately
+  // reshuffle real, already-cached history-based songs instead of only
+  // having a pool to reshuffle from AFTER at least one real fetch has run
+  // this session. Without this, a light refresh right after a cold start
+  // (before any real fetch fired, e.g. the quick-picks cache was still
+  // fresh) had nothing to reshuffle and fell back to a real fetch anyway —
+  // safe, but quietly defeated the point of a network-free light refresh
+  // in the most common case.
   static Future<void> saveQuickPicks(List<Song> songs) async {
     if (songs.isEmpty) return;
     try {
@@ -643,6 +654,93 @@ class HomeFeedCache {
       return _isRecent(prefs.getInt(_similarSongRowsSavedAtKey));
     } catch (_) {
       return false;
+    }
+  }
+
+  // ── Real home shelves cache ("poora home page reopen pe shimmer karta
+  // hai" — 2026-09-15): fetchHomeShelvesForDisplay (the actual main
+  // InnerTube shelves — the largest visual chunk of Home) previously had
+  // NO disk cache of its own, unlike quick picks / similar rows / artists
+  // above — _HomeShelvesAndSimilarSection._hydrateFromCache always called
+  // _load() for shelves unconditionally on every cold start, so _shelves
+  // started null and a full skeleton showed on every single reopen while
+  // that network fetch ran, even seconds after the app had already loaded
+  // it once. Same "instant paint from disk, freshness-gated silent
+  // background refresh" contract as every other Home cache in this file —
+  // a manual pull-to-refresh still always forces a real fetch regardless.
+  static const _homeShelvesKey = 'home_real_shelves_v1';
+  static const _homeShelvesSavedAtKey = 'home_real_shelves_saved_at_ms';
+
+  static Future<void> saveHomeShelves(List<HomeShelf> shelves) async {
+    if (shelves.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(shelves.map((s) => s.toJson()).toList());
+      await prefs.setString(_homeShelvesKey, encoded);
+      await prefs.setInt(
+          _homeShelvesSavedAtKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<HomeShelf>> loadHomeShelves() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_homeShelvesSavedAtKey);
+      if (savedAtMs == null) return [];
+      final raw = prefs.getString(_homeShelvesKey);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .whereType<Map>()
+          .map((e) => HomeShelf.fromJson(Map<String, dynamic>.from(e)))
+          .where((s) => s.items.isNotEmpty || s.songs.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isHomeShelvesFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _isRecent(prefs.getInt(_homeShelvesSavedAtKey));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Pull-to-refresh throttle counter ("10 baar refresh kre tab jaake
+  // poora fresh content aaye, MB/heating kam ho" — 2026-09-15): every
+  // pull-to-refresh used to force a real fetch for shelves + similar
+  // artist rows + similar song rows + the artist strip all at once —
+  // several concurrent InnerTube round-trips plus fresh artwork
+  // downloads, every single time, however often a user pulled to
+  // refresh. Persisted (not just in-memory) so the count survives app
+  // restarts — a user who refreshes 6 times, closes the app, then
+  // refreshes 4 more times still gets the "full" refresh on that 10th
+  // pull, not a reset count on next cold start.
+  static const _pullRefreshCountKey = 'home_pull_refresh_count';
+
+  // How many pull-to-refreshes between one "full" refresh (all
+  // sections — shelves, similar rows, artists) — every OTHER refresh in
+  // between only rotates the cheap Quick Picks row, so it still feels
+  // like something happened without the heavier network/MB/heat cost of
+  // re-fetching everything.
+  static const int fullRefreshEvery = 10;
+
+  /// Increments the counter and returns whether THIS refresh should be a
+  /// full one (every Nth call, N = [fullRefreshEvery]) — call this once
+  /// per pull-to-refresh, right at the start of the refresh handler.
+  static Future<bool> bumpPullRefreshAndCheckFull() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final next = (prefs.getInt(_pullRefreshCountKey) ?? 0) + 1;
+      await prefs.setInt(_pullRefreshCountKey, next);
+      return next % fullRefreshEvery == 0;
+    } catch (_) {
+      // Best-effort — if this fails, default to a full refresh rather
+      // than silently under-refreshing forever.
+      return true;
     }
   }
 }
