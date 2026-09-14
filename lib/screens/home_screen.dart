@@ -1186,23 +1186,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   // `uiState.similarRecommendations.forEach { ... }` loop:
                   // one real "Similar to <Artist>" header+row PER artist,
                   // never a generic combined artist strip.
-                  // RESTORED ("artist wala show nhi ho raha hai" —
-                  // 2026-09-14): removing _ArtistStrip entirely also
-                  // removed the only place on Home that ever rendered
-                  // _homeArtists (still fetched every load via
-                  // _loadArtists()/fetchHomeArtistsStreaming and cached
-                  // via HomeFeedCache.saveArtists/loadArtists — that
-                  // pipeline was never broken, just orphaned from the
-                  // widget tree). Put back as its own small real-artist
-                  // shelf, ahead of the generic "Similar to X" rows below,
-                  // so the artist strip users expect on Home actually
-                  // shows again.
-                  SliverToBoxAdapter(
-                    child: _ArtistStrip(
-                      artists: _homeArtists,
-                      loading: _artistsLoading,
-                    ),
-                  ),
+                  // REMOVED AGAIN ("Popular Artists hata do, awkward lagta
+                  // hai" — 2026-09-14): the 2026-09-14 restore above put
+                  // _ArtistStrip back as a standalone "Popular Artists"
+                  // shelf, but ArchiveTune's own real layout (this
+                  // section's own doc comment above, still true) never had
+                  // that concept — it only ever has one real artist-facing
+                  // row per seed: "Similar to <Artist>"
+                  // (_HomeShelvesAndSimilarSection below already covers
+                  // this, fed by real per-artist InnerTube data). Sitting
+                  // directly above the first "Similar to X" row, a
+                  // separate flat "Popular Artists" strip duplicated that
+                  // same real-artist concept right next to it, which is
+                  // exactly the awkward back-to-back feel being fixed
+                  // here. _homeArtists/_loadArtists() themselves are left
+                  // untouched — only this render site is removed — so if
+                  // a real standalone artist shelf is wanted again later,
+                  // the underlying data is still there to wire back in.
                   SliverToBoxAdapter(
                     child: _HomeShelvesAndSimilarSection(
                       refreshKey: _playlistRefreshKey,

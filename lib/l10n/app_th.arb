@@ -1,0 +1,1179 @@
+{
+  "@@locale": "th",
+  "navHome": "หน้าแรก",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "ค้นหา",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "คลังเพลง",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "ยกเลิก",
+  "commonSave": "บันทึก",
+  "commonDone": "เสร็จสิ้น",
+  "commonRetry": "ลองอีกครั้ง",
+  "commonSeeAll": "ดูทั้งหมด",
+  "commonPlay": "เล่น",
+  "commonPause": "หยุดชั่วคราว",
+  "commonShuffle": "สุ่มเพลง",
+  "commonDelete": "ลบ",
+  "commonEdit": "แก้ไข",
+  "commonShare": "แชร์",
+  "commonAdd": "เพิ่ม",
+  "commonRemove": "นำออก",
+  "commonSearch": "ค้นหา",
+  "commonSettings": "ตั้งค่า",
+  "commonOk": "ตกลง",
+  "commonYes": "ใช่",
+  "commonNo": "ไม่ใช่",
+  "settingsTitle": "ตั้งค่า",
+  "settingsAccount": "บัญชี",
+  "settingsSectionGeneral": "ทั่วไป",
+  "settingsSectionPlayback": "การเล่น",
+  "settingsSectionSystem": "ระบบ",
+  "settingsPlayerAudio": "เครื่องเล่นและเสียง",
+  "settingsAppearance": "รูปลักษณ์",
+  "settingsDownloads": "ดาวน์โหลด",
+  "settingsStorage": "พื้นที่จัดเก็บ",
+  "settingsAbout": "เกี่ยวกับ",
+  "settingsLanguage": "ภาษา",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "เลือกภาษาที่คุณต้องการใช้ในแอป",
+  "playerNowPlaying": "กำลังเล่น",
+  "playerUpNext": "ถัดไป",
+  "playerLyrics": "เนื้อเพลง",
+  "playerQueue": "คิวเพลง",
+  "playerInfo": "ข้อมูล",
+  "librarySongs": "เพลง",
+  "libraryPlaylists": "เพลย์ลิสต์",
+  "libraryArtists": "ศิลปิน",
+  "libraryAlbums": "อัลบั้ม",
+  "libraryLikedSongs": "เพลงที่ถูกใจ",
+  "libraryDownloaded": "ดาวน์โหลดแล้ว",
+  "libraryEmptyState": "ยังไม่มีอะไรที่นี่",
+  "homeTrendingPlaylists": "เพลย์ลิสต์กำลังมาแรง",
+  "mixPullForMore": "ดึงลงเพื่อดูเพลงเพิ่มเติม",
+  "homeMoodAll": "ทั้งหมด",
+  "homePlaylistsForYou": "เพลย์ลิสต์สำหรับคุณ",
+  "homeAlbumsForYou": "อัลบั้มสำหรับคุณ",
+  "homeAfternoonPicks": "เพลงยามบ่าย",
+  "homeBollywoodMix": "รวมเพลงบอลลีวูด",
+  "homeDevotional": "เพลงศาสนา",
+  "homeTrendingNow": "กำลังมาแรงตอนนี้",
+  "homeNewReleases": "เพลงใหม่",
+  "feedbackTitle": "ชอบ Astra ไหม?",
+  "feedbackSubtitle": "ความคิดเห็นของคุณช่วยให้เราพัฒนาแอปให้ดียิ่งขึ้น",
+  "feedbackHint": "บอกเราว่าคุณคิดอย่างไร (ไม่บังคับ)",
+  "feedbackSend": "ส่งความคิดเห็น",
+  "feedbackNotNow": "ไว้ทีหลัง",
+  "feedbackThankYouTitle": "ขอบคุณ!",
+  "premiumSoundTitle": "เสียงระดับพรีเมียม",
+  "premiumSoundSubtitle": "เสียงที่เข้มข้นและเต็มอิ่มขึ้นในทุกเพลง — ใช้ได้กับทุกคุณภาพต้นฉบับ",
+  "bassBoostTitle": "เพิ่มเสียงเบส",
+  "bassBoostSubtitle": "เพิ่มความถี่ต่ำเพื่อเสียงที่ลึกยิ่งขึ้น",
+  "homePickSomething": "เลือกเพลงที่จะเล่น",
+  "homePopularArtists": "ศิลปินยอดนิยม",
+  "homeOnline": "ออนไลน์",
+  "homeOffline": "ออฟไลน์",
+  "homeCheckYourInternet": "ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตของคุณ",
+  "homePlaybackSource": "แหล่งที่มาการเล่น",
+  "homePlaybackSourceSubtitle": "เลือกแหล่งที่ Astra จะเล่นเพลง",
+  "homeOnlineStreaming": "สตรีมมิงออนไลน์",
+  "homeStreamOnlineDesc": "สตรีมเพลงออนไลน์",
+  "homeOfflineLibrary": "คลังเพลงออฟไลน์",
+  "homeOfflineLibraryDesc": "เล่นเฉพาะเพลงที่ดาวน์โหลดไว้",
+  "homeGrantPermission": "ให้สิทธิ์การเข้าถึง",
+  "homeStoragePermissionNeeded": "ต้องการสิทธิ์เข้าถึงพื้นที่จัดเก็บ",
+  "homeNoLocalSongs": "ไม่พบเพลงในเครื่อง",
+  "homeScanAgain": "สแกนอีกครั้ง",
+  "homeLocalSongs": "เพลงในเครื่อง",
+  "homePlaybackDiagnostics": "การวินิจฉัยการเล่น",
+  "commonClose": "ปิด",
+  "commonPlayAll": "เล่นทั้งหมด",
+  "likedNoSongsYet": "ยังไม่มีเพลงที่ถูกใจ",
+  "likedTapToSave": "แตะ ♥ ที่เพลงใดก็ได้เพื่อบันทึกไว้ที่นี่",
+  "librarySongsCount": "{count, plural, =0{ไม่มีเพลง} =1{1 เพลง} other{{count} เพลง}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "คิวเพลง",
+  "queueEmpty": "คิวว่างเปล่า",
+  "queueEmptySubtitle": "เพลงที่คุณจะเล่นต่อไปจะปรากฏที่นี่",
+  "albumNoSongsFound": "ไม่พบเพลง",
+  "searchHint": "เพลง, ศิลปิน, อัลบั้ม...",
+  "searchRecent": "ล่าสุด",
+  "searchClearAll": "ล้างทั้งหมด",
+  "searchNoResultsFor": "ไม่พบผลลัพธ์สำหรับ \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "ค้นหาทุกที่",
+  "searchYouMightAlsoLike": "คุณอาจจะชอบสิ่งนี้ด้วย",
+  "searchSeeAllResultsFor": "ดูผลลัพธ์ทั้งหมดสำหรับ \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "ค้นหาเพลงโปรดของคุณ",
+  "searchAllInOnePlace": "เพลง ศิลปิน อัลบั้ม — ครบในที่เดียว",
+  "searchTabSearch": "ค้นหา",
+  "searchTabBrowse": "เรียกดู",
+  "browseTypeToExplore": "พิมพ์เพื่อเรียกดูศิลปินและอัลบั้ม",
+  "browseNoResults": "ไม่พบผลลัพธ์",
+  "browseAlbumFallbackTitle": "อัลบั้ม",
+  "settingsPlayerAudioSubtitle": "การเล่น อีควอไลเซอร์ ครอสเฟด และพฤติกรรม",
+  "settingsAppearanceSubtitle": "ธีม สี รูปแบบเครื่องเล่น และแอนิเมชัน",
+  "settingsStorageSubtitle": "ดาวน์โหลด แคชเพลง และแคชรูปภาพ",
+  "settingsNotifications": "การแจ้งเตือน",
+  "settingsNotificationsSubtitle": "รูปแบบการแจ้งเตือนสื่อและภาพปก",
+  "settingsPrivacy": "ความเป็นส่วนตัว",
+  "settingsPrivacySubtitle": "การล็อกแอป โหมดไม่ระบุตัวตน และข้อมูล",
+  "settingsAboutSubtitle": "เวอร์ชัน การอัปเดต ความเป็นส่วนตัว และผู้พัฒนา",
+  "premiumFeature320kbps": "สตรีมมิงคุณภาพ 320kbps",
+  "premiumFeatureUnlimitedSkips": "ข้ามเพลงได้ไม่จำกัด",
+  "premiumFeatureLikeFollow": "ถูกใจและติดตาม",
+  "premiumFeatureCreatePlaylists": "สร้างเพลย์ลิสต์",
+  "premiumFeatureCloudSync": "ซิงค์ข้อมูลบนคลาวด์",
+  "premiumFeatureExclusiveThemes": "ธีมพิเศษเฉพาะ",
+  "premiumAllFeaturesUnlocked": "ปลดล็อกทุกฟีเจอร์แล้ว",
+  "premiumActive": "ใช้งานอยู่",
+  "premiumUpgradeTitle": "อัปเกรดเป็นพรีเมียม",
+  "premiumUnlockEverything": "ปลดล็อกทุกอย่างใน Astra",
+  "premiumGetButton": "✦  รับ Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "การเล่น",
+  "spSleepTimer": "ตัวจับเวลาปิดเพลง",
+  "spEqualizer": "อีควอไลเซอร์",
+  "spBehavior": "พฤติกรรม",
+  "spStreamQuality": "คุณภาพการสตรีม",
+  "spStreamQualitySubtitle": "อัตราบิตเสียงสำหรับการสตรีมออนไลน์",
+  "spQualityAuto": "อัตโนมัติ",
+  "spQualityAutoDesc": "คุณภาพดีที่สุดที่มีสำหรับแต่ละเพลง",
+  "spQualityLow": "ต่ำ",
+  "spQualityLowDesc": "48–96kbps · ประหยัดข้อมูล",
+  "spQualityMedium": "ปานกลาง",
+  "spQualityMediumDesc": "สูงสุด 160kbps",
+  "spQualityHigh": "สูง",
+  "spQualityHighDesc": "320kbps · คุณภาพระดับสตูดิโอ",
+  "spQualityDataSaver": "ประหยัดข้อมูลอัจฉริยะ",
+  "spQualityDataSaverDesc": "เสียงดีแม้บนเครือข่าย 2G",
+  "spQualityDataSaverDescExpanded": "สตรีมไฟล์ขนาดเล็กที่สุดที่การเชื่อมต่อของคุณรองรับได้ จากนั้นค่อยๆ เพิ่มคุณภาพขึ้นไปที่ 320kbps เมื่อเพลงมีพื้นที่เพียงพอ",
+  "spPlusBadge": "พลัส",
+  "spDataSaver": "ประหยัดข้อมูล",
+  "spDataSaverSubtitle": "บังคับใช้คุณภาพต่ำเมื่อใช้ข้อมูลมือถือ",
+  "spGaplessPlayback": "เล่นแบบไม่มีช่วงเงียบ",
+  "spGaplessPlaybackSubtitle": "ไม่มีความเงียบระหว่างเพลง",
+  "spShowCastIcon": "แสดงไอคอน Chromecast",
+  "spShowCastIconSubtitle": "ควบคุมเวลาที่ไอคอนแคสต์ปรากฏในหน้าเครื่องเล่นแบบเต็ม",
+  "spCastIconAuto": "อัตโนมัติ",
+  "spCastIconAlways": "แสดงเสมอ",
+  "spCastIconHidden": "ซ่อน",
+  "spPlaybackSpeed": "ความเร็วในการเล่น",
+  "spPlaybackSpeedSubtitle": "ใช้ได้ทั้งกับเพลงในเครื่องและเพลงออนไลน์",
+  "spNormal": "ปกติ",
+  "spCrossfade": "ครอสเฟด",
+  "spCrossfadeSubtitle": "เปลี่ยนเพลงอย่างนุ่มนวล",
+  "spOff": "ปิด",
+  "spVolumeNormalization": "การปรับระดับเสียงให้เท่ากัน",
+  "spVolumeNormalizationSubtitle": "รักษาระดับเสียงให้สม่ำเสมอในทุกเพลง",
+  "spBassBoost": "เพิ่มเสียงเบส",
+  "spBassBoostSubtitle": "เพิ่มความถี่ต่ำเพื่อเสียงที่ลึกยิ่งขึ้น",
+  "spPremiumSound": "เสียงระดับพรีเมียม",
+  "spPremiumSoundSubtitle": "ปลดล็อกเสียงร้องที่คมชัด เบสที่ลึกขึ้น และเสียงพรีเมียมที่เต็มอิ่ม",
+  "spPremiumSoundPartialSupport": "อุปกรณ์นี้ไม่รองรับบางเอฟเฟกต์ — ความคมชัดและเบสยังคงทำงานอยู่",
+  "spSleepTimerActive": "ตัวจับเวลาปิดเพลงทำงานอยู่",
+  "spSleepTimerTitle": "ตัวจับเวลาปิดเพลง",
+  "spSleepTimerStopsIn": "จะหยุดใน {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "ตั้งเวลาเพื่อหยุดการเล่น",
+  "spCancel": "ยกเลิก",
+  "spAutoSleepGuard": "ระบบพักการเล่นอัตโนมัติ",
+  "asgTileTitle": "ระบบพักการเล่นอัตโนมัติ",
+  "asgTileSubtitleOn": "หยุดชั่วคราวหลังไม่มีการใช้งาน {hours} ชั่วโมง",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "เข้าสู่ระบบเพื่อใช้ระบบพักการเล่นอัตโนมัติ",
+  "asgTileSubtitleOff": "ปิด",
+  "asgTileAutomaticBadge": "อัตโนมัติ",
+  "asgTileOffBadge": "ปิด",
+  "asgSheetTitle": "ระบบพักการเล่นอัตโนมัติ",
+  "asgSheetBody": "Astra จะหยุดการเล่นชั่วคราวโดยอัตโนมัติหลังจากไม่มีการใช้งานเป็นระยะเวลาหนึ่งเพื่อประหยัดแบตเตอรี่ เลือกระยะเวลาที่ต้องการรอ",
+  "asgSheetModeLabel": "โหมด",
+  "asgSheetModeAutomatic": "อัตโนมัติ",
+  "asgSheetModeAutomaticDesc": "ตรวจสอบการไม่ใช้งานและหยุดชั่วคราวเพื่อประหยัดแบตเตอรี่",
+  "asgSheetModeOff": "ปิด",
+  "asgSheetModeOffDesc": "ไม่หยุดอัตโนมัติเลย",
+  "asgSheetPremiumHint": "ทำงานเงียบๆ อยู่เบื้องหลัง — ปรับแต่งให้ไม่รบกวนคุณเลย",
+  "asgSheetDurationLabel": "หยุดชั่วคราวหลังจาก",
+  "asgSheetHours": "{count} ชม.",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "บันทึกแล้ว",
+  "asgSheetDone": "เสร็จสิ้น",
+  "asgResumePromptTitle": "หยุดชั่วคราวเนื่องจากไม่มีการใช้งาน",
+  "asgResumePromptSubtitle": "หยุดชั่วคราวเมื่อ {time} — เล่นต่อไหม?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "เล่นต่อ",
+  "asgResumePromptDismiss": "ปิด",
+  "bsmTileTitle": "โหมดประหยัดแบตเตอรี่",
+  "bsmTileSubtitleActive": "ใช้งานอยู่ — แบตเตอรี่ {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "เปิดใช้งานอัตโนมัติเมื่อต่ำกว่า {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "ปิด",
+  "bsmTileAutomaticBadge": "อัตโนมัติ",
+  "bsmTileOffBadge": "ปิด",
+  "bsmSheetTitle": "โหมดประหยัดแบตเตอรี่",
+  "bsmSheetBody": "เมื่อแบตเตอรี่ใกล้หมด Astra จะปิดแอนิเมชันพื้นหลัง เบลอ และเอฟเฟกต์ภาพอื่นๆ โดยอัตโนมัติ — การเล่นเพลงยังคงทำงานตามปกติทุกประการ",
+  "bsmSheetPremiumHint": "ทำงานเงียบๆ อยู่เบื้องหลัง — การเล่นเพลงจะไม่ได้รับผลกระทบเลย มีแค่ภาพเท่านั้น",
+  "bsmSheetModeLabel": "โหมด",
+  "bsmSheetModeAutomatic": "อัตโนมัติ",
+  "bsmSheetModeAutomaticDesc": "ตรวจสอบระดับแบตเตอรี่และประหยัดพลังงานเมื่อแบตเตอรี่ต่ำ",
+  "bsmSheetModeOff": "ปิด",
+  "bsmSheetModeOffDesc": "ไม่เปิดใช้งานอัตโนมัติเลย",
+  "bsmSheetThresholdLabel": "เปิดใช้งานเมื่อต่ำกว่า",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "บันทึกแล้ว",
+  "bsmSheetDone": "เสร็จสิ้น",
+  "spEqualizerTitle": "อีควอไลเซอร์",
+  "spEqualizerSubtitle": "อีควอไลเซอร์ 10 แบนด์พร้อมพรีเซ็ต",
+  "spKeepQueue": "เก็บคิวเพลงไว้เมื่อเปิดแอปอีกครั้ง",
+  "spKeepQueueSubtitle": "กู้คืนคิวเพลงหลังจากปิดแอป",
+  "spStopOnSwipe": "หยุดเมื่อปัดออกจากรายการล่าสุด",
+  "spStopOnSwipeSubtitle": "หยุดการเล่นเมื่อปัดแอปออก",
+  "spPauseOnCall": "หยุดชั่วคราวเมื่อมีสายเรียกเข้า",
+  "spPauseOnCallSubtitle": "หยุดชั่วคราวอัตโนมัติเมื่อโทรศัพท์ดัง",
+  "spDuckNotifications": "ลดเสียงลงสำหรับการแจ้งเตือน",
+  "spDuckNotificationsSubtitle": "ปิด = การแจ้งเตือนจะไม่ลดเสียงหรือหยุดเพลงของคุณเลย",
+  "spShakeToSkip": "เขย่าเพื่อข้ามเพลง",
+  "spShakeToSkipSubtitle": "เขย่าโทรศัพท์เพื่อไปยังเพลงถัดไป",
+  "spSwipeToChange": "ปัดเพื่อเปลี่ยนเพลง",
+  "spSwipeToChangeSubtitle": "ปัดที่ภาพปกเพลงเพื่อข้ามเพลง",
+  "spHapticIntensity": "ความแรงของการสั่น",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "การแตะและการสั่นจะรู้สึกแรงแค่ไหนทั่วทั้งแอป",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "ปิด",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "เบา",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "แรง",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "ระยะเวลาประวัติ",
+  "spHistorySongsCount": "{count} เพลง",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "ตัวจับเวลาปิดเพลง",
+  "spSleepTimerSheetSubtitle": "การเล่นจะหยุดหลังจากเวลาที่เลือก",
+  "spFinishCurrentSong": "เล่นเพลงปัจจุบันจนจบ",
+  "spFinishCurrentSongSubtitle": "ให้เพลงปัจจุบันเล่นจนจบก่อนหยุด",
+  "spStartTimer": "เริ่มตัวจับเวลา · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "ยกเลิกตัวจับเวลาที่ทำงานอยู่",
+  "spSleepTimerCustom": "กำหนดเอง",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "ตั้งค่า",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "นาที",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "กรุณาระบุระยะเวลาเป็นนาที",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "สูงสุด {max} นาที",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "ค่อยๆ เบาลง",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "เพลงจะค่อยๆ เบาลงอย่างนุ่มนวลแทนที่จะหยุดกะทันหัน",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "อัตราบิตสูง (320kbps)",
+  "spPremiumHighBitrateDesc": "ปลดล็อกการสตรีมคุณภาพระดับสตูดิโอ 320kbps ด้วย Astra Plus",
+  "spEqReset": "รีเซ็ต",
+  "spEqPresets": "พรีเซ็ต",
+  "spEq10Band": "อีควอไลเซอร์ 10 แบนด์",
+  "saTheme": "ธีม",
+  "saFontStyle": "รูปแบบตัวอักษร",
+  "saNowPlayingCard": "การ์ดกำลังเล่น",
+  "saArtworkShape": "รูปทรงภาพปก",
+  "saPlayer": "เครื่องเล่น",
+  "saLyrics": "เนื้อเพลง",
+  "saAnimations": "แอนิเมชัน",
+  "saThemeDark": "มืด",
+  "saThemeDarkDesc": "สบายตา",
+  "saThemeAmoled": "AMOLED สีดำ",
+  "saThemeAmoledDesc": "สีดำสนิท ประหยัดแบตเตอรี่",
+  "saThemeLight": "สว่าง",
+  "saThemeLightDesc": "สะอาดตาและเรียบง่าย",
+  "saThemeSystem": "ค่าเริ่มต้นของระบบ",
+  "saThemeSystemDesc": "ตามธีมของโทรศัพท์คุณ",
+  "saDynamicThemeColor": "สีธีมแบบไดนามิก",
+  "saDynamicThemeColorSubtitle": "ดึงสีจากภาพปกเพลง",
+  "saHighRefreshRate": "อัตรารีเฟรชสูง (120Hz)",
+  "saHighRefreshRateSubtitle": "อินเทอร์เฟซที่ลื่นไหลขึ้นบนอุปกรณ์ที่รองรับ",
+  "saAccentColor": "สีเน้น",
+  "saExtraColorsSignIn": "สีเพิ่มเติม = เข้าสู่ระบบ",
+  "saCustomAccentColorsFeature": "สีเน้นแบบกำหนดเอง",
+  "saCustomAccentColorsDesc": "เข้าสู่ระบบด้วย Google เพื่อปลดล็อกสีเน้นเพิ่มเติม",
+  "saAppFont": "ฟอนต์แอป",
+  "saRoundedMonoSignIn": "ฟอนต์พรีเมียม = เข้าสู่ระบบ",
+  "saApplyingFont": "กำลังใช้ฟอนต์…",
+  "saFontUnlockFeature": "ฟอนต์ {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "เข้าสู่ระบบด้วย Google เพื่อปลดล็อกฟอนต์นี้",
+  "saCardStyleCompactDesc": "ภาพปกเล็ก ข้อความอยู่ข้างๆ",
+  "saCardStyleCardDesc": "ภาพปกและข้อมูลแบบสมดุล",
+  "saCardStyleImmersiveDesc": "ภาพปกเต็มความกว้าง อินเทอร์เฟซน้อยที่สุด",
+  "saPremiumBadge": "พรีเมียม",
+  "saPlayerStyleUnlockFeature": "รูปแบบเครื่องเล่น {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "เข้าสู่ระบบด้วย Google เพื่อปลดล็อกรูปแบบ {style}",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "รูปแบบพื้นหลังเครื่องเล่น",
+  "saPlayerBgStyleSubtitle": "ลักษณะพื้นหลังของเครื่องเล่น",
+  "saDynamicPlayerColor": "สีเครื่องเล่นแบบไดนามิก",
+  "saDynamicPlayerColorSubtitle": "เปลี่ยนสีเครื่องเล่นตามภาพปก",
+  "saPlayerButtonColors": "สีปุ่มเครื่องเล่น",
+  "saPlayerButtonColorsSubtitle": "สีของปุ่มเล่น/ข้าม",
+  "saPlayerSliderStyle": "รูปแบบแถบเลื่อนเครื่องเล่น",
+  "saPlayerSliderStyleSubtitle": "ลักษณะแถบค้นหา",
+  "saShowBlurredBg": "แสดงพื้นหลังเบลอ",
+  "saShowBlurredBgSubtitle": "เบลอภาพปกด้านหลังเครื่องเล่น",
+  "saNavBarBlur": "เบลอแถบนำทาง",
+  "saNavBarBlurSubtitle": "ลดค่าลงเพื่อลดความร้อนจาก GPU/การใช้แบตเตอรี่",
+  "saMiniPlayerBlur": "เบลอเครื่องเล่นย่อ",
+  "saMiniPlayerBlurSubtitle": "ลดค่าลงเพื่อลดความร้อนจาก GPU/การใช้แบตเตอรี่",
+  "saLyricsTextPosition": "ตำแหน่งข้อความเนื้อเพลง",
+  "saLyricsTextPositionSubtitle": "การจัดวางเนื้อเพลงบนหน้าจอ",
+  "saLyricsTextSize": "ขนาดข้อความเนื้อเพลง",
+  "saLyricsLineSpacing": "ระยะห่างบรรทัดเนื้อเพลง",
+  "saShowLyricsOnPlayer": "แสดงเนื้อเพลงบนเครื่องเล่น",
+  "saShowLyricsOnPlayerSubtitle": "แสดงบรรทัดปัจจุบันเหนือแถบค้นหา",
+  "saLyricsViewMode": "เนื้อเพลงแบบเต็มอิ่ม",
+  "saLyricsViewModeSubtitle": "เนื้อเพลงแบบเต็มจอพร้อมแสงเรืองจากเครื่องเล่น",
+  "saLyricsViewModeInline": "แบบแทรกในหน้า",
+  "saLyricsViewModeFullscreen": "เต็มจอ",
+  "saEnableAnimations": "เปิดใช้งานแอนิเมชัน",
+  "saEnableAnimationsSubtitle": "สวิตช์หลักสำหรับแอนิเมชันทั้งหมด",
+  "saBackAnimations": "แอนิเมชันย้อนกลับ",
+  "saBackAnimationsSubtitle": "แอนิเมชันสำหรับท่าทางนำทางย้อนกลับ",
+  "saScrollAnimations": "แอนิเมชันการเลื่อน",
+  "saScrollAnimationsSubtitle": "รายการค่อยๆ ปรากฏขึ้นขณะเลื่อน",
+  "saBgGradientAnimation": "แอนิเมชันไล่ระดับสีพื้นหลัง",
+  "saBgGradientAnimationSubtitle": "การเปลี่ยนสีแบบเคลื่อนไหวในเครื่องเล่น",
+  "saShapeSquare": "สี่เหลี่ยม",
+  "saShapeRounded": "โค้งมน",
+  "saShapeCircle": "วงกลม",
+  "ssDownloads": "ดาวน์โหลด",
+  "ssSongCache": "แคชเพลง",
+  "ssImageCache": "แคชรูปภาพ",
+  "ssDownloadedSongs": "เพลงที่ดาวน์โหลดแล้ว",
+  "ssClearAllDownloads": "ล้างการดาวน์โหลดทั้งหมด",
+  "ssDownloadQuality": "คุณภาพการดาวน์โหลด",
+  "ssDownloadQualitySubtitle": "คุณภาพเสียงสำหรับเพลงที่ดาวน์โหลด",
+  "ssAutoDownloadLiked": "ดาวน์โหลดเพลงที่ถูกใจอัตโนมัติ",
+  "ssAutoDownloadLikedSubtitle": "ดาวน์โหลดเพลงที่คุณถูกใจโดยอัตโนมัติ",
+  "ssWifiOnly": "ดาวน์โหลดเฉพาะผ่าน WiFi",
+  "ssWifiOnlySubtitle": "ไม่ใช้ข้อมูลมือถือในการดาวน์โหลดเลย",
+  "ssMaxSongCacheSize": "ขนาดแคชเพลงสูงสุด",
+  "ssClearSongCache": "ล้างแคชเพลง",
+  "ssMaxImageCacheSize": "ขนาดแคชรูปภาพสูงสุด",
+  "ssClearImageCache": "ล้างแคชรูปภาพ",
+  "ssClearConfirmTitle": "ล้าง {title} ใช่ไหม?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "ไม่สามารถเรียกคืนได้",
+  "ssCancel": "ยกเลิก",
+  "ssClear": "ล้าง",
+  "ssAllDownloadsTitle": "การดาวน์โหลดทั้งหมด",
+  "ssSongCacheTitle": "แคชเพลง",
+  "ssImageCacheTitle": "แคชรูปภาพ",
+  "ssUsedLabel": "ใช้ไป: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "สูงสุด: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "การล็อกแอป",
+  "sprAppLockTitle": "การล็อกแอป",
+  "sprAppLockSubtitleSet": "ตั้งรหัส PIN เพื่อล็อกแอป",
+  "sprAppLockSubtitleChange": "ตั้งรหัส PIN แล้ว — แตะเพื่อเปลี่ยน",
+  "sprSetPin": "ตั้งรหัส PIN",
+  "sprChangePin": "เปลี่ยนรหัส PIN",
+  "sprSetPinSubtitle": "จำเป็นสำหรับการเปิดใช้งานการล็อกแอป",
+  "sprChangePinSubtitle": "เปลี่ยนรหัส PIN 4 หลักของคุณ",
+  "sprBiometricUnlock": "ปลดล็อกด้วยไบโอเมตริก",
+  "sprBiometricUnlockSubtitle": "ใช้ลายนิ้วมือแทนรหัส PIN",
+  "sprAutoLockAfter": "ล็อกอัตโนมัติหลังจาก",
+  "sprAutoLockAfterSubtitle": "ระยะเวลาที่อยู่เบื้องหลังก่อนล็อก",
+  "sprDelayImmediately": "ทันที",
+  "sprDelayAfter1Min": "หลังจาก 1 นาที",
+  "sprDelayAfter5Min": "หลังจาก 5 นาที",
+  "sprDelayAfter10Min": "หลังจาก 10 นาที",
+  "sprDelayAfter30Min": "หลังจาก 30 นาที",
+  "sprDontLockWhilePlaying": "ไม่ล็อกขณะกำลังเล่นเพลง",
+  "sprDontLockWhilePlayingSubtitle": "แอปจะไม่ล็อกตราบใดที่เพลงกำลังเล่นอยู่",
+  "sprIncognito": "ไม่ระบุตัวตน",
+  "sprIncognitoMode": "โหมดไม่ระบุตัวตน",
+  "sprIncognitoModeSubtitle": "เพลงจะไม่ปรากฏในประวัติหรือส่งผลต่อคำแนะนำ",
+  "sprIncognitoOnInfo": "โหมดไม่ระบุตัวตนเปิดอยู่ — ประวัติการฟังถูกหยุดชั่วคราวและคำแนะนำจะไม่อัปเดต",
+  "sprHideListeningStats": "ซ่อนสถิติการฟัง",
+  "sprHideListeningStatsSubtitle": "ไม่ติดตามจำนวนครั้งที่เล่นหรือเวลาที่ฟัง",
+  "sprClearData": "ล้างข้อมูล",
+  "sprClearHistory": "ล้างประวัติการฟัง",
+  "sprClearHistorySubtitle": "ลบเพลงที่เล่นล่าสุดทั้งหมด",
+  "sprResetRecommendations": "รีเซ็ตคำแนะนำ",
+  "sprResetRecommendationsSubtitle": "ล้างคะแนนความเข้ากันและเริ่มต้นใหม่",
+  "sprClearAllData": "ล้างข้อมูลแอปทั้งหมด",
+  "sprClearAllDataSubtitle": "รีเซ็ตทุกอย่าง — เพลย์ลิสต์ การตั้งค่า ประวัติ",
+  "sprClearTitle": "ล้าง {title} ใช่ไหม?",
+  "sprClearCannotUndo": "ไม่สามารถเรียกคืนได้",
+  "sprCancel": "ยกเลิก",
+  "sprClear": "ล้าง",
+  "sprHistoryTitle": "ประวัติการฟัง",
+  "sprRecommendationsTitle": "คำแนะนำ",
+  "sprAllAppDataTitle": "ข้อมูลแอปทั้งหมด",
+  "sprPinMustBe4Digits": "รหัส PIN ต้องมี 4 หลัก",
+  "sprPinsDontMatch": "รหัส PIN ไม่ตรงกัน โปรดลองอีกครั้ง",
+  "sprConfirmPin": "ยืนยันรหัส PIN",
+  "sprSetPinSheetTitle": "ตั้งรหัส PIN",
+  "sprChangePinSheetTitle": "เปลี่ยนรหัส PIN",
+  "sprEnterPinAgain": "ป้อนรหัส PIN อีกครั้งเพื่อยืนยัน",
+  "sprChoose4DigitPin": "เลือกรหัส PIN 4 หลัก",
+  "sprRemovePin": "ลบรหัส PIN",
+  "sprNext": "ถัดไป",
+  "sprConfirm": "ยืนยัน",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "ไม่สามารถโหลดเพลงได้ในขณะนี้\nดึงลงหรือแตะเพื่อลองอีกครั้ง",
+  "homeFailedToLoad": "โหลดไม่สำเร็จ",
+  "homeFailedToLoadCheckConnection": "ไม่สามารถโหลดได้ในขณะนี้ ดึงลงเพื่อลองอีกครั้ง",
+  "homeLoadingPlaylist": "กำลังโหลด {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "เพลงฮิตของ Arijit Singh",
+  "homePlaylistChartbusters2025": "เพลงฮิตปี 2025",
+  "homePlaylistFreshBollywood": "บอลลีวูดใหม่ล่าสุด",
+  "homePlaylistMovieBlockbusters": "เพลงจากหนังดัง",
+  "homePlaylistNewReleases": "เพลงใหม่",
+  "homePlaylistPartyAnthems": "เพลงปาร์ตี้",
+  "homePlaylistRomanticThisWeek": "เพลงรักประจำสัปดาห์",
+  "homePlaylistTrendingNow": "กำลังมาแรงตอนนี้",
+  "loginSyncSubtitle": "เข้าสู่ระบบเพื่อซิงค์คลังเพลงของคุณ\nในทุกอุปกรณ์",
+  "loginMaybeLater": "ไว้ทีหลัง",
+  "loginBenefitSyncDevices": "ซิงค์เพลย์ลิสต์และรายการโปรดในทุกอุปกรณ์",
+  "loginBenefitResumeWhereLeft": "เล่นต่อจากจุดที่คุณค้างไว้ได้ทันที",
+  "loginBenefitLibrarySafe": "คลังเพลงของคุณปลอดภัยแม้จะเปลี่ยนโทรศัพท์",
+  "loginBenefitPersonalizedProfile": "โปรไฟล์ส่วนตัวพร้อมชื่อและรูปภาพจาก Google ของคุณ",
+  "loginContinueWithGoogle": "ดำเนินการต่อด้วย Google",
+  "commonClear": "ล้าง",
+  "commonCreate": "สร้าง",
+  "commonImport": "นำเข้า",
+  "libraryActionCannotBeUndone": "ไม่สามารถเรียกคืนได้",
+  "libraryAddToPlaylist": "เพิ่มไปยังเพลย์ลิสต์",
+  "libraryAddedToPlaylist": "เพิ่มไปยัง \"{name}\" แล้ว",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{เพิ่ม 1 เพลงไปยัง \"{name}\" แล้ว} other{เพิ่ม {count} เพลงไปยัง \"{name}\" แล้ว}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{เลือก 1 รายการ} other{เลือก {count} รายการ}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "เลือก",
+  "librarySelectAll": "เลือกทั้งหมด",
+  "libraryDeselectAll": "ยกเลิกเลือกทั้งหมด",
+  "libraryRemoveSelectedFromPlaylist": "นำออกจากเพลย์ลิสต์",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{นำเพลงนี้ออกจากเพลย์ลิสต์ใช่ไหม?} other{นำ {count} เพลงนี้ออกจากเพลย์ลิสต์ใช่ไหม?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{นำออก 1 เพลงแล้ว} other{นำออก {count} เพลงแล้ว}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "เล่นบน",
+  "castingToDevice": "กำลังแคสต์ไปยัง {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "อุปกรณ์",
+  "castSessionDisconnect": "ยกเลิกการเชื่อมต่อ",
+  "castSessionStopCasting": "หยุดแคสต์",
+  "castDeviceFallbackTitle": "อุปกรณ์แคสต์",
+  "castToDeviceLabel": "แคสต์ไปยังอุปกรณ์",
+  "castPickerTitle": "แคสต์ไปยัง",
+  "castPickerScanning": "กำลังค้นหาอุปกรณ์…",
+  "castPickerNoDevices": "ไม่พบอุปกรณ์ ตรวจสอบว่า Chromecast หรือทีวีของคุณอยู่ในเครือข่าย Wi-Fi เดียวกัน",
+  "castPickerConnectFailed": "ไม่สามารถเชื่อมต่อได้ โปรดลองอีกครั้ง",
+  "audioOutputAutoRoutingNotice": "บน Android เวอร์ชันนี้ เอาต์พุตจะเปลี่ยนไปยังอุปกรณ์ที่เชื่อมต่อล่าสุดโดยอัตโนมัติ",
+  "audioOutputSwitchFailed": "ไม่สามารถเปลี่ยนอุปกรณ์เอาต์พุตได้ โปรดลองอีกครั้ง",
+  "libraryAlbumTag": "อัลบั้ม",
+  "libraryAlbumsYouSaveAppearHere": "อัลบั้มที่คุณบันทึกจะปรากฏที่นี่",
+  "libraryAlreadyInPlaylist": "มีอยู่ใน \"{name}\" แล้ว",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{ศิลปิน 1 คน} other{ศิลปิน {count} คน}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "ศิลปิน",
+  "libraryArtistsYouFollowAppearHere": "ศิลปินที่คุณติดตามจะปรากฏที่นี่",
+  "libraryClearHistoryConfirm": "{count, plural, =1{เพลง 1 เพลงจะถูกลบ} other{เพลงทั้ง {count} เพลงจะถูกลบ}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "ล้างประวัติใช่ไหม?",
+  "libraryCollection": "คอลเลกชัน",
+  "libraryComingSoon": "เร็วๆ นี้",
+  "libraryCreateFirstPlaylistDesc": "สร้างเพลย์ลิสต์แรกของคุณและ\nเริ่มจัดเรียงเพลงของคุณ",
+  "libraryCreatePlaylist": "สร้างเพลย์ลิสต์",
+  "libraryImportFromYoutube": "นำเข้าจากเพลย์ลิสต์ YouTube",
+  "libraryImportFromYoutubeDesc": "วางลิงก์เพลย์ลิสต์ YouTube แล้ว Astra จะดึงเพลงทั้งหมดมาให้ พร้อมเล่นได้ทันที",
+  "libraryYoutubePlaylistLinkLabel": "ลิงก์เพลย์ลิสต์",
+  "libraryYoutubeLinkEmptyError": "วางลิงก์เพลย์ลิสต์เพื่อดำเนินการต่อ",
+  "libraryYoutubeImportFailedError": "ไม่สามารถนำเข้าเพลย์ลิสต์นั้นได้ ตรวจสอบลิงก์และลองอีกครั้ง",
+  "libraryYoutubeImportInvalidLinkError": "นี่ดูเหมือนจะไม่ใช่ลิงก์เพลย์ลิสต์ คัดลอกลิงก์จากเมนูแชร์ของเพลย์ลิสต์แล้วลองอีกครั้ง",
+  "libraryYoutubeImportMixError": "ไม่สามารถนำเข้ามิกซ์และสถานีวิทยุได้ — เฉพาะเพลย์ลิสต์ปกติเท่านั้นที่มีรายการเพลงคงที่ ลองใช้เพลย์ลิสต์ที่บันทึกไว้แทน",
+  "libraryYoutubeImportNetworkError": "ไม่สามารถเข้าถึง YouTube ได้ ตรวจสอบการเชื่อมต่อของคุณและลองอีกครั้ง",
+  "libraryDefaultPlaylistName": "เพลย์ลิสต์ของฉัน",
+  "libraryDeletePlaylist": "ลบเพลย์ลิสต์",
+  "libraryDeletePlaylistConfirm": "ลบ \"{name}\" ใช่ไหม?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "คำอธิบาย (ไม่บังคับ)",
+  "libraryDownloadPlaylist": "ดาวน์โหลดเพลย์ลิสต์",
+  "libraryDownloadingPlaylist": "กำลังดาวน์โหลดเพลย์ลิสต์…",
+  "libraryDownloadPlaylistProgress": "กำลังดาวน์โหลด {done} จาก {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "ล้มเหลว — แตะเพื่อลองอีกครั้ง",
+  "libraryDownloadFromPlayerDesc": "ดาวน์โหลดเพลงจากเครื่องเล่นเพื่อฟังแบบออฟไลน์",
+  "libraryDownloadedCountHeader": "{count, plural, =1{ดาวน์โหลดแล้ว 1 เพลง} other{ดาวน์โหลดแล้ว {count} เพลง}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 เพลง} other{{count} เพลง}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "ดาวน์โหลดแล้ว",
+  "libraryDownloadsTabInProgress": "กำลังดำเนินการ",
+  "libraryDownloadPaused": "หยุดชั่วคราว",
+  "libraryDownloadResume": "เล่นต่อ",
+  "libraryDownloadPause": "หยุดชั่วคราว",
+  "libraryDownloadCancel": "ยกเลิก",
+  "libraryDownloadingHeader": "กำลังดาวน์โหลด",
+  "libraryDownloadingPercent": "กำลังดาวน์โหลด • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "แก้ไขเพลย์ลิสต์",
+  "libraryHistory": "ประวัติ",
+  "libraryHistoryEarlierToday": "ก่อนหน้านี้วันนี้",
+  "libraryHistoryJustNow": "เมื่อสักครู่",
+  "libraryHistoryOlder": "เก่ากว่า",
+  "libraryHistoryRecent": "ล่าสุด",
+  "libraryHistoryYesterday": "เมื่อวาน",
+  "libraryLiked": "ถูกใจ",
+  "libraryLikedCount": "{count, plural, =0{ถูกใจ 0 เพลง} =1{ถูกใจ 1 เพลง} other{ถูกใจ {count} เพลง}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "ไฟล์ในเครื่อง",
+  "libraryLoginToOrganizeDesc": "เข้าสู่ระบบด้วย Google เพื่อจัดระเบียบเพลงของคุณเป็นเพลย์ลิสต์",
+  "libraryNeedsPermissionToReadMusic": "Astra ต้องการสิทธิ์ในการอ่านเพลงของคุณ",
+  "libraryNewPlaylist": "เพลย์ลิสต์ใหม่",
+  "libraryNewPlaylistLower": "เพลย์ลิสต์ใหม่",
+  "libraryNoAlbumsSavedYet": "ยังไม่มีอัลบั้มที่บันทึกไว้",
+  "libraryNoArtistsSavedYet": "ยังไม่มีศิลปินที่บันทึกไว้",
+  "libraryNoDownloadsYet": "ยังไม่มีการดาวน์โหลด",
+  "libraryNoHistoryYet": "ยังไม่มีประวัติ",
+  "libraryNoLocalSongsFound": "ไม่พบเพลงในเครื่อง",
+  "libraryLocalSearchHint": "ค้นหาเพลงในเครื่อง",
+  "libraryLocalSearchNoResults": "ไม่พบเพลงในเครื่องที่ตรงกับ \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "ยังไม่มีเพลย์ลิสต์",
+  "libraryNoSongsYetInPlaylist": "ยังไม่มีเพลง",
+  "libraryNothingHereYet": "ยังไม่มีอะไรที่นี่",
+  "libraryOnDeviceCount": "{count} ในอุปกรณ์",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "จำเป็นต้องมีสิทธิ์การเข้าถึง",
+  "libraryPlaySomethingToSeeHistory": "เล่นเพลงบางเพลงเพื่อดูประวัติ",
+  "libraryPlaylistCount": "{count, plural, =1{1 เพลย์ลิสต์} other{{count} เพลย์ลิสต์}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "ชื่อเพลย์ลิสต์",
+  "libraryPlaylistNotFound": "ไม่พบเพลย์ลิสต์",
+  "libraryRecentlyPlayed": "เล่นล่าสุด",
+  "libraryRemoveDownload": "ลบการดาวน์โหลด",
+  "libraryRemoveFromPlaylist": "นำออกจากเพลย์ลิสต์",
+  "libraryRemoveFromSavedAlbums": "นำออกจากอัลบั้มที่บันทึกไว้",
+  "libraryChooseFromGallery": "เลือกจากแกลเลอรี",
+  "libraryRemoveCustomCover": "ลบภาพปกที่กำหนดเอง",
+  "libraryRenamePlaylist": "เปลี่ยนชื่อเพลย์ลิสต์",
+  "librarySearchAndAddSongsHere": "ค้นหาเพลงและเพิ่มที่นี่",
+  "librarySeeAllSongs": "{count, plural, =1{ดูเพลง 1 เพลง} other{ดูทั้งหมด {count} เพลง}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "เพลงที่คุณเล่นจะปรากฏที่นี่",
+  "libraryUnfollowArtist": "เลิกติดตามศิลปิน",
+  "libraryYourCollection": "คอลเลกชันของคุณ",
+  "alWrongPin": "รหัส PIN ไม่ถูกต้อง โปรดลองอีกครั้ง",
+  "alEnterPinToUnlock": "ป้อนรหัส PIN เพื่อปลดล็อก",
+  "alBiometricReason": "ใช้ลายนิ้วมือเพื่อปลดล็อก Astra Music",
+  "asCouldntLoad": "ไม่สามารถโหลด {name} ได้",
+  "asRetry": "ลองอีกครั้ง",
+  "asVerifiedArtist": "ศิลปินที่ยืนยันแล้ว",
+  "asMonthlyListeners": "ผู้ฟังรายเดือน {count} คน",
+  "asSaved": "บันทึกแล้ว",
+  "asSave": "บันทึก",
+  "asPopular": "ยอดนิยม",
+  "asAlbums": "อัลบั้ม",
+  "asSingles": "ซิงเกิล",
+  "asAbout": "เกี่ยวกับ",
+  "asFansAlsoLike": "แฟนเพลงอาจชอบสิ่งนี้ด้วย",
+  "asShowAll": "แสดงทั้งหมด",
+  "asShowLess": "แสดงน้อยลง",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "เกี่ยวกับ",
+  "abPrivacyPolicyTitle": "นโยบายความเป็นส่วนตัว",
+  "abUpdate": "อัปเดต",
+  "abCheckForUpdate": "ตรวจสอบการอัปเดต",
+  "abCheckForUpdateSubtitle": "ดูว่ามีเวอร์ชันใหม่หรือไม่",
+  "abChangelog": "บันทึกการเปลี่ยนแปลง",
+  "abChangelogSubtitle": "มีการเปลี่ยนแปลงอะไรในเวอร์ชันล่าสุด",
+  "abLegal": "กฎหมาย",
+  "abPrivacyPolicy": "นโยบายความเป็นส่วนตัว",
+  "abPrivacyPolicySubtitle": "ข้อมูลของคุณถูกจัดการอย่างไร",
+  "abTermsOfUse": "ข้อกำหนดการใช้งาน",
+  "abTermsOfUseSubtitle": "ข้อตกลงระหว่างคุณกับ Astra",
+  "abCommunity": "ชุมชน",
+  "abSendFeedback": "ส่งความคิดเห็น",
+  "abSendFeedbackSubtitle": "บอกเราว่าคุณคิดอย่างไรได้ทุกเมื่อ",
+  "abShareApp": "แชร์ Astra",
+  "abShareAppSubtitle": "บอกเพื่อนของคุณเกี่ยวกับแอปนี้",
+  "abDeveloper": "ผู้พัฒนา",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "กำลังโหลด...",
+  "abVersionBuild": "v{version} (บิลด์ {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "การเล่นในพื้นหลัง",
+  "snPlayerNotification": "การแจ้งเตือนเครื่องเล่น",
+  "snNotificationStyle": "รูปแบบการแจ้งเตือน",
+  "snBgPlaybackEnabled": "เปิดใช้งานการเล่นในพื้นหลัง",
+  "snAllowBgPlayback": "อนุญาตการเล่นในพื้นหลัง",
+  "snBgPlaybackEnabledDesc": "เพลงจะเล่นต่อเมื่อปิดหน้าจอหรือปิดแอป",
+  "snAllowBgPlaybackDesc": "แตะเพื่ออนุญาตให้เพลงเล่นต่อในพื้นหลัง — โทรศัพท์บางรุ่นจะหยุดเล่นหากไม่เปิดตัวเลือกนี้",
+  "snShowMediaNotif": "แสดงการแจ้งเตือนสื่อ",
+  "snShowMediaNotifSubtitle": "แสดงเครื่องเล่นบนแถบแจ้งเตือน",
+  "snShowArtwork": "แสดงภาพปกเพลง",
+  "snShowArtworkSubtitle": "แสดงภาพปกอัลบั้มในการแจ้งเตือน",
+  "snShowPrevButton": "แสดงปุ่มเพลงก่อนหน้า",
+  "snShowPrevButtonSubtitle": "เพิ่มปุ่มเพลงก่อนหน้าในการแจ้งเตือนสื่อ",
+  "snStyleCompact": "กะทัดรัด",
+  "snStyleCompactDesc": "ตัวควบคุมขนาดเล็กและเรียบง่าย",
+  "snStyleExpanded": "ขยาย",
+  "snStyleExpandedDesc": "ตัวควบคุมเต็มรูปแบบพร้อมภาพปก",
+  "prProfile": "โปรไฟล์",
+  "prAurumListener": "ผู้ฟัง Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "ซิงค์คลังเพลง",
+  "prBenefitSyncSub": "เพลงของคุณซิงค์กันในทุกอุปกรณ์",
+  "prBenefitLifetimeTitle": "สิทธิ์การใช้งานตลอดชีพ",
+  "prBenefitLifetimeSub": "ไม่มีการสมัครสมาชิก เป็นของคุณตลอดไป",
+  "prBenefitAdFreeTitle": "ไม่มีโฆษณา",
+  "prBenefitAdFreeSub": "ไม่มีการขัดจังหวะ ฟังเพลงล้วนๆ",
+  "prBenefitQualityTitle": "เสียงคุณภาพสูง",
+  "prBenefitQualitySub": "คุณภาพการสตรีมที่ดีที่สุดที่มี",
+  "prBenefitOfflineTitle": "พร้อมใช้งานออฟไลน์",
+  "prBenefitOfflineSub": "ดาวน์โหลดและเล่นได้ทุกที่",
+  "prBenefitRecsTitle": "คำแนะนำอัจฉริยะ",
+  "prBenefitRecsSub": "คิวเพลงและการค้นพบตามอารมณ์",
+  "prAllFeaturesUnlocked": "ปลดล็อกทุกฟีเจอร์แล้ว",
+  "prUpgradeToUnlock": "อัปเกรดเพื่อปลดล็อกทุกอย่าง",
+  "prActive": "ใช้งานอยู่",
+  "prFree": "ฟรี",
+  "prSyncingLibrary": "กำลังซิงค์คลังเพลงของคุณ…",
+  "prSignedIn": "เข้าสู่ระบบแล้ว",
+  "prSyncLibraryTitle": "ซิงค์คลังเพลงของคุณ",
+  "prSyncLibrarySubtitle": "เข้าสู่ระบบเพื่อเข้าถึงได้ในทุกอุปกรณ์",
+  "prSignIn": "เข้าสู่ระบบ",
+  "prSignedInSynced": "เข้าสู่ระบบแล้ว — คลังเพลงของคุณซิงค์แล้ว",
+  "prSignedInUpgradePrompt": "เข้าสู่ระบบแล้ว! อัปเกรดเป็นพรีเมียมเพื่อเปิดใช้งานการซิงค์บนคลาวด์",
+  "prSignOutTitle": "ออกจากระบบใช่ไหม?",
+  "prSignOutBody": "เพลงที่ถูกใจ เพลย์ลิสต์ ศิลปินที่ติดตาม และประวัติของคุณจะถูกลบออกจากอุปกรณ์นี้ เข้าสู่ระบบอีกครั้งได้ทุกเมื่อเพื่อกู้คืนข้อมูล",
+  "prCancel": "ยกเลิก",
+  "prSignOut": "ออกจากระบบ",
+  "prSignedOutCleared": "ออกจากระบบแล้ว — ข้อมูลของคุณถูกลบออกจากอุปกรณ์นี้แล้ว",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "เพลง แบบที่ควรจะได้ยิน",
+  "psRating": "คะแนน 4.9★",
+  "psSecure": "ปลอดภัย",
+  "psRefund": "คืนเงินภายใน 7 วัน",
+  "psChoosePlan": "เลือกแผนของคุณ",
+  "psBadgeTryIt": "ลองเลย",
+  "psBadgeSave58": "ประหยัด 58%",
+  "psBadgeBestDeal": "ข้อเสนอที่ดีที่สุด",
+  "psEverythingIncluded": "รวมทุกอย่างไว้แล้ว",
+  "psFeatHdAudioTitle": "เสียง HD • 320kbps",
+  "psFeatHdAudioSub": "คุณภาพไร้การสูญเสียที่คมชัด",
+  "psFeatSkipsTitle": "ข้ามเพลงได้ไม่จำกัด",
+  "psFeatSkipsSub": "ข้ามเพลงได้มากเท่าที่คุณต้องการ",
+  "psFeatAdsTitle": "ไม่มีโฆษณาเลย",
+  "psFeatAdsSub": "ประสบการณ์ที่ปราศจากโฆษณาโดยสมบูรณ์",
+  "psFeatAiTitle": "คำแนะนำจาก AI",
+  "psFeatAiSub": "เพลงที่คัดสรรมาเพื่อคุณโดยเฉพาะ",
+  "psFeatOfflineTitle": "ดาวน์โหลดออฟไลน์",
+  "psFeatOfflineSub": "ฟังได้โดยไม่ต้องใช้อินเทอร์เน็ต",
+  "psFeatSyncTitle": "ซิงค์บนคลาวด์",
+  "psFeatSyncSub": "คลังเพลงของคุณในทุกอุปกรณ์",
+  "psFeatFollowTitle": "ถูกใจและติดตามศิลปิน",
+  "psFeatFollowSub": "สร้างคอลเลกชันส่วนตัวของคุณ",
+  "psFeatPlaylistsTitle": "เพลย์ลิสต์ไม่จำกัด",
+  "psFeatPlaylistsSub": "สร้างและแชร์เพลย์ลิสต์",
+  "psFeatThemesTitle": "ธีมพิเศษเฉพาะ",
+  "psFeatThemesSub": "สีและรูปแบบเครื่องเล่นระดับพรีเมียม",
+  "psGetPlusPrice": "รับ Plus — {price}",
+  "psSignInGetPlus": "เข้าสู่ระบบและรับ Plus",
+  "psPerMonth": "{price}/เดือน",
+  "psPerYear": "{price}/ปี",
+  "psOneTime": "{price} ครั้งเดียว",
+  "psSecurePayments": "🔒  ชำระเงินอย่างปลอดภัยผ่าน Razorpay  •  ยกเลิกได้ทุกเมื่อ",
+  "psMoneyBack": "รับประกันคืนเงินภายใน 7 วัน",
+  "psPlanMonthly": "1 เดือน",
+  "psPlanYearly": "1 ปี",
+  "psPlanLifetime": "ตลอดชีพ",
+  "psSubPerMonth": "ต่อเดือน",
+  "psSubPerYear": "ต่อปี",
+  "psSubPayOnce": "จ่ายครั้งเดียว เป็นเจ้าของตลอดไป",
+  "psSuccessTitle": "ตอนนี้คุณเป็น Plus แล้ว ✦",
+  "psSuccessBody": "ปลดล็อกทุกฟีเจอร์แล้ว\nเพลิดเพลินกับประสบการณ์ Astra แบบเต็มรูปแบบ",
+  "psStartListening": "เริ่มฟังเพลง",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "ค่าเริ่มต้นของระบบ",
+  "fpLikeSongsFeature": "ถูกใจเพลง",
+  "fpLikeSongsSignIn": "เข้าสู่ระบบด้วย Google เพื่อบันทึกเพลงไว้ในคลังเพลงของคุณ",
+  "fpClosePlayer": "ปิดเครื่องเล่น",
+  "fpNowPlaying": "กำลังเล่น",
+  "fpMoreOptions": "ตัวเลือกเพิ่มเติม",
+  "fpUnlimitedSkipsFeature": "ข้ามเพลงได้ไม่จำกัด",
+  "fpUnlimitedSkipsSignIn": "เข้าสู่ระบบด้วย Google เพื่อข้ามเพลงได้มากเท่าที่คุณต้องการ",
+  "fpShuffle": "สุ่มเพลง",
+  "fpPrevious": "ก่อนหน้า",
+  "fpNext": "ถัดไป",
+  "fpRepeat": "เล่นซ้ำ",
+  "fpLocalBadge": "ในเครื่อง",
+  "fpQueueLyricsInfo": "คิว · เนื้อเพลง · ข้อมูล",
+  "fpPause": "หยุดชั่วคราว",
+  "fpPlay": "เล่น",
+  "fpShareText": "{artist} — {title}\n\nแชร์จาก Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "ชื่อเพลง",
+  "fpSongInfoArtist": "ศิลปิน",
+  "fpSongInfoAlbum": "อัลบั้ม",
+  "fpSongInfoDuration": "ระยะเวลา",
+  "fpSongInfoYear": "ปี",
+  "fpSongInfoLanguage": "ภาษา",
+  "fpSongInfo": "ข้อมูลเพลง",
+  "fpAlreadyDownloaded": "ดาวน์โหลดแล้ว",
+  "fpAlreadyDownloading": "กำลังดาวน์โหลดอยู่แล้ว",
+  "fpAlreadyOnDevice": "มีอยู่ในอุปกรณ์นี้แล้ว",
+  "fpDownloadingSong": "กำลังดาวน์โหลด {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "เล่นถัดไป",
+  "fpAddToQueue": "เพิ่มในคิว",
+  "fpAddedToQueue": "เพิ่มในคิวแล้ว",
+  "fpLiked": "ถูกใจแล้ว",
+  "fpLikeAction": "ถูกใจ",
+  "fpLikeSignInBuildLibrary": "เข้าสู่ระบบด้วย Google เพื่อสร้างคลังเพลงส่วนตัวของคุณ",
+  "fpAddedToLiked": "เพิ่มในรายการถูกใจแล้ว",
+  "fpRemovedFromLiked": "นำออกจากรายการถูกใจแล้ว",
+  "fpShare": "แชร์",
+  "fpSaveToPlaylist": "บันทึกลงเพลย์ลิสต์",
+  "fpAudioEffects": "เอฟเฟกต์เสียง",
+  "fpSleepRemaining": "ปิดเพลง • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "ตัวจับเวลาปิดเพลง",
+  "fpDownloaded": "ดาวน์โหลดแล้ว",
+  "fpDownloading": "กำลังดาวน์โหลด…",
+  "fpDownload": "ดาวน์โหลด",
+  "fpDownloadingPercent": "กำลังดาวน์โหลด {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "คิว",
+  "fpLyrics": "เนื้อเพลง",
+  "fpInfo": "ข้อมูล",
+  "fpQueueEmpty": "คิวว่างเปล่า",
+  "fpUpNext": "ถัดไป",
+  "fpFindingSongs": "กำลังค้นหาเพลงสำหรับคุณ…",
+  "fpMoveToTop": "ย้ายไปด้านบน",
+  "fpRemoveFromQueue": "นำออกจากคิว",
+  "fpNoLyricsFound": "ไม่พบเนื้อเพลง",
+  "fpLyricsNotAvailable": "ไม่มีเนื้อเพลงสำหรับเพลงนี้",
+  "fpSourceLabel": "แหล่งที่มา",
+  "fpLocalLibrary": "คลังเพลงในเครื่อง",
+  "fpOnlineStream": "สตรีมออนไลน์",
+  "fpDownloadFailed": "ไม่สามารถดาวน์โหลด \"{title}\" ได้ — ไม่มีสตรีมให้ใช้งาน",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

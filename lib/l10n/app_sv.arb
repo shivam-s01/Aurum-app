@@ -1,0 +1,1179 @@
+{
+  "@@locale": "sv",
+  "navHome": "Hem",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Sök",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Bibliotek",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Avbryt",
+  "commonSave": "Spara",
+  "commonDone": "Klar",
+  "commonRetry": "Försök igen",
+  "commonSeeAll": "Visa alla",
+  "commonPlay": "Spela",
+  "commonPause": "Pausa",
+  "commonShuffle": "Blanda",
+  "commonDelete": "Ta bort",
+  "commonEdit": "Redigera",
+  "commonShare": "Dela",
+  "commonAdd": "Lägg till",
+  "commonRemove": "Ta bort",
+  "commonSearch": "Sök",
+  "commonSettings": "Inställningar",
+  "commonOk": "OK",
+  "commonYes": "Ja",
+  "commonNo": "Nej",
+  "settingsTitle": "Inställningar",
+  "settingsAccount": "KONTO",
+  "settingsSectionGeneral": "Allmänt",
+  "settingsSectionPlayback": "Uppspelning",
+  "settingsSectionSystem": "System",
+  "settingsPlayerAudio": "Spelare och Ljud",
+  "settingsAppearance": "Utseende",
+  "settingsDownloads": "Nedladdningar",
+  "settingsStorage": "Lagring",
+  "settingsAbout": "Om",
+  "settingsLanguage": "Språk",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Välj ditt önskade appspråk",
+  "playerNowPlaying": "Spelas Nu",
+  "playerUpNext": "Kommande",
+  "playerLyrics": "Text",
+  "playerQueue": "Kö",
+  "playerInfo": "Info",
+  "librarySongs": "Låtar",
+  "libraryPlaylists": "Spellistor",
+  "libraryArtists": "Artister",
+  "libraryAlbums": "Album",
+  "libraryLikedSongs": "Gillade Låtar",
+  "libraryDownloaded": "Nedladdade",
+  "libraryEmptyState": "Inget här än",
+  "homeTrendingPlaylists": "Trendande Spellistor",
+  "mixPullForMore": "Dra ner för fler låtar",
+  "homeMoodAll": "Alla",
+  "homePlaylistsForYou": "Spellistor för Dig",
+  "homeAlbumsForYou": "Album för Dig",
+  "homeAfternoonPicks": "Eftermiddagsval",
+  "homeBollywoodMix": "Bollywood Mix",
+  "homeDevotional": "Andlig Musik",
+  "homeTrendingNow": "Trendar Nu",
+  "homeNewReleases": "Nya Släpp",
+  "feedbackTitle": "Gillar du Astra?",
+  "feedbackSubtitle": "Din feedback hjälper oss att göra den ännu bättre.",
+  "feedbackHint": "Berätta vad du tycker (valfritt)",
+  "feedbackSend": "Skicka Feedback",
+  "feedbackNotNow": "Inte nu",
+  "feedbackThankYouTitle": "Tack!",
+  "premiumSoundTitle": "Premiumljud",
+  "premiumSoundSubtitle": "Rikare, fylligare ljud på varje spår — fungerar med alla källkvaliteter",
+  "bassBoostTitle": "Basförstärkning",
+  "bassBoostSubtitle": "Förstärk lågfrekvenser för ett djupare ljud",
+  "homePickSomething": "Välj något att spela",
+  "homePopularArtists": "Populära Artister",
+  "homeOnline": "Online",
+  "homeOffline": "Offline",
+  "homeCheckYourInternet": "Kontrollera din internetanslutning",
+  "homePlaybackSource": "Uppspelningskälla",
+  "homePlaybackSourceSubtitle": "Välj varifrån Astra spelar musik",
+  "homeOnlineStreaming": "Onlineströmning",
+  "homeStreamOnlineDesc": "Strömma musik online",
+  "homeOfflineLibrary": "Offlinebibliotek",
+  "homeOfflineLibraryDesc": "Spela endast nedladdade låtar",
+  "homeGrantPermission": "Bevilja Behörighet",
+  "homeStoragePermissionNeeded": "Lagringsbehörighet krävs",
+  "homeNoLocalSongs": "Inga lokala låtar hittades",
+  "homeScanAgain": "Skanna Igen",
+  "homeLocalSongs": "Lokala Låtar",
+  "homePlaybackDiagnostics": "Uppspelningsdiagnostik",
+  "commonClose": "Stäng",
+  "commonPlayAll": "Spela Alla",
+  "likedNoSongsYet": "Inga gillade låtar än",
+  "likedTapToSave": "Tryck på ♥ på valfri låt för att spara den här",
+  "librarySongsCount": "{count, plural, =0{Inga låtar} one{1 låt} other{{count} låtar}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Kö",
+  "queueEmpty": "Kön är tom",
+  "queueEmptySubtitle": "Låtar du spelar härnäst hamnar här",
+  "albumNoSongsFound": "Inga låtar hittades",
+  "searchHint": "Låtar, artister, album...",
+  "searchRecent": "Senaste",
+  "searchClearAll": "Rensa allt",
+  "searchNoResultsFor": "Inga resultat för \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Sök överallt",
+  "searchYouMightAlsoLike": "Du kanske också gillar",
+  "searchSeeAllResultsFor": "Se alla resultat för \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Sök efter dina favoritlåtar",
+  "searchAllInOnePlace": "Låtar, artister, album — allt på ett ställe",
+  "searchTabSearch": "Sök",
+  "searchTabBrowse": "Bläddra",
+  "browseTypeToExplore": "Skriv för att utforska artister och album",
+  "browseNoResults": "Inga resultat",
+  "browseAlbumFallbackTitle": "Album",
+  "settingsPlayerAudioSubtitle": "Uppspelning, equalizer, crossfade och beteende",
+  "settingsAppearanceSubtitle": "Tema, färger, spelarstil och animationer",
+  "settingsStorageSubtitle": "Nedladdningar, låtcache och bildcache",
+  "settingsNotifications": "Aviseringar",
+  "settingsNotificationsSubtitle": "Mediaaviseringsstil och skivomslag",
+  "settingsPrivacy": "Integritet",
+  "settingsPrivacySubtitle": "Applås, inkognitoläge och data",
+  "settingsAboutSubtitle": "Version, uppdateringar, integritet och utvecklare",
+  "premiumFeature320kbps": "320kbps streaming",
+  "premiumFeatureUnlimitedSkips": "Obegränsat hoppa över",
+  "premiumFeatureLikeFollow": "Gilla och följ",
+  "premiumFeatureCreatePlaylists": "Skapa spellistor",
+  "premiumFeatureCloudSync": "Molnsynkronisering",
+  "premiumFeatureExclusiveThemes": "Exklusiva teman",
+  "premiumAllFeaturesUnlocked": "Alla funktioner upplåsta",
+  "premiumActive": "Aktiv",
+  "premiumUpgradeTitle": "Uppgradera till Premium",
+  "premiumUnlockEverything": "Lås upp allt i Astra",
+  "premiumGetButton": "✦  Skaffa Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "UPPSPELNING",
+  "spSleepTimer": "INSOMNINGSTIMER",
+  "spEqualizer": "EQUALIZER",
+  "spBehavior": "BETEENDE",
+  "spStreamQuality": "Strömningskvalitet",
+  "spStreamQualitySubtitle": "Ljudbithastighet för onlineströmning",
+  "spQualityAuto": "Automatisk",
+  "spQualityAutoDesc": "Bästa tillgängliga för varje låt",
+  "spQualityLow": "Låg",
+  "spQualityLowDesc": "48–96kbps · sparar data",
+  "spQualityMedium": "Medel",
+  "spQualityMediumDesc": "Upp till 160kbps",
+  "spQualityHigh": "Hög",
+  "spQualityHighDesc": "320kbps · studiokvalitet",
+  "spQualityDataSaver": "Smart Sparläge",
+  "spQualityDataSaverDesc": "Låter bra även på 2G",
+  "spQualityDataSaverDescExpanded": "Strömmar den minsta fil din anslutning klarar av och ökar sedan tyst mot 320kbps så fort låten har utrymme.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Datasparläge",
+  "spDataSaverSubtitle": "Tvinga låg kvalitet på mobildata",
+  "spGaplessPlayback": "Sömlös Uppspelning",
+  "spGaplessPlaybackSubtitle": "Ingen tystnad mellan spår",
+  "spShowCastIcon": "Visa Chromecast-ikon",
+  "spShowCastIconSubtitle": "Styr när castikonen visas i fullskärmsspelaren",
+  "spCastIconAuto": "Automatisk",
+  "spCastIconAlways": "Visa alltid",
+  "spCastIconHidden": "Dold",
+  "spPlaybackSpeed": "Uppspelningshastighet",
+  "spPlaybackSpeedSubtitle": "Gäller både lokala och onlinelåtar",
+  "spNormal": "Normal",
+  "spCrossfade": "Crossfade",
+  "spCrossfadeSubtitle": "Mjuk övergång mellan spår",
+  "spOff": "Av",
+  "spVolumeNormalization": "Volymnormalisering",
+  "spVolumeNormalizationSubtitle": "Håller alla låtar på en konsekvent volymnivå",
+  "spBassBoost": "Basförstärkning",
+  "spBassBoostSubtitle": "Förstärk lågfrekvenser för ett djupare ljud",
+  "spPremiumSound": "Premiumljud",
+  "spPremiumSoundSubtitle": "Lås upp kristallklar sång, djupare bas och ett uppslukande premiumljud",
+  "spPremiumSoundPartialSupport": "Vissa effekter stöds inte på den här enheten — klarhet och bas är fortfarande aktiva",
+  "spSleepTimerActive": "Insomningstimer Aktiv",
+  "spSleepTimerTitle": "Insomningstimer",
+  "spSleepTimerStopsIn": "Stoppar om {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Ställ in en timer för att stoppa uppspelningen",
+  "spCancel": "Avbryt",
+  "spAutoSleepGuard": "AUTOMATISKT VILOSKYDD",
+  "asgTileTitle": "Automatiskt Viloskydd",
+  "asgTileSubtitleOn": "Pausar efter {hours}h inaktivitet",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Logga in för att använda Automatiskt Viloskydd",
+  "asgTileSubtitleOff": "Av",
+  "asgTileAutomaticBadge": "Automatisk",
+  "asgTileOffBadge": "Av",
+  "asgSheetTitle": "Automatiskt Viloskydd",
+  "asgSheetBody": "Astra pausar automatiskt uppspelningen efter en period av inaktivitet för att spara batteri. Välj hur länge den ska vänta.",
+  "asgSheetModeLabel": "Läge",
+  "asgSheetModeAutomatic": "Automatisk",
+  "asgSheetModeAutomaticDesc": "Bevakar inaktivitet och pausar för att spara batteri",
+  "asgSheetModeOff": "Av",
+  "asgSheetModeOffDesc": "Pausar aldrig automatiskt",
+  "asgSheetPremiumHint": "Körs tyst i bakgrunden — inställd för att aldrig störa",
+  "asgSheetDurationLabel": "Pausa efter",
+  "asgSheetHours": "{count}h",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Sparad",
+  "asgSheetDone": "Klar",
+  "asgResumePromptTitle": "Pausad efter inaktivitet",
+  "asgResumePromptSubtitle": "Pausad kl. {time} — Återuppta?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Återuppta",
+  "asgResumePromptDismiss": "Avvisa",
+  "bsmTileTitle": "Batterisparläge",
+  "bsmTileSubtitleActive": "Aktivt — batteri på {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Aktiveras automatiskt under {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Av",
+  "bsmTileAutomaticBadge": "Automatisk",
+  "bsmTileOffBadge": "Av",
+  "bsmSheetTitle": "Batterisparläge",
+  "bsmSheetBody": "När batteriet blir lågt stänger Astra automatiskt av bakgrundsanimationer, oskärpa och andra visuella effekter — uppspelningen fortsätter exakt som vanligt.",
+  "bsmSheetPremiumHint": "Körs tyst i bakgrunden — uppspelningen påverkas aldrig, bara det visuella",
+  "bsmSheetModeLabel": "Läge",
+  "bsmSheetModeAutomatic": "Automatisk",
+  "bsmSheetModeAutomaticDesc": "Bevakar batterinivån och sparar ström när den är låg",
+  "bsmSheetModeOff": "Av",
+  "bsmSheetModeOffDesc": "Aktiveras aldrig automatiskt",
+  "bsmSheetThresholdLabel": "Aktivera under",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Sparad",
+  "bsmSheetDone": "Klar",
+  "spEqualizerTitle": "Equalizer",
+  "spEqualizerSubtitle": "10-bands EQ med förinställningar",
+  "spKeepQueue": "Behåll Kö vid Återöppning",
+  "spKeepQueueSubtitle": "Återställ kön efter att appen stängts",
+  "spStopOnSwipe": "Stoppa vid Bortsvep från Senaste",
+  "spStopOnSwipeSubtitle": "Stoppa uppspelning när appen sveps bort",
+  "spPauseOnCall": "Pausa vid Inkommande Samtal",
+  "spPauseOnCallSubtitle": "Pausar automatiskt när telefonen ringer",
+  "spDuckNotifications": "Sänk Volym för Aviseringar",
+  "spDuckNotificationsSubtitle": "AV = aviseringar sänker eller pausar aldrig din låt",
+  "spShakeToSkip": "Skaka för att Hoppa Över Låt",
+  "spShakeToSkipSubtitle": "Skaka telefonen för att gå till nästa spår",
+  "spSwipeToChange": "Svep för att Byta Låt",
+  "spSwipeToChangeSubtitle": "Svep på spelarens skivomslag för att hoppa över",
+  "spHapticIntensity": "Haptisk Intensitet",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Hur starkt tryckningar och vibrationer känns i hela appen",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Av",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Lätt",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Stark",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Historikens Varaktighet",
+  "spHistorySongsCount": "{count} låtar",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Insomningstimer",
+  "spSleepTimerSheetSubtitle": "Uppspelningen stoppar efter vald tid",
+  "spFinishCurrentSong": "Avsluta Aktuell Låt",
+  "spFinishCurrentSongSubtitle": "Låt den aktuella låten spelas klart innan den stoppar",
+  "spStartTimer": "Starta Timer · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Avbryt Aktiv Timer",
+  "spSleepTimerCustom": "Anpassad",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Ställ in",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Ange en varaktighet i minuter",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Max {max} minuter",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Tona ut",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Musiken tonas ner mjukt istället för att stoppa abrupt",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Hög Bithastighet (320kbps)",
+  "spPremiumHighBitrateDesc": "Lås upp streaming i studiokvalitet med 320kbps med Astra Plus.",
+  "spEqReset": "Återställ",
+  "spEqPresets": "FÖRINSTÄLLNINGAR",
+  "spEq10Band": "10-BANDS EQ",
+  "saTheme": "TEMA",
+  "saFontStyle": "TECKENSNITTSSTIL",
+  "saNowPlayingCard": "SPELAS NU-KORT",
+  "saArtworkShape": "SKIVOMSLAGSFORM",
+  "saPlayer": "SPELARE",
+  "saLyrics": "TEXT",
+  "saAnimations": "ANIMATIONER",
+  "saThemeDark": "Mörkt",
+  "saThemeDarkDesc": "Skonsamt för ögonen",
+  "saThemeAmoled": "AMOLED Svart",
+  "saThemeAmoledDesc": "Ren svart, sparar batteri",
+  "saThemeLight": "Ljust",
+  "saThemeLightDesc": "Rent och minimalistiskt",
+  "saThemeSystem": "Systemstandard",
+  "saThemeSystemDesc": "Följ telefonens tema",
+  "saDynamicThemeColor": "Dynamisk Temafärg",
+  "saDynamicThemeColorSubtitle": "Extrahera färg från låtens skivomslag",
+  "saHighRefreshRate": "Hög Uppdateringsfrekvens (120Hz)",
+  "saHighRefreshRateSubtitle": "Smidigare gränssnitt på enheter som stöder det",
+  "saAccentColor": "Accentfärg",
+  "saExtraColorsSignIn": "Extra färger = Logga in",
+  "saCustomAccentColorsFeature": "Anpassade Accentfärger",
+  "saCustomAccentColorsDesc": "Logga in med Google för att låsa upp fler accentfärger.",
+  "saAppFont": "Apptypsnitt",
+  "saRoundedMonoSignIn": "Premiumtypsnitt = Logga in",
+  "saApplyingFont": "Tillämpar typsnitt…",
+  "saFontUnlockFeature": "{font}-typsnitt",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Logga in med Google för att låsa upp det här typsnittet.",
+  "saCardStyleCompactDesc": "Litet skivomslag, text bredvid",
+  "saCardStyleCardDesc": "Balanserat skivomslag och info",
+  "saCardStyleImmersiveDesc": "Skivomslag i full bredd, minimalt gränssnitt",
+  "saPremiumBadge": "Premium",
+  "saPlayerStyleUnlockFeature": "{style}-spelarstil",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Logga in med Google för att låsa upp stilen {style}.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Bakgrundsstil för Spelaren",
+  "saPlayerBgStyleSubtitle": "Hur spelarens bakgrund ser ut",
+  "saDynamicPlayerColor": "Dynamisk Spelarfärg",
+  "saDynamicPlayerColorSubtitle": "Ändra spelarfärg utifrån skivomslaget",
+  "saPlayerButtonColors": "Spelarknappsfärger",
+  "saPlayerButtonColorsSubtitle": "Färg på spela/hoppa-knapparna",
+  "saPlayerSliderStyle": "Spelarens Reglagestil",
+  "saPlayerSliderStyleSubtitle": "Sökfältets utseende",
+  "saShowBlurredBg": "Visa Suddig Bakgrund",
+  "saShowBlurredBgSubtitle": "Suddigt skivomslag bakom spelaren",
+  "saNavBarBlur": "Navigeringsfältets Oskärpa",
+  "saNavBarBlurSubtitle": "Sänk för mindre GPU-värme/batteriförbrukning",
+  "saMiniPlayerBlur": "Minispelarens Oskärpa",
+  "saMiniPlayerBlurSubtitle": "Sänk för mindre GPU-värme/batteriförbrukning",
+  "saLyricsTextPosition": "Textposition för Låttext",
+  "saLyricsTextPositionSubtitle": "Justering av låttext på skärmen",
+  "saLyricsTextSize": "Textstorlek för Låttext",
+  "saLyricsLineSpacing": "Radavstånd för Låttext",
+  "saShowLyricsOnPlayer": "Visa Text i Spelaren",
+  "saShowLyricsOnPlayerSubtitle": "Visa den aktuella raden ovanför sökfältet",
+  "saLyricsViewMode": "Uppslukande Text",
+  "saLyricsViewModeSubtitle": "Text i helskärm med glöd från spelaren",
+  "saLyricsViewModeInline": "Inbäddad",
+  "saLyricsViewModeFullscreen": "Helskärm",
+  "saEnableAnimations": "Aktivera Animationer",
+  "saEnableAnimationsSubtitle": "Huvudreglage för alla animationer",
+  "saBackAnimations": "Bakåtanimationer",
+  "saBackAnimationsSubtitle": "Animera bakåtnavigeringsgest",
+  "saScrollAnimations": "Rullningsanimationer",
+  "saScrollAnimationsSubtitle": "Tona in objekt under rullning",
+  "saBgGradientAnimation": "Bakgrundsgradientanimation",
+  "saBgGradientAnimationSubtitle": "Animerad färgförändring i spelaren",
+  "saShapeSquare": "Kvadrat",
+  "saShapeRounded": "Rundad",
+  "saShapeCircle": "Cirkel",
+  "ssDownloads": "NEDLADDNINGAR",
+  "ssSongCache": "LÅTCACHE",
+  "ssImageCache": "BILDCACHE",
+  "ssDownloadedSongs": "Nedladdade Låtar",
+  "ssClearAllDownloads": "Rensa Alla Nedladdningar",
+  "ssDownloadQuality": "Nedladdningskvalitet",
+  "ssDownloadQualitySubtitle": "Ljudkvalitet för nedladdade låtar",
+  "ssAutoDownloadLiked": "Ladda Ner Gillade Låtar Automatiskt",
+  "ssAutoDownloadLikedSubtitle": "Ladda automatiskt ner låtar du gillar",
+  "ssWifiOnly": "Ladda Ner Endast via WiFi",
+  "ssWifiOnlySubtitle": "Använd aldrig mobildata för nedladdningar",
+  "ssMaxSongCacheSize": "Max Storlek för Låtcache",
+  "ssClearSongCache": "Rensa Låtcache",
+  "ssMaxImageCacheSize": "Max Storlek för Bildcache",
+  "ssClearImageCache": "Rensa Bildcache",
+  "ssClearConfirmTitle": "Rensa {title}?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Detta kan inte ångras.",
+  "ssCancel": "Avbryt",
+  "ssClear": "Rensa",
+  "ssAllDownloadsTitle": "Alla Nedladdningar",
+  "ssSongCacheTitle": "Låtcache",
+  "ssImageCacheTitle": "Bildcache",
+  "ssUsedLabel": "Använt: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Max: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "APPLÅS",
+  "sprAppLockTitle": "Applås",
+  "sprAppLockSubtitleSet": "Ställ in en PIN-kod för att låsa appen",
+  "sprAppLockSubtitleChange": "PIN-kod inställd — tryck för att ändra",
+  "sprSetPin": "Ställ in PIN-kod",
+  "sprChangePin": "Ändra PIN-kod",
+  "sprSetPinSubtitle": "Krävs för att aktivera Applås",
+  "sprChangePinSubtitle": "Ändra din 4-siffriga PIN-kod",
+  "sprBiometricUnlock": "Biometrisk Upplåsning",
+  "sprBiometricUnlockSubtitle": "Använd fingeravtryck istället för PIN-kod",
+  "sprAutoLockAfter": "Automatisk Låsning Efter",
+  "sprAutoLockAfterSubtitle": "Hur länge i bakgrunden innan låsning",
+  "sprDelayImmediately": "Omedelbart",
+  "sprDelayAfter1Min": "Efter 1 min",
+  "sprDelayAfter5Min": "Efter 5 min",
+  "sprDelayAfter10Min": "Efter 10 min",
+  "sprDelayAfter30Min": "Efter 30 min",
+  "sprDontLockWhilePlaying": "Lås Inte Under Uppspelning",
+  "sprDontLockWhilePlayingSubtitle": "Appen låser inte så länge en låt spelas",
+  "sprIncognito": "INKOGNITO",
+  "sprIncognitoMode": "Inkognitoläge",
+  "sprIncognitoModeSubtitle": "Låtar visas inte i historiken eller påverkar rekommendationer",
+  "sprIncognitoOnInfo": "Inkognito är PÅ — lyssningshistorik är pausad och rekommendationer uppdateras inte.",
+  "sprHideListeningStats": "Dölj Lyssningsstatistik",
+  "sprHideListeningStatsSubtitle": "Spåra inte antal uppspelningar eller lyssnad tid",
+  "sprClearData": "RENSA DATA",
+  "sprClearHistory": "Rensa Lyssningshistorik",
+  "sprClearHistorySubtitle": "Ta bort alla nyligen spelade låtar",
+  "sprResetRecommendations": "Återställ Rekommendationer",
+  "sprResetRecommendationsSubtitle": "Rensa affinitetspoäng och börja om",
+  "sprClearAllData": "Rensa All Appdata",
+  "sprClearAllDataSubtitle": "Återställ allt — spellistor, inställningar, historik",
+  "sprClearTitle": "Rensa {title}?",
+  "sprClearCannotUndo": "Detta kan inte ångras.",
+  "sprCancel": "Avbryt",
+  "sprClear": "Rensa",
+  "sprHistoryTitle": "Lyssningshistorik",
+  "sprRecommendationsTitle": "Rekommendationer",
+  "sprAllAppDataTitle": "All Appdata",
+  "sprPinMustBe4Digits": "PIN-koden måste vara 4 siffror",
+  "sprPinsDontMatch": "PIN-koderna matchar inte. Försök igen.",
+  "sprConfirmPin": "Bekräfta PIN-kod",
+  "sprSetPinSheetTitle": "Ställ in PIN-kod",
+  "sprChangePinSheetTitle": "Ändra PIN-kod",
+  "sprEnterPinAgain": "Ange PIN-koden igen för att bekräfta",
+  "sprChoose4DigitPin": "Välj en 4-siffrig PIN-kod",
+  "sprRemovePin": "Ta bort PIN-kod",
+  "sprNext": "Nästa",
+  "sprConfirm": "Bekräfta",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Kunde inte läsa in låtar just nu.\nDra ner eller tryck på försök igen.",
+  "homeFailedToLoad": "Det gick inte att läsa in.",
+  "homeFailedToLoadCheckConnection": "Kunde inte läsa in just nu. Dra ner för att försöka igen.",
+  "homeLoadingPlaylist": "Läser in {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Arijit Singh Hits",
+  "homePlaylistChartbusters2025": "2025 Listettor",
+  "homePlaylistFreshBollywood": "Färsk Bollywood",
+  "homePlaylistMovieBlockbusters": "Filmsuccéer",
+  "homePlaylistNewReleases": "Nya Släpp",
+  "homePlaylistPartyAnthems": "Festhymner",
+  "homePlaylistRomanticThisWeek": "Romantiskt Denna Vecka",
+  "homePlaylistTrendingNow": "Trendar Nu",
+  "loginSyncSubtitle": "Logga in för att synka ditt bibliotek\npå alla enheter",
+  "loginMaybeLater": "Kanske senare",
+  "loginBenefitSyncDevices": "Synka spellistor och favoriter på alla enheter",
+  "loginBenefitResumeWhereLeft": "Fortsätt precis där du slutade",
+  "loginBenefitLibrarySafe": "Ditt bibliotek är säkert även om du byter telefon",
+  "loginBenefitPersonalizedProfile": "En personlig profil med ditt Google-namn och foto",
+  "loginContinueWithGoogle": "Fortsätt med Google",
+  "commonClear": "Rensa",
+  "commonCreate": "Skapa",
+  "commonImport": "Importera",
+  "libraryActionCannotBeUndone": "Detta kan inte ångras.",
+  "libraryAddToPlaylist": "Lägg till i spellista",
+  "libraryAddedToPlaylist": "Tillagd i \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, one{1 låt tillagd i \"{name}\"} other{{count} låtar tillagda i \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, one{1 vald} other{{count} valda}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Välj",
+  "librarySelectAll": "Välj alla",
+  "libraryDeselectAll": "Avmarkera alla",
+  "libraryRemoveSelectedFromPlaylist": "Ta bort från spellista",
+  "libraryRemoveSelectedConfirm": "{count, plural, one{Ta bort den här låten från spellistan?} other{Ta bort dessa {count} låtar från spellistan?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, one{1 låt borttagen} other{{count} låtar borttagna}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Spela på",
+  "castingToDevice": "Castar till {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "enhet",
+  "castSessionDisconnect": "Koppla från",
+  "castSessionStopCasting": "Sluta casta",
+  "castDeviceFallbackTitle": "Castenhet",
+  "castToDeviceLabel": "Casta till enhet",
+  "castPickerTitle": "Casta till",
+  "castPickerScanning": "Letar efter enheter…",
+  "castPickerNoDevices": "Inga enheter hittades. Se till att din Chromecast eller TV är på samma Wi-Fi-nätverk.",
+  "castPickerConnectFailed": "Det gick inte att ansluta. Försök igen.",
+  "audioOutputAutoRoutingNotice": "På den här Android-versionen växlar utdata automatiskt till den senast anslutna enheten.",
+  "audioOutputSwitchFailed": "Det gick inte att byta utdataenhet. Försök igen.",
+  "libraryAlbumTag": "Album",
+  "libraryAlbumsYouSaveAppearHere": "Album du sparar visas här.",
+  "libraryAlreadyInPlaylist": "Redan i \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, one{1 artist} other{{count} artister}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Artist",
+  "libraryArtistsYouFollowAppearHere": "Artister du följer visas här.",
+  "libraryClearHistoryConfirm": "{count, plural, one{1 låt kommer att tas bort.} other{Alla {count} låtar kommer att tas bort.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Rensa Historik?",
+  "libraryCollection": "Samling",
+  "libraryComingSoon": "Kommer Snart",
+  "libraryCreateFirstPlaylistDesc": "Skapa din första spellista och\nbörja sammanställa din musik.",
+  "libraryCreatePlaylist": "Skapa Spellista",
+  "libraryImportFromYoutube": "Importera från YouTube-spellista",
+  "libraryImportFromYoutubeDesc": "Klistra in en länk till en YouTube-spellista så hämtar Astra alla låtar, redo att spelas.",
+  "libraryYoutubePlaylistLinkLabel": "Spellistelänk",
+  "libraryYoutubeLinkEmptyError": "Klistra in en spellistelänk för att fortsätta.",
+  "libraryYoutubeImportFailedError": "Det gick inte att importera den spellistan. Kontrollera länken och försök igen.",
+  "libraryYoutubeImportInvalidLinkError": "Det där ser inte ut som en spellistelänk. Kopiera länken från spellistans delningsmeny och försök igen.",
+  "libraryYoutubeImportMixError": "Mixar och radiostationer kan inte importeras — endast vanliga spellistor har en fast spårlista. Prova en sparad spellista istället.",
+  "libraryYoutubeImportNetworkError": "Det gick inte att nå YouTube. Kontrollera din anslutning och försök igen.",
+  "libraryDefaultPlaylistName": "Min Spellista",
+  "libraryDeletePlaylist": "Ta bort spellista",
+  "libraryDeletePlaylistConfirm": "Ta bort \"{name}\"?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Beskrivning (valfritt)",
+  "libraryDownloadPlaylist": "Ladda ner spellista",
+  "libraryDownloadingPlaylist": "Laddar ner spellista…",
+  "libraryDownloadPlaylistProgress": "Laddar ner {done} av {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Misslyckades — tryck för att försöka igen",
+  "libraryDownloadFromPlayerDesc": "Ladda ner en låt från spelaren för att lyssna offline.",
+  "libraryDownloadedCountHeader": "{count, plural, one{1 NEDLADDAD} other{{count} NEDLADDADE}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, one{1 låt} other{{count} låtar}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Nedladdade",
+  "libraryDownloadsTabInProgress": "Pågående",
+  "libraryDownloadPaused": "Pausad",
+  "libraryDownloadResume": "Återuppta",
+  "libraryDownloadPause": "Pausa",
+  "libraryDownloadCancel": "Avbryt",
+  "libraryDownloadingHeader": "LADDAR NER",
+  "libraryDownloadingPercent": "Laddar ner • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Redigera Spellista",
+  "libraryHistory": "Historik",
+  "libraryHistoryEarlierToday": "Tidigare idag",
+  "libraryHistoryJustNow": "Just nu",
+  "libraryHistoryOlder": "Äldre",
+  "libraryHistoryRecent": "Senaste",
+  "libraryHistoryYesterday": "Igår",
+  "libraryLiked": "Gillade",
+  "libraryLikedCount": "{count, plural, =0{0 gillade} one{1 gillad} other{{count} gillade}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Lokala Filer",
+  "libraryLoginToOrganizeDesc": "Logga in med Google för att organisera din musik i spellistor.",
+  "libraryNeedsPermissionToReadMusic": "Astra behöver behörighet att läsa din musik.",
+  "libraryNewPlaylist": "Ny Spellista",
+  "libraryNewPlaylistLower": "Ny spellista",
+  "libraryNoAlbumsSavedYet": "Inga sparade album än",
+  "libraryNoArtistsSavedYet": "Inga sparade artister än",
+  "libraryNoDownloadsYet": "Inga nedladdningar än",
+  "libraryNoHistoryYet": "Ingen historik än",
+  "libraryNoLocalSongsFound": "Inga lokala låtar hittades",
+  "libraryLocalSearchHint": "Sök lokala låtar",
+  "libraryLocalSearchNoResults": "Inga lokala låtar matchar \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Inga spellistor än",
+  "libraryNoSongsYetInPlaylist": "Inga låtar än",
+  "libraryNothingHereYet": "Inget här än",
+  "libraryOnDeviceCount": "{count} på enheten",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Behörighet Krävs",
+  "libraryPlaySomethingToSeeHistory": "Spela något för att se historik",
+  "libraryPlaylistCount": "{count, plural, one{1 spellista} other{{count} spellistor}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Spellistenamn",
+  "libraryPlaylistNotFound": "Spellista hittades inte",
+  "libraryRecentlyPlayed": "Nyligen Spelade",
+  "libraryRemoveDownload": "Ta bort nedladdning",
+  "libraryRemoveFromPlaylist": "Ta bort från spellista",
+  "libraryRemoveFromSavedAlbums": "Ta bort från sparade album",
+  "libraryChooseFromGallery": "Välj från galleri",
+  "libraryRemoveCustomCover": "Ta bort anpassat omslag",
+  "libraryRenamePlaylist": "Byt namn på spellista",
+  "librarySearchAndAddSongsHere": "Sök efter låtar och lägg till dem här",
+  "librarySeeAllSongs": "{count, plural, one{Se 1 låt} other{Se alla {count} låtar}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Låtar du spelar visas här",
+  "libraryUnfollowArtist": "Sluta följa artist",
+  "libraryYourCollection": "Din samling",
+  "alWrongPin": "Fel PIN-kod. Försök igen.",
+  "alEnterPinToUnlock": "Ange PIN-kod för att låsa upp",
+  "alBiometricReason": "Använd fingeravtryck för att låsa upp Astra Music",
+  "asCouldntLoad": "Det gick inte att läsa in {name}",
+  "asRetry": "Försök igen",
+  "asVerifiedArtist": "Verifierad Artist",
+  "asMonthlyListeners": "{count} månatliga lyssnare",
+  "asSaved": "Sparad",
+  "asSave": "Spara",
+  "asPopular": "Populärt",
+  "asAlbums": "Album",
+  "asSingles": "Singlar",
+  "asAbout": "Om",
+  "asFansAlsoLike": "Fans gillar också",
+  "asShowAll": "Visa alla",
+  "asShowLess": "Visa mindre",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Om",
+  "abPrivacyPolicyTitle": "Integritetspolicy",
+  "abUpdate": "UPPDATERING",
+  "abCheckForUpdate": "Sök Efter Uppdatering",
+  "abCheckForUpdateSubtitle": "Se om en ny version är tillgänglig",
+  "abChangelog": "Ändringslogg",
+  "abChangelogSubtitle": "Vad som ändrats i senaste versionerna",
+  "abLegal": "JURIDISKT",
+  "abPrivacyPolicy": "Integritetspolicy",
+  "abPrivacyPolicySubtitle": "Hur din data hanteras",
+  "abTermsOfUse": "Användarvillkor",
+  "abTermsOfUseSubtitle": "Avtalet mellan dig och Astra",
+  "abCommunity": "GEMENSKAP",
+  "abSendFeedback": "Skicka Feedback",
+  "abSendFeedbackSubtitle": "Berätta vad du tycker, när som helst",
+  "abShareApp": "Dela Astra",
+  "abShareAppSubtitle": "Berätta för dina vänner om den här appen",
+  "abDeveloper": "UTVECKLARE",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Läser in...",
+  "abVersionBuild": "v{version} (bygge {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "BAKGRUNDSUPPSPELNING",
+  "snPlayerNotification": "SPELARAVISERING",
+  "snNotificationStyle": "AVISERINGSSTIL",
+  "snBgPlaybackEnabled": "Bakgrundsuppspelning Aktiverad",
+  "snAllowBgPlayback": "Tillåt Bakgrundsuppspelning",
+  "snBgPlaybackEnabledDesc": "Musiken fortsätter spela när skärmen är av eller appen stängd",
+  "snAllowBgPlaybackDesc": "Tryck för att tillåta att musiken fortsätter spela i bakgrunden — vissa telefoner stoppar uppspelningen utan detta",
+  "snShowMediaNotif": "Visa Mediaavisering",
+  "snShowMediaNotifSubtitle": "Visa spelaren i aviseringsfältet",
+  "snShowArtwork": "Visa Skivomslag",
+  "snShowArtworkSubtitle": "Visa albumkonst i aviseringen",
+  "snShowPrevButton": "Visa Föregående-knapp",
+  "snShowPrevButtonSubtitle": "Lägg till föregående-knapp i mediaaviseringen",
+  "snStyleCompact": "Kompakt",
+  "snStyleCompactDesc": "Små, minimala kontroller",
+  "snStyleExpanded": "Utökad",
+  "snStyleExpandedDesc": "Fullständiga kontroller med skivomslag",
+  "prProfile": "Profil",
+  "prAurumListener": "Astra Lyssnare",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Synka Bibliotek",
+  "prBenefitSyncSub": "Din musik synkad på alla enheter",
+  "prBenefitLifetimeTitle": "Livstidsåtkomst",
+  "prBenefitLifetimeSub": "Inga prenumerationer, ditt för alltid",
+  "prBenefitAdFreeTitle": "Annonsfritt",
+  "prBenefitAdFreeSub": "Inga avbrott, ren musik",
+  "prBenefitQualityTitle": "Ljud av Hög Kvalitet",
+  "prBenefitQualitySub": "Bästa tillgängliga strömningskvalitet",
+  "prBenefitOfflineTitle": "Redo för Offline",
+  "prBenefitOfflineSub": "Ladda ner och spela var som helst",
+  "prBenefitRecsTitle": "Smarta Rekommendationer",
+  "prBenefitRecsSub": "Kö och upptäckt baserat på humör",
+  "prAllFeaturesUnlocked": "Alla funktioner upplåsta",
+  "prUpgradeToUnlock": "Uppgradera för att låsa upp allt",
+  "prActive": "Aktiv",
+  "prFree": "Gratis",
+  "prSyncingLibrary": "Synkar ditt bibliotek…",
+  "prSignedIn": "Inloggad",
+  "prSyncLibraryTitle": "Synka Ditt Bibliotek",
+  "prSyncLibrarySubtitle": "Logga in för åtkomst på alla enheter",
+  "prSignIn": "Logga in",
+  "prSignedInSynced": "Inloggad — ditt bibliotek är synkat",
+  "prSignedInUpgradePrompt": "Inloggad! Uppgradera till Premium för att aktivera molnsynkronisering.",
+  "prSignOutTitle": "Logga ut?",
+  "prSignOutBody": "Dina gillade låtar, spellistor, följda artister och historik kommer att rensas från den här enheten. Logga in igen när som helst för att få tillbaka dem.",
+  "prCancel": "Avbryt",
+  "prSignOut": "Logga ut",
+  "prSignedOutCleared": "Utloggad — din data har rensats från den här enheten",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Musik, precis som den var menad att höras.",
+  "psRating": "4,9★ Betyg",
+  "psSecure": "Säkert",
+  "psRefund": "7 dagars återbetalning",
+  "psChoosePlan": "Välj din plan",
+  "psBadgeTryIt": "PROVA DET",
+  "psBadgeSave58": "SPARA 58%",
+  "psBadgeBestDeal": "BÄSTA ERBJUDANDET",
+  "psEverythingIncluded": "Allt ingår",
+  "psFeatHdAudioTitle": "HD-ljud • 320kbps",
+  "psFeatHdAudioSub": "Kristallklar förlustfri kvalitet",
+  "psFeatSkipsTitle": "Obegränsat Hoppa Över",
+  "psFeatSkipsSub": "Hoppa över så många låtar du vill",
+  "psFeatAdsTitle": "Inga Annonser",
+  "psFeatAdsSub": "Helt annonsfri upplevelse",
+  "psFeatAiTitle": "AI-rekommendationer",
+  "psFeatAiSub": "Låtar utvalda just för dig",
+  "psFeatOfflineTitle": "Offline-nedladdningar",
+  "psFeatOfflineSub": "Lyssna utan internet",
+  "psFeatSyncTitle": "Molnsynkronisering",
+  "psFeatSyncSub": "Ditt bibliotek på alla enheter",
+  "psFeatFollowTitle": "Gilla och Följ Artister",
+  "psFeatFollowSub": "Bygg din personliga samling",
+  "psFeatPlaylistsTitle": "Obegränsat Med Spellistor",
+  "psFeatPlaylistsSub": "Skapa och dela spellistor",
+  "psFeatThemesTitle": "Exklusiva Teman",
+  "psFeatThemesSub": "Premiumfärger och spelarstilar",
+  "psGetPlusPrice": "Skaffa Plus — {price}",
+  "psSignInGetPlus": "Logga in och Skaffa Plus",
+  "psPerMonth": "{price}/månad",
+  "psPerYear": "{price}/år",
+  "psOneTime": "{price} engångsbelopp",
+  "psSecurePayments": "🔒  Säkra betalningar via Razorpay  •  Avbryt när som helst",
+  "psMoneyBack": "7 dagars pengarna-tillbaka-garanti",
+  "psPlanMonthly": "1 Månad",
+  "psPlanYearly": "1 År",
+  "psPlanLifetime": "Livstid",
+  "psSubPerMonth": "per månad",
+  "psSubPerYear": "per år",
+  "psSubPayOnce": "betala en gång, ägs för alltid",
+  "psSuccessTitle": "Du är Plus nu ✦",
+  "psSuccessBody": "Alla funktioner är upplåsta.\nNjut av den fullständiga Astra-upplevelsen.",
+  "psStartListening": "Börja Lyssna",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Systemstandard",
+  "fpLikeSongsFeature": "Gilla Låtar",
+  "fpLikeSongsSignIn": "Logga in med Google för att spara låtar i ditt bibliotek.",
+  "fpClosePlayer": "Stäng spelaren",
+  "fpNowPlaying": "SPELAS NU",
+  "fpMoreOptions": "Fler alternativ",
+  "fpUnlimitedSkipsFeature": "Obegränsat Hoppa Över",
+  "fpUnlimitedSkipsSignIn": "Logga in med Google för att hoppa över så många gånger du vill.",
+  "fpShuffle": "Blanda",
+  "fpPrevious": "Föregående",
+  "fpNext": "Nästa",
+  "fpRepeat": "Upprepa",
+  "fpLocalBadge": "LOKAL",
+  "fpQueueLyricsInfo": "Kö · Text · Info",
+  "fpPause": "Pausa",
+  "fpPlay": "Spela",
+  "fpShareText": "{artist} — {title}\n\nDelad från Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Titel",
+  "fpSongInfoArtist": "Artist",
+  "fpSongInfoAlbum": "Album",
+  "fpSongInfoDuration": "Varaktighet",
+  "fpSongInfoYear": "År",
+  "fpSongInfoLanguage": "Språk",
+  "fpSongInfo": "Låtinformation",
+  "fpAlreadyDownloaded": "Redan nedladdad",
+  "fpAlreadyDownloading": "Laddas redan ner",
+  "fpAlreadyOnDevice": "Redan på den här enheten",
+  "fpDownloadingSong": "Laddar ner {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Spela Härnäst",
+  "fpAddToQueue": "Lägg till i Kö",
+  "fpAddedToQueue": "Tillagd i kö",
+  "fpLiked": "Gillad",
+  "fpLikeAction": "Gilla",
+  "fpLikeSignInBuildLibrary": "Logga in med Google för att bygga ditt personliga bibliotek.",
+  "fpAddedToLiked": "Tillagd i Gillade",
+  "fpRemovedFromLiked": "Borttagen från Gillade",
+  "fpShare": "Dela",
+  "fpSaveToPlaylist": "Spara till Spellista",
+  "fpAudioEffects": "Ljudeffekter",
+  "fpSleepRemaining": "Insomning • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Insomningstimer",
+  "fpDownloaded": "Nedladdad",
+  "fpDownloading": "Laddar ner…",
+  "fpDownload": "Ladda ner",
+  "fpDownloadingPercent": "Laddar ner {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Kö",
+  "fpLyrics": "Text",
+  "fpInfo": "Info",
+  "fpQueueEmpty": "Kön är tom",
+  "fpUpNext": "KOMMANDE",
+  "fpFindingSongs": "Hittar låtar åt dig…",
+  "fpMoveToTop": "Flytta till Toppen",
+  "fpRemoveFromQueue": "Ta bort från Kö",
+  "fpNoLyricsFound": "Ingen text hittades",
+  "fpLyricsNotAvailable": "Text är inte tillgänglig för den här låten",
+  "fpSourceLabel": "Källa",
+  "fpLocalLibrary": "Lokalt Bibliotek",
+  "fpOnlineStream": "Onlineström",
+  "fpDownloadFailed": "Det gick inte att ladda ner \"{title}\" — ström otillgänglig",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

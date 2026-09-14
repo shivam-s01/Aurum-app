@@ -4138,6 +4138,27 @@ class ApiService {
   /// croppedSquareThumbnailRenderer (album/single/playlist cards) — see
   /// the revert note inside the function for why this checks exactly
   /// these two keys instead of a generic recursive search.
+  /// Scoped recursive search for a `thumbnails` array anywhere inside a
+  /// single card's own `thumbnail` subtree — see _ytmThumbnailUrl's
+  /// fallback doc comment for why this exists and why it's deliberately
+  /// bounded to just that one subtree (never a sibling card's data).
+  static List<dynamic>? _deepFindThumbnailsList(dynamic node) {
+    if (node is Map) {
+      final direct = node['thumbnails'];
+      if (direct is List && direct.isNotEmpty) return direct;
+      for (final value in node.values) {
+        final found = _deepFindThumbnailsList(value);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final value in node) {
+        final found = _deepFindThumbnailsList(value);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
   static String _ytmThumbnailUrl(Map<String, dynamic>? renderer) {
     // FIX (2026-09-12, "thumbnail wapas nahi aa raha, pehle aata tha" —
     // regression from the generic recursive version below): that version
@@ -4158,11 +4179,34 @@ class ApiService {
     if (renderer == null) return '';
     final thumbField = renderer['thumbnail'];
     if (thumbField is! Map) return '';
-    final thumbs = (thumbField['musicThumbnailRenderer']?['thumbnail']
+    var thumbs = (thumbField['musicThumbnailRenderer']?['thumbnail']
                 ?['thumbnails'] as List?) ??
         (thumbField['croppedSquareThumbnailRenderer']?['thumbnail']
                 ?['thumbnails'] as List?) ??
         const [];
+    // FALLBACK ("Similar to X" album/artist cards showing the gold
+    // music-note placeholder with no real thumbnail at all, even on a
+    // fast connection — 2026-09-14): the two explicit wrapper keys above
+    // cover every shape confirmed against ytmusicapi's own reference
+    // constants, but this function is also called on cards pulled out of
+    // the "More" button's separately-fetched full-discography GRID
+    // response (moreGrids in _fetchArtistFromYtMusicBrowse) — a
+    // different InnerTube response tree than the inline carousel these
+    // two keys were originally verified against, and undocumented API
+    // responses are known to vary renderer nesting by endpoint/response
+    // type in practice. Rather than keep returning '' (silently empty
+    // artwork) whenever a card's thumbnail happens to nest one level
+    // differently there, fall back to a scoped recursive search for any
+    // `thumbnails` list that's actually still INSIDE this renderer's own
+    // `thumbnail` subtree — never outside it, so this can't cross-match
+    // a sibling card's artwork the way the fully-generic top-level
+    // version (removed 2026-09-12) risked doing. Only runs when both
+    // known-good keys come back empty, so every case that already works
+    // is completely unaffected.
+    if (thumbs.isEmpty) {
+      final scoped = _deepFindThumbnailsList(thumbField);
+      if (scoped != null && scoped.isNotEmpty) thumbs = scoped;
+    }
     if (thumbs.isEmpty) return '';
     final best = thumbs.last;
     final rawUrl = (best is Map ? (best['url'] ?? '') : '').toString();

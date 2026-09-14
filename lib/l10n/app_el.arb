@@ -1,0 +1,1179 @@
+{
+  "@@locale": "el",
+  "navHome": "Αρχική",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Αναζήτηση",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Βιβλιοθήκη",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Ακύρωση",
+  "commonSave": "Αποθήκευση",
+  "commonDone": "Τέλος",
+  "commonRetry": "Δοκιμή ξανά",
+  "commonSeeAll": "Δείτε όλα",
+  "commonPlay": "Αναπαραγωγή",
+  "commonPause": "Παύση",
+  "commonShuffle": "Τυχαία αναπαραγωγή",
+  "commonDelete": "Διαγραφή",
+  "commonEdit": "Επεξεργασία",
+  "commonShare": "Κοινή χρήση",
+  "commonAdd": "Προσθήκη",
+  "commonRemove": "Αφαίρεση",
+  "commonSearch": "Αναζήτηση",
+  "commonSettings": "Ρυθμίσεις",
+  "commonOk": "ΟΚ",
+  "commonYes": "Ναι",
+  "commonNo": "Όχι",
+  "settingsTitle": "Ρυθμίσεις",
+  "settingsAccount": "ΛΟΓΑΡΙΑΣΜΟΣ",
+  "settingsSectionGeneral": "Γενικά",
+  "settingsSectionPlayback": "Αναπαραγωγή",
+  "settingsSectionSystem": "Σύστημα",
+  "settingsPlayerAudio": "Player και Ήχος",
+  "settingsAppearance": "Εμφάνιση",
+  "settingsDownloads": "Λήψεις",
+  "settingsStorage": "Αποθηκευτικός χώρος",
+  "settingsAbout": "Σχετικά",
+  "settingsLanguage": "Γλώσσα",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Επιλέξτε τη γλώσσα εφαρμογής που προτιμάτε",
+  "playerNowPlaying": "Αναπαράγεται Τώρα",
+  "playerUpNext": "Επόμενο",
+  "playerLyrics": "Στίχοι",
+  "playerQueue": "Ουρά",
+  "playerInfo": "Πληροφορίες",
+  "librarySongs": "Τραγούδια",
+  "libraryPlaylists": "Λίστες αναπαραγωγής",
+  "libraryArtists": "Καλλιτέχνες",
+  "libraryAlbums": "Άλμπουμ",
+  "libraryLikedSongs": "Αγαπημένα Τραγούδια",
+  "libraryDownloaded": "Ληφθέντα",
+  "libraryEmptyState": "Τίποτα εδώ ακόμα",
+  "homeTrendingPlaylists": "Δημοφιλείς Λίστες Αναπαραγωγής",
+  "mixPullForMore": "Τραβήξτε προς τα κάτω για περισσότερα τραγούδια",
+  "homeMoodAll": "Όλα",
+  "homePlaylistsForYou": "Λίστες Αναπαραγωγής για Εσάς",
+  "homeAlbumsForYou": "Άλμπουμ για Εσάς",
+  "homeAfternoonPicks": "Επιλογές Απογεύματος",
+  "homeBollywoodMix": "Mix Bollywood",
+  "homeDevotional": "Θρησκευτικά",
+  "homeTrendingNow": "Δημοφιλή Τώρα",
+  "homeNewReleases": "Νέες Κυκλοφορίες",
+  "feedbackTitle": "Σας αρέσει το Astra;",
+  "feedbackSubtitle": "Τα σχόλιά σας μας βοηθούν να το κάνουμε ακόμα καλύτερο.",
+  "feedbackHint": "Πείτε μας τη γνώμη σας (προαιρετικό)",
+  "feedbackSend": "Αποστολή Σχολίων",
+  "feedbackNotNow": "Όχι τώρα",
+  "feedbackThankYouTitle": "Ευχαριστούμε!",
+  "premiumSoundTitle": "Premium Ήχος",
+  "premiumSoundSubtitle": "Πιο πλούσιος, πιο γεμάτος ήχος σε κάθε κομμάτι — λειτουργεί με οποιαδήποτε ποιότητα πηγής",
+  "bassBoostTitle": "Ενίσχυση Μπάσων",
+  "bassBoostSubtitle": "Ενισχύστε τις χαμηλές συχνότητες για βαθύτερο ήχο",
+  "homePickSomething": "Επιλέξτε κάτι για αναπαραγωγή",
+  "homePopularArtists": "Δημοφιλείς Καλλιτέχνες",
+  "homeOnline": "Σε σύνδεση",
+  "homeOffline": "Εκτός σύνδεσης",
+  "homeCheckYourInternet": "Ελέγξτε τη σύνδεσή σας στο διαδίκτυο",
+  "homePlaybackSource": "Πηγή Αναπαραγωγής",
+  "homePlaybackSourceSubtitle": "Επιλέξτε από πού θα αναπαράγει μουσική το Astra",
+  "homeOnlineStreaming": "Ροή Διαδικτύου",
+  "homeStreamOnlineDesc": "Ροή μουσικής μέσω διαδικτύου",
+  "homeOfflineLibrary": "Βιβλιοθήκη Εκτός Σύνδεσης",
+  "homeOfflineLibraryDesc": "Αναπαραγωγή μόνο ληφθέντων τραγουδιών",
+  "homeGrantPermission": "Παραχώρηση Άδειας",
+  "homeStoragePermissionNeeded": "Απαιτείται άδεια αποθηκευτικού χώρου",
+  "homeNoLocalSongs": "Δεν βρέθηκαν τοπικά τραγούδια",
+  "homeScanAgain": "Σάρωση Ξανά",
+  "homeLocalSongs": "Τοπικά Τραγούδια",
+  "homePlaybackDiagnostics": "Διαγνωστικά Αναπαραγωγής",
+  "commonClose": "Κλείσιμο",
+  "commonPlayAll": "Αναπαραγωγή Όλων",
+  "likedNoSongsYet": "Δεν υπάρχουν αγαπημένα τραγούδια ακόμα",
+  "likedTapToSave": "Πατήστε ♥ σε οποιοδήποτε τραγούδι για να το αποθηκεύσετε εδώ",
+  "librarySongsCount": "{count, plural, =0{Κανένα τραγούδι} one{1 τραγούδι} other{{count} τραγούδια}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Ουρά",
+  "queueEmpty": "Η ουρά είναι άδεια",
+  "queueEmptySubtitle": "Τα τραγούδια που θα αναπαράγετε στη συνέχεια θα εμφανιστούν εδώ",
+  "albumNoSongsFound": "Δεν βρέθηκαν τραγούδια",
+  "searchHint": "Τραγούδια, καλλιτέχνες, άλμπουμ...",
+  "searchRecent": "Πρόσφατα",
+  "searchClearAll": "Εκκαθάριση όλων",
+  "searchNoResultsFor": "Κανένα αποτέλεσμα για \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Αναζήτηση παντού",
+  "searchYouMightAlsoLike": "Μπορεί επίσης να σας αρέσει",
+  "searchSeeAllResultsFor": "Δείτε όλα τα αποτελέσματα για \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Αναζητήστε τα αγαπημένα σας τραγούδια",
+  "searchAllInOnePlace": "Τραγούδια, καλλιτέχνες, άλμπουμ — όλα σε ένα μέρος",
+  "searchTabSearch": "Αναζήτηση",
+  "searchTabBrowse": "Περιήγηση",
+  "browseTypeToExplore": "Πληκτρολογήστε για να εξερευνήσετε καλλιτέχνες και άλμπουμ",
+  "browseNoResults": "Κανένα αποτέλεσμα",
+  "browseAlbumFallbackTitle": "Άλμπουμ",
+  "settingsPlayerAudioSubtitle": "Αναπαραγωγή, ισοσταθμιστής, crossfade και συμπεριφορά",
+  "settingsAppearanceSubtitle": "Θέμα, χρώματα, στυλ player και κινούμενα γραφικά",
+  "settingsStorageSubtitle": "Λήψεις, cache τραγουδιών και cache εικόνων",
+  "settingsNotifications": "Ειδοποιήσεις",
+  "settingsNotificationsSubtitle": "Στυλ ειδοποίησης μέσων και εξώφυλλο",
+  "settingsPrivacy": "Απόρρητο",
+  "settingsPrivacySubtitle": "Κλείδωμα εφαρμογής, λειτουργία ανώνυμης περιήγησης και δεδομένα",
+  "settingsAboutSubtitle": "Έκδοση, ενημερώσεις, απόρρητο και προγραμματιστής",
+  "premiumFeature320kbps": "Ροή στα 320kbps",
+  "premiumFeatureUnlimitedSkips": "Απεριόριστες παραλείψεις",
+  "premiumFeatureLikeFollow": "Μου αρέσει και ακολούθηση",
+  "premiumFeatureCreatePlaylists": "Δημιουργία λιστών αναπαραγωγής",
+  "premiumFeatureCloudSync": "Συγχρονισμός στο cloud",
+  "premiumFeatureExclusiveThemes": "Αποκλειστικά θέματα",
+  "premiumAllFeaturesUnlocked": "Όλες οι λειτουργίες ξεκλειδωμένες",
+  "premiumActive": "Ενεργό",
+  "premiumUpgradeTitle": "Αναβάθμιση σε Premium",
+  "premiumUnlockEverything": "Ξεκλειδώστε τα πάντα στο Astra",
+  "premiumGetButton": "✦  Αποκτήστε Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "ΑΝΑΠΑΡΑΓΩΓΗ",
+  "spSleepTimer": "ΧΡΟΝΟΔΙΑΚΟΠΤΗΣ ΥΠΝΟΥ",
+  "spEqualizer": "ΙΣΟΣΤΑΘΜΙΣΤΗΣ",
+  "spBehavior": "ΣΥΜΠΕΡΙΦΟΡΑ",
+  "spStreamQuality": "Ποιότητα Ροής",
+  "spStreamQualitySubtitle": "Ρυθμός bit ήχου για ροή διαδικτύου",
+  "spQualityAuto": "Αυτόματο",
+  "spQualityAutoDesc": "Η καλύτερη διαθέσιμη ποιότητα για κάθε τραγούδι",
+  "spQualityLow": "Χαμηλή",
+  "spQualityLowDesc": "48–96kbps · εξοικονομεί δεδομένα",
+  "spQualityMedium": "Μεσαία",
+  "spQualityMediumDesc": "Έως 160kbps",
+  "spQualityHigh": "Υψηλή",
+  "spQualityHighDesc": "320kbps · ποιότητα στούντιο",
+  "spQualityDataSaver": "Έξυπνη Εξοικονόμηση",
+  "spQualityDataSaverDesc": "Ακούγεται υπέροχα ακόμα και σε 2G",
+  "spQualityDataSaverDescExpanded": "Μεταδίδει το μικρότερο αρχείο που μπορεί να διαχειριστεί η σύνδεσή σας, και μετά αυξάνεται ήσυχα προς τα 320kbps μόλις το τραγούδι έχει χώρο.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Εξοικονόμηση Δεδομένων",
+  "spDataSaverSubtitle": "Εξαναγκασμός χαμηλής ποιότητας σε δεδομένα κινητής τηλεφωνίας",
+  "spGaplessPlayback": "Αναπαραγωγή Χωρίς Κενά",
+  "spGaplessPlaybackSubtitle": "Καμία σιωπή μεταξύ κομματιών",
+  "spShowCastIcon": "Εμφάνιση Εικονιδίου Chromecast",
+  "spShowCastIconSubtitle": "Ελέγξτε πότε εμφανίζεται το εικονίδιο μετάδοσης στον player πλήρους οθόνης",
+  "spCastIconAuto": "Αυτόματο",
+  "spCastIconAlways": "Πάντα εμφάνιση",
+  "spCastIconHidden": "Κρυφό",
+  "spPlaybackSpeed": "Ταχύτητα Αναπαραγωγής",
+  "spPlaybackSpeedSubtitle": "Ισχύει τόσο για τοπικά όσο και για διαδικτυακά τραγούδια",
+  "spNormal": "Κανονική",
+  "spCrossfade": "Crossfade",
+  "spCrossfadeSubtitle": "Ομαλή μετάβαση μεταξύ κομματιών",
+  "spOff": "Απενεργοποιημένο",
+  "spVolumeNormalization": "Κανονικοποίηση Έντασης",
+  "spVolumeNormalizationSubtitle": "Διατηρεί όλα τα τραγούδια σε σταθερό επίπεδο έντασης",
+  "spBassBoost": "Ενίσχυση Μπάσων",
+  "spBassBoostSubtitle": "Ενισχύστε τις χαμηλές συχνότητες για βαθύτερο ήχο",
+  "spPremiumSound": "Premium Ήχος",
+  "spPremiumSoundSubtitle": "Ξεκλειδώστε κρυστάλλινες φωνές, βαθύτερα μπάσα και απορροφητικό premium ήχο",
+  "spPremiumSoundPartialSupport": "Ορισμένα εφέ δεν υποστηρίζονται σε αυτή τη συσκευή — η καθαρότητα και τα μπάσα παραμένουν ενεργά",
+  "spSleepTimerActive": "Χρονοδιακόπτης Ύπνου Ενεργός",
+  "spSleepTimerTitle": "Χρονοδιακόπτης Ύπνου",
+  "spSleepTimerStopsIn": "Σταματά σε {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Ορίστε χρονοδιακόπτη για διακοπή αναπαραγωγής",
+  "spCancel": "Ακύρωση",
+  "spAutoSleepGuard": "ΑΥΤΟΜΑΤΗ ΠΡΟΣΤΑΣΙΑ ΥΠΝΟΥ",
+  "asgTileTitle": "Αυτόματη Προστασία Ύπνου",
+  "asgTileSubtitleOn": "Παύση μετά από {hours}ώ αδράνειας",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Συνδεθείτε για να χρησιμοποιήσετε την Αυτόματη Προστασία Ύπνου",
+  "asgTileSubtitleOff": "Απενεργοποιημένο",
+  "asgTileAutomaticBadge": "Αυτόματο",
+  "asgTileOffBadge": "Απενεργοποιημένο",
+  "asgSheetTitle": "Αυτόματη Προστασία Ύπνου",
+  "asgSheetBody": "Το Astra θέτει αυτόματα σε παύση την αναπαραγωγή μετά από μια περίοδο αδράνειας για εξοικονόμηση μπαταρίας. Επιλέξτε πόσο θα περιμένει.",
+  "asgSheetModeLabel": "Λειτουργία",
+  "asgSheetModeAutomatic": "Αυτόματη",
+  "asgSheetModeAutomaticDesc": "Παρακολουθεί την αδράνεια και θέτει σε παύση για εξοικονόμηση μπαταρίας",
+  "asgSheetModeOff": "Απενεργοποιημένο",
+  "asgSheetModeOffDesc": "Ποτέ δεν θέτει αυτόματα σε παύση",
+  "asgSheetPremiumHint": "Λειτουργεί ήσυχα στο παρασκήνιο — ρυθμισμένο να μην ενοχλεί ποτέ",
+  "asgSheetDurationLabel": "Παύση μετά από",
+  "asgSheetHours": "{count}ώ",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Αποθηκεύτηκε",
+  "asgSheetDone": "Τέλος",
+  "asgResumePromptTitle": "Σε παύση λόγω αδράνειας",
+  "asgResumePromptSubtitle": "Σε παύση στις {time} — Συνέχιση;",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Συνέχιση",
+  "asgResumePromptDismiss": "Απόρριψη",
+  "bsmTileTitle": "Λειτουργία Εξοικονόμησης Μπαταρίας",
+  "bsmTileSubtitleActive": "Ενεργή — μπαταρία στο {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Ενεργοποιείται αυτόματα κάτω από {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Απενεργοποιημένο",
+  "bsmTileAutomaticBadge": "Αυτόματο",
+  "bsmTileOffBadge": "Απενεργοποιημένο",
+  "bsmSheetTitle": "Λειτουργία Εξοικονόμησης Μπαταρίας",
+  "bsmSheetBody": "Όταν η μπαταρία σας είναι χαμηλή, το Astra απενεργοποιεί αυτόματα τα κινούμενα γραφικά φόντου, τη θόλωση και άλλα οπτικά εφέ — η αναπαραγωγή συνεχίζεται ακριβώς κανονικά.",
+  "bsmSheetPremiumHint": "Λειτουργεί ήσυχα στο παρασκήνιο — η αναπαραγωγή δεν επηρεάζεται ποτέ, μόνο τα οπτικά",
+  "bsmSheetModeLabel": "Λειτουργία",
+  "bsmSheetModeAutomatic": "Αυτόματη",
+  "bsmSheetModeAutomaticDesc": "Παρακολουθεί το επίπεδο μπαταρίας και εξοικονομεί ενέργεια όταν είναι χαμηλό",
+  "bsmSheetModeOff": "Απενεργοποιημένο",
+  "bsmSheetModeOffDesc": "Ποτέ δεν ενεργοποιείται αυτόματα",
+  "bsmSheetThresholdLabel": "Ενεργοποίηση κάτω από",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Αποθηκεύτηκε",
+  "bsmSheetDone": "Τέλος",
+  "spEqualizerTitle": "Ισοσταθμιστής",
+  "spEqualizerSubtitle": "Ισοσταθμιστής 10 ζωνών με προεπιλογές",
+  "spKeepQueue": "Διατήρηση Ουράς κατά το Άνοιγμα",
+  "spKeepQueueSubtitle": "Επαναφορά ουράς μετά το κλείσιμο της εφαρμογής",
+  "spStopOnSwipe": "Διακοπή κατά την Απομάκρυνση από Πρόσφατα",
+  "spStopOnSwipeSubtitle": "Διακοπή αναπαραγωγής όταν η εφαρμογή αφαιρεθεί από τα πρόσφατα",
+  "spPauseOnCall": "Παύση σε Εισερχόμενη Κλήση",
+  "spPauseOnCallSubtitle": "Αυτόματη παύση όταν χτυπάει το τηλέφωνο",
+  "spDuckNotifications": "Μείωση Έντασης για Ειδοποιήσεις",
+  "spDuckNotificationsSubtitle": "ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ = οι ειδοποιήσεις ποτέ δεν μειώνουν ή θέτουν σε παύση το τραγούδι σας",
+  "spShakeToSkip": "Ανακίνηση για Παράλειψη Τραγουδιού",
+  "spShakeToSkipSubtitle": "Ανακινήστε το τηλέφωνο για μετάβαση στο επόμενο κομμάτι",
+  "spSwipeToChange": "Σύρετε για Αλλαγή Τραγουδιού",
+  "spSwipeToChangeSubtitle": "Σύρετε στο εξώφυλλο του player για παράλειψη",
+  "spHapticIntensity": "Ένταση Δόνησης",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Πόσο δυνατά αισθάνονται τα αγγίγματα και οι δονήσεις σε όλη την εφαρμογή",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Απενεργοποιημένο",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Ελαφριά",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Δυνατή",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Διάρκεια Ιστορικού",
+  "spHistorySongsCount": "{count} τραγούδια",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Χρονοδιακόπτης Ύπνου",
+  "spSleepTimerSheetSubtitle": "Η αναπαραγωγή θα σταματήσει μετά τον επιλεγμένο χρόνο",
+  "spFinishCurrentSong": "Ολοκλήρωση Τρέχοντος Τραγουδιού",
+  "spFinishCurrentSongSubtitle": "Αφήστε το τρέχον τραγούδι να τελειώσει πριν σταματήσει",
+  "spStartTimer": "Έναρξη Χρονοδιακόπτη · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Ακύρωση Ενεργού Χρονοδιακόπτη",
+  "spSleepTimerCustom": "Προσαρμοσμένο",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Ορισμός",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "λεπτά",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Εισαγάγετε διάρκεια σε λεπτά",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Μέγιστο {max} λεπτά",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Σταδιακή σίγαση",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Η μουσική σβήνει ομαλά αντί να σταματήσει απότομα",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Υψηλός Ρυθμός Bit (320kbps)",
+  "spPremiumHighBitrateDesc": "Ξεκλειδώστε ροή ποιότητας στούντιο 320kbps με το Astra Plus.",
+  "spEqReset": "Επαναφορά",
+  "spEqPresets": "ΠΡΟΕΠΙΛΟΓΕΣ",
+  "spEq10Band": "ΙΣΟΣΤΑΘΜΙΣΤΗΣ 10 ΖΩΝΩΝ",
+  "saTheme": "ΘΕΜΑ",
+  "saFontStyle": "ΣΤΥΛ ΓΡΑΜΜΑΤΟΣΕΙΡΑΣ",
+  "saNowPlayingCard": "ΚΑΡΤΑ ΑΝΑΠΑΡΑΓΩΓΗΣ",
+  "saArtworkShape": "ΣΧΗΜΑ ΕΞΩΦΥΛΛΟΥ",
+  "saPlayer": "PLAYER",
+  "saLyrics": "ΣΤΙΧΟΙ",
+  "saAnimations": "ΚΙΝΟΥΜΕΝΑ ΓΡΑΦΙΚΑ",
+  "saThemeDark": "Σκούρο",
+  "saThemeDarkDesc": "Ήπιο για τα μάτια",
+  "saThemeAmoled": "Μαύρο AMOLED",
+  "saThemeAmoledDesc": "Καθαρό μαύρο, εξοικονομεί μπαταρία",
+  "saThemeLight": "Φωτεινό",
+  "saThemeLightDesc": "Καθαρό και μινιμαλιστικό",
+  "saThemeSystem": "Προεπιλογή Συστήματος",
+  "saThemeSystemDesc": "Ακολουθεί το θέμα του τηλεφώνου σας",
+  "saDynamicThemeColor": "Δυναμικό Χρώμα Θέματος",
+  "saDynamicThemeColorSubtitle": "Εξαγωγή χρώματος από το εξώφυλλο του τραγουδιού",
+  "saHighRefreshRate": "Υψηλός Ρυθμός Ανανέωσης (120Hz)",
+  "saHighRefreshRateSubtitle": "Πιο ομαλή διεπαφή σε συσκευές που το υποστηρίζουν",
+  "saAccentColor": "Χρώμα Τονισμού",
+  "saExtraColorsSignIn": "Επιπλέον χρώματα = Σύνδεση",
+  "saCustomAccentColorsFeature": "Προσαρμοσμένα Χρώματα Τονισμού",
+  "saCustomAccentColorsDesc": "Συνδεθείτε με το Google για να ξεκλειδώσετε περισσότερα χρώματα τονισμού.",
+  "saAppFont": "Γραμματοσειρά Εφαρμογής",
+  "saRoundedMonoSignIn": "Premium γραμματοσειρές = Σύνδεση",
+  "saApplyingFont": "Εφαρμογή γραμματοσειράς…",
+  "saFontUnlockFeature": "Γραμματοσειρά {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Συνδεθείτε με το Google για να ξεκλειδώσετε αυτή τη γραμματοσειρά.",
+  "saCardStyleCompactDesc": "Μικρό εξώφυλλο, κείμενο δίπλα",
+  "saCardStyleCardDesc": "Ισορροπημένο εξώφυλλο και πληροφορίες",
+  "saCardStyleImmersiveDesc": "Εξώφυλλο πλήρους πλάτους, ελάχιστη διεπαφή",
+  "saPremiumBadge": "Premium",
+  "saPlayerStyleUnlockFeature": "Στυλ Player {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Συνδεθείτε με το Google για να ξεκλειδώσετε το στυλ {style}.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Στυλ Φόντου Player",
+  "saPlayerBgStyleSubtitle": "Πώς φαίνεται το φόντο του player",
+  "saDynamicPlayerColor": "Δυναμικό Χρώμα Player",
+  "saDynamicPlayerColorSubtitle": "Αλλαγή χρώματος player με βάση το εξώφυλλο",
+  "saPlayerButtonColors": "Χρώματα Κουμπιών Player",
+  "saPlayerButtonColorsSubtitle": "Χρώμα κουμπιών αναπαραγωγής/παράλειψης",
+  "saPlayerSliderStyle": "Στυλ Ρυθμιστικού Player",
+  "saPlayerSliderStyleSubtitle": "Εμφάνιση της γραμμής αναζήτησης",
+  "saShowBlurredBg": "Εμφάνιση Θολωμένου Φόντου",
+  "saShowBlurredBgSubtitle": "Θολωμένο εξώφυλλο πίσω από τον player",
+  "saNavBarBlur": "Θόλωση Γραμμής Πλοήγησης",
+  "saNavBarBlurSubtitle": "Μειώστε για λιγότερη θερμότητα GPU/κατανάλωση μπαταρίας",
+  "saMiniPlayerBlur": "Θόλωση Mini Player",
+  "saMiniPlayerBlurSubtitle": "Μειώστε για λιγότερη θερμότητα GPU/κατανάλωση μπαταρίας",
+  "saLyricsTextPosition": "Θέση Κειμένου Στίχων",
+  "saLyricsTextPositionSubtitle": "Ευθυγράμμιση στίχων στην οθόνη",
+  "saLyricsTextSize": "Μέγεθος Κειμένου Στίχων",
+  "saLyricsLineSpacing": "Απόσταση Γραμμών Στίχων",
+  "saShowLyricsOnPlayer": "Εμφάνιση Στίχων στον Player",
+  "saShowLyricsOnPlayerSubtitle": "Εμφάνιση της τρέχουσας γραμμής πάνω από τη γραμμή αναζήτησης",
+  "saLyricsViewMode": "Απορροφητικοί Στίχοι",
+  "saLyricsViewModeSubtitle": "Στίχοι πλήρους οθόνης με λάμψη από τον player",
+  "saLyricsViewModeInline": "Ενσωματωμένο",
+  "saLyricsViewModeFullscreen": "Πλήρης Οθόνη",
+  "saEnableAnimations": "Ενεργοποίηση Κινούμενων Γραφικών",
+  "saEnableAnimationsSubtitle": "Κύριος διακόπτης για όλα τα κινούμενα γραφικά",
+  "saBackAnimations": "Κινούμενα Γραφικά Επιστροφής",
+  "saBackAnimationsSubtitle": "Ζωντάνεμα της χειρονομίας πλοήγησης προς τα πίσω",
+  "saScrollAnimations": "Κινούμενα Γραφικά Κύλισης",
+  "saScrollAnimationsSubtitle": "Σταδιακή εμφάνιση στοιχείων κατά την κύλιση",
+  "saBgGradientAnimation": "Κινούμενα Γραφικά Διαβάθμισης Φόντου",
+  "saBgGradientAnimationSubtitle": "Κινούμενη αλλαγή χρώματος στον player",
+  "saShapeSquare": "Τετράγωνο",
+  "saShapeRounded": "Στρογγυλεμένο",
+  "saShapeCircle": "Κύκλος",
+  "ssDownloads": "ΛΗΨΕΙΣ",
+  "ssSongCache": "CACHE ΤΡΑΓΟΥΔΙΩΝ",
+  "ssImageCache": "CACHE ΕΙΚΟΝΩΝ",
+  "ssDownloadedSongs": "Ληφθέντα Τραγούδια",
+  "ssClearAllDownloads": "Εκκαθάριση Όλων των Λήψεων",
+  "ssDownloadQuality": "Ποιότητα Λήψης",
+  "ssDownloadQualitySubtitle": "Ποιότητα ήχου για ληφθέντα τραγούδια",
+  "ssAutoDownloadLiked": "Αυτόματη Λήψη Αγαπημένων Τραγουδιών",
+  "ssAutoDownloadLikedSubtitle": "Αυτόματη λήψη τραγουδιών που σας αρέσουν",
+  "ssWifiOnly": "Λήψη Μόνο μέσω WiFi",
+  "ssWifiOnlySubtitle": "Ποτέ μη χρησιμοποιείτε δεδομένα κινητής τηλεφωνίας για λήψεις",
+  "ssMaxSongCacheSize": "Μέγιστο Μέγεθος Cache Τραγουδιών",
+  "ssClearSongCache": "Εκκαθάριση Cache Τραγουδιών",
+  "ssMaxImageCacheSize": "Μέγιστο Μέγεθος Cache Εικόνων",
+  "ssClearImageCache": "Εκκαθάριση Cache Εικόνων",
+  "ssClearConfirmTitle": "Εκκαθάριση {title};",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Αυτό δεν μπορεί να αναιρεθεί.",
+  "ssCancel": "Ακύρωση",
+  "ssClear": "Εκκαθάριση",
+  "ssAllDownloadsTitle": "Όλες οι Λήψεις",
+  "ssSongCacheTitle": "Cache Τραγουδιών",
+  "ssImageCacheTitle": "Cache Εικόνων",
+  "ssUsedLabel": "Χρησιμοποιείται: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Μέγιστο: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "ΚΛΕΙΔΩΜΑ ΕΦΑΡΜΟΓΗΣ",
+  "sprAppLockTitle": "Κλείδωμα Εφαρμογής",
+  "sprAppLockSubtitleSet": "Ορίστε PIN για να κλειδώσετε την εφαρμογή",
+  "sprAppLockSubtitleChange": "Το PIN έχει οριστεί — πατήστε για αλλαγή",
+  "sprSetPin": "Ορισμός PIN",
+  "sprChangePin": "Αλλαγή PIN",
+  "sprSetPinSubtitle": "Απαιτείται για την ενεργοποίηση του Κλειδώματος Εφαρμογής",
+  "sprChangePinSubtitle": "Αλλάξτε το 4ψήφιο PIN σας",
+  "sprBiometricUnlock": "Βιομετρικό Ξεκλείδωμα",
+  "sprBiometricUnlockSubtitle": "Χρησιμοποιήστε δακτυλικό αποτύπωμα αντί για PIN",
+  "sprAutoLockAfter": "Αυτόματο Κλείδωμα Μετά από",
+  "sprAutoLockAfterSubtitle": "Πόσος χρόνος στο παρασκήνιο πριν το κλείδωμα",
+  "sprDelayImmediately": "Αμέσως",
+  "sprDelayAfter1Min": "Μετά από 1 λεπτό",
+  "sprDelayAfter5Min": "Μετά από 5 λεπτά",
+  "sprDelayAfter10Min": "Μετά από 10 λεπτά",
+  "sprDelayAfter30Min": "Μετά από 30 λεπτά",
+  "sprDontLockWhilePlaying": "Να Μην Κλειδώνει Κατά την Αναπαραγωγή",
+  "sprDontLockWhilePlayingSubtitle": "Η εφαρμογή δεν θα κλειδώσει όσο αναπαράγεται ένα τραγούδι",
+  "sprIncognito": "ΑΝΩΝΥΜΗ ΠΕΡΙΗΓΗΣΗ",
+  "sprIncognitoMode": "Λειτουργία Ανώνυμης Περιήγησης",
+  "sprIncognitoModeSubtitle": "Τα τραγούδια δεν θα εμφανίζονται στο ιστορικό ούτε θα επηρεάζουν τις προτάσεις",
+  "sprIncognitoOnInfo": "Η ανώνυμη περιήγηση είναι ΕΝΕΡΓΗ — το ιστορικό ακρόασης έχει διακοπεί και οι προτάσεις δεν θα ενημερώνονται.",
+  "sprHideListeningStats": "Απόκρυψη Στατιστικών Ακρόασης",
+  "sprHideListeningStatsSubtitle": "Να μην παρακολουθείται ο αριθμός αναπαραγωγών ή ο χρόνος ακρόασης",
+  "sprClearData": "ΕΚΚΑΘΑΡΙΣΗ ΔΕΔΟΜΕΝΩΝ",
+  "sprClearHistory": "Εκκαθάριση Ιστορικού Ακρόασης",
+  "sprClearHistorySubtitle": "Αφαίρεση όλων των πρόσφατα αναπαραγόμενων τραγουδιών",
+  "sprResetRecommendations": "Επαναφορά Προτάσεων",
+  "sprResetRecommendationsSubtitle": "Εκκαθάριση βαθμολογιών συγγένειας και επανεκκίνηση",
+  "sprClearAllData": "Εκκαθάριση Όλων των Δεδομένων Εφαρμογής",
+  "sprClearAllDataSubtitle": "Επαναφορά όλων — λίστες αναπαραγωγής, ρυθμίσεις, ιστορικό",
+  "sprClearTitle": "Εκκαθάριση {title};",
+  "sprClearCannotUndo": "Αυτό δεν μπορεί να αναιρεθεί.",
+  "sprCancel": "Ακύρωση",
+  "sprClear": "Εκκαθάριση",
+  "sprHistoryTitle": "Ιστορικό Ακρόασης",
+  "sprRecommendationsTitle": "Προτάσεις",
+  "sprAllAppDataTitle": "Όλα τα Δεδομένα Εφαρμογής",
+  "sprPinMustBe4Digits": "Το PIN πρέπει να έχει 4 ψηφία",
+  "sprPinsDontMatch": "Τα PIN δεν ταιριάζουν. Δοκιμάστε ξανά.",
+  "sprConfirmPin": "Επιβεβαίωση PIN",
+  "sprSetPinSheetTitle": "Ορισμός PIN",
+  "sprChangePinSheetTitle": "Αλλαγή PIN",
+  "sprEnterPinAgain": "Εισαγάγετε ξανά το PIN για επιβεβαίωση",
+  "sprChoose4DigitPin": "Επιλέξτε ένα 4ψήφιο PIN",
+  "sprRemovePin": "Αφαίρεση PIN",
+  "sprNext": "Επόμενο",
+  "sprConfirm": "Επιβεβαίωση",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Δεν ήταν δυνατή η φόρτωση τραγουδιών τώρα.\nΤραβήξτε προς τα κάτω ή πατήστε για δοκιμή ξανά.",
+  "homeFailedToLoad": "Αποτυχία φόρτωσης.",
+  "homeFailedToLoadCheckConnection": "Δεν ήταν δυνατή η φόρτωση τώρα. Τραβήξτε προς τα κάτω για δοκιμή ξανά.",
+  "homeLoadingPlaylist": "Φόρτωση {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Επιτυχίες Arijit Singh",
+  "homePlaylistChartbusters2025": "Επιτυχίες 2025",
+  "homePlaylistFreshBollywood": "Φρέσκο Bollywood",
+  "homePlaylistMovieBlockbusters": "Επιτυχίες Ταινιών",
+  "homePlaylistNewReleases": "Νέες Κυκλοφορίες",
+  "homePlaylistPartyAnthems": "Ύμνοι Πάρτι",
+  "homePlaylistRomanticThisWeek": "Ρομαντικά Αυτή την Εβδομάδα",
+  "homePlaylistTrendingNow": "Δημοφιλή Τώρα",
+  "loginSyncSubtitle": "Συνδεθείτε για να συγχρονίσετε τη βιβλιοθήκη σας\nσε κάθε συσκευή",
+  "loginMaybeLater": "Ίσως αργότερα",
+  "loginBenefitSyncDevices": "Συγχρονίστε λίστες αναπαραγωγής και αγαπημένα σε κάθε συσκευή",
+  "loginBenefitResumeWhereLeft": "Συνεχίστε ακριβώς από εκεί που σταματήσατε",
+  "loginBenefitLibrarySafe": "Η βιβλιοθήκη σας παραμένει ασφαλής ακόμα κι αν αλλάξετε τηλέφωνο",
+  "loginBenefitPersonalizedProfile": "Ένα εξατομικευμένο προφίλ με το όνομα και τη φωτογραφία σας από το Google",
+  "loginContinueWithGoogle": "Συνέχεια με Google",
+  "commonClear": "Εκκαθάριση",
+  "commonCreate": "Δημιουργία",
+  "commonImport": "Εισαγωγή",
+  "libraryActionCannotBeUndone": "Αυτό δεν μπορεί να αναιρεθεί.",
+  "libraryAddToPlaylist": "Προσθήκη στη λίστα αναπαραγωγής",
+  "libraryAddedToPlaylist": "Προστέθηκε στο \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, one{Προστέθηκε 1 τραγούδι στο \"{name}\"} other{Προστέθηκαν {count} τραγούδια στο \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, one{Επιλέχθηκε 1} other{Επιλέχθηκαν {count}}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Επιλογή",
+  "librarySelectAll": "Επιλογή όλων",
+  "libraryDeselectAll": "Αποεπιλογή όλων",
+  "libraryRemoveSelectedFromPlaylist": "Αφαίρεση από λίστα αναπαραγωγής",
+  "libraryRemoveSelectedConfirm": "{count, plural, one{Αφαίρεση αυτού του τραγουδιού από τη λίστα αναπαραγωγής;} other{Αφαίρεση αυτών των {count} τραγουδιών από τη λίστα αναπαραγωγής;}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, one{Αφαιρέθηκε 1 τραγούδι} other{Αφαιρέθηκαν {count} τραγούδια}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Αναπαραγωγή σε",
+  "castingToDevice": "Μετάδοση στο {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "συσκευή",
+  "castSessionDisconnect": "Αποσύνδεση",
+  "castSessionStopCasting": "Διακοπή μετάδοσης",
+  "castDeviceFallbackTitle": "Συσκευή μετάδοσης",
+  "castToDeviceLabel": "Μετάδοση σε συσκευή",
+  "castPickerTitle": "Μετάδοση σε",
+  "castPickerScanning": "Αναζήτηση συσκευών…",
+  "castPickerNoDevices": "Δεν βρέθηκαν συσκευές. Βεβαιωθείτε ότι το Chromecast ή η τηλεόρασή σας βρίσκεται στο ίδιο δίκτυο Wi-Fi.",
+  "castPickerConnectFailed": "Δεν ήταν δυνατή η σύνδεση. Δοκιμάστε ξανά.",
+  "audioOutputAutoRoutingNotice": "Σε αυτή την έκδοση Android, η έξοδος αλλάζει αυτόματα στην πιο πρόσφατα συνδεδεμένη συσκευή.",
+  "audioOutputSwitchFailed": "Δεν ήταν δυνατή η αλλαγή της συσκευής εξόδου. Δοκιμάστε ξανά.",
+  "libraryAlbumTag": "Άλμπουμ",
+  "libraryAlbumsYouSaveAppearHere": "Τα άλμπουμ που αποθηκεύετε θα εμφανιστούν εδώ.",
+  "libraryAlreadyInPlaylist": "Ήδη στο \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, one{1 καλλιτέχνης} other{{count} καλλιτέχνες}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Καλλιτέχνης",
+  "libraryArtistsYouFollowAppearHere": "Οι καλλιτέχνες που ακολουθείτε θα εμφανιστούν εδώ.",
+  "libraryClearHistoryConfirm": "{count, plural, one{1 τραγούδι θα αφαιρεθεί.} other{Όλα τα {count} τραγούδια θα αφαιρεθούν.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Εκκαθάριση Ιστορικού;",
+  "libraryCollection": "Συλλογή",
+  "libraryComingSoon": "Σύντομα Διαθέσιμο",
+  "libraryCreateFirstPlaylistDesc": "Δημιουργήστε την πρώτη σας λίστα αναπαραγωγής και\nξεκινήστε να οργανώνετε τη μουσική σας.",
+  "libraryCreatePlaylist": "Δημιουργία Λίστας Αναπαραγωγής",
+  "libraryImportFromYoutube": "Εισαγωγή από Λίστα Αναπαραγωγής YouTube",
+  "libraryImportFromYoutubeDesc": "Επικολλήστε έναν σύνδεσμο λίστας αναπαραγωγής YouTube και το Astra θα φέρει όλα τα τραγούδια, έτοιμα για αναπαραγωγή.",
+  "libraryYoutubePlaylistLinkLabel": "Σύνδεσμος λίστας αναπαραγωγής",
+  "libraryYoutubeLinkEmptyError": "Επικολλήστε έναν σύνδεσμο λίστας αναπαραγωγής για να συνεχίσετε.",
+  "libraryYoutubeImportFailedError": "Δεν ήταν δυνατή η εισαγωγή αυτής της λίστας αναπαραγωγής. Ελέγξτε τον σύνδεσμο και δοκιμάστε ξανά.",
+  "libraryYoutubeImportInvalidLinkError": "Αυτό δεν φαίνεται να είναι σύνδεσμος λίστας αναπαραγωγής. Αντιγράψτε τον σύνδεσμο από το μενού κοινής χρήσης της λίστας αναπαραγωγής και δοκιμάστε ξανά.",
+  "libraryYoutubeImportMixError": "Τα mixes και οι ραδιοφωνικοί σταθμοί δεν μπορούν να εισαχθούν — μόνο οι κανονικές λίστες αναπαραγωγής έχουν σταθερή λίστα κομματιών. Δοκιμάστε μια αποθηκευμένη λίστα αναπαραγωγής.",
+  "libraryYoutubeImportNetworkError": "Δεν ήταν δυνατή η πρόσβαση στο YouTube. Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.",
+  "libraryDefaultPlaylistName": "Η Λίστα Αναπαραγωγής Μου",
+  "libraryDeletePlaylist": "Διαγραφή λίστας αναπαραγωγής",
+  "libraryDeletePlaylistConfirm": "Διαγραφή \"{name}\";",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Περιγραφή (προαιρετικό)",
+  "libraryDownloadPlaylist": "Λήψη λίστας αναπαραγωγής",
+  "libraryDownloadingPlaylist": "Λήψη λίστας αναπαραγωγής…",
+  "libraryDownloadPlaylistProgress": "Λήψη {done} από {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Απέτυχε — πατήστε για δοκιμή ξανά",
+  "libraryDownloadFromPlayerDesc": "Κατεβάστε ένα τραγούδι από τον player για ακρόαση εκτός σύνδεσης.",
+  "libraryDownloadedCountHeader": "{count, plural, one{1 ΛΗΦΘΕΝ} other{{count} ΛΗΦΘΕΝΤΑ}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, one{1 τραγούδι} other{{count} τραγούδια}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Ληφθέντα",
+  "libraryDownloadsTabInProgress": "Σε Εξέλιξη",
+  "libraryDownloadPaused": "Σε Παύση",
+  "libraryDownloadResume": "Συνέχιση",
+  "libraryDownloadPause": "Παύση",
+  "libraryDownloadCancel": "Ακύρωση",
+  "libraryDownloadingHeader": "ΓΙΝΕΤΑΙ ΛΗΨΗ",
+  "libraryDownloadingPercent": "Λήψη • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Επεξεργασία Λίστας Αναπαραγωγής",
+  "libraryHistory": "Ιστορικό",
+  "libraryHistoryEarlierToday": "Νωρίτερα σήμερα",
+  "libraryHistoryJustNow": "Μόλις τώρα",
+  "libraryHistoryOlder": "Παλαιότερα",
+  "libraryHistoryRecent": "Πρόσφατα",
+  "libraryHistoryYesterday": "Χθες",
+  "libraryLiked": "Αγαπημένα",
+  "libraryLikedCount": "{count, plural, =0{0 αγαπημένα} one{1 αγαπημένο} other{{count} αγαπημένα}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Τοπικά Αρχεία",
+  "libraryLoginToOrganizeDesc": "Συνδεθείτε με το Google για να οργανώσετε τη μουσική σας σε λίστες αναπαραγωγής.",
+  "libraryNeedsPermissionToReadMusic": "Το Astra χρειάζεται άδεια για να διαβάσει τη μουσική σας.",
+  "libraryNewPlaylist": "Νέα Λίστα Αναπαραγωγής",
+  "libraryNewPlaylistLower": "νέα λίστα αναπαραγωγής",
+  "libraryNoAlbumsSavedYet": "Δεν έχουν αποθηκευτεί άλμπουμ ακόμα",
+  "libraryNoArtistsSavedYet": "Δεν έχουν αποθηκευτεί καλλιτέχνες ακόμα",
+  "libraryNoDownloadsYet": "Δεν υπάρχουν λήψεις ακόμα",
+  "libraryNoHistoryYet": "Δεν υπάρχει ιστορικό ακόμα",
+  "libraryNoLocalSongsFound": "Δεν βρέθηκαν τοπικά τραγούδια",
+  "libraryLocalSearchHint": "Αναζήτηση τοπικών τραγουδιών",
+  "libraryLocalSearchNoResults": "Κανένα τοπικό τραγούδι δεν ταιριάζει με \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Δεν υπάρχουν λίστες αναπαραγωγής ακόμα",
+  "libraryNoSongsYetInPlaylist": "Δεν υπάρχουν τραγούδια ακόμα",
+  "libraryNothingHereYet": "Τίποτα εδώ ακόμα",
+  "libraryOnDeviceCount": "{count} στη συσκευή",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Απαιτείται Άδεια",
+  "libraryPlaySomethingToSeeHistory": "Αναπαράγετε κάτι για να δείτε το ιστορικό",
+  "libraryPlaylistCount": "{count, plural, one{1 λίστα αναπαραγωγής} other{{count} λίστες αναπαραγωγής}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Όνομα λίστας αναπαραγωγής",
+  "libraryPlaylistNotFound": "Η λίστα αναπαραγωγής δεν βρέθηκε",
+  "libraryRecentlyPlayed": "Πρόσφατα Αναπαραγόμενα",
+  "libraryRemoveDownload": "Αφαίρεση λήψης",
+  "libraryRemoveFromPlaylist": "Αφαίρεση από λίστα αναπαραγωγής",
+  "libraryRemoveFromSavedAlbums": "Αφαίρεση από αποθηκευμένα άλμπουμ",
+  "libraryChooseFromGallery": "Επιλογή από τη συλλογή",
+  "libraryRemoveCustomCover": "Αφαίρεση προσαρμοσμένου εξωφύλλου",
+  "libraryRenamePlaylist": "Μετονομασία λίστας αναπαραγωγής",
+  "librarySearchAndAddSongsHere": "Αναζητήστε τραγούδια και προσθέστε τα εδώ",
+  "librarySeeAllSongs": "{count, plural, one{Δείτε 1 τραγούδι} other{Δείτε όλα τα {count} τραγούδια}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Τα τραγούδια που αναπαράγετε θα εμφανιστούν εδώ",
+  "libraryUnfollowArtist": "Διακοπή παρακολούθησης καλλιτέχνη",
+  "libraryYourCollection": "Η συλλογή σας",
+  "alWrongPin": "Λάθος PIN. Δοκιμάστε ξανά.",
+  "alEnterPinToUnlock": "Εισαγάγετε PIN για ξεκλείδωμα",
+  "alBiometricReason": "Χρησιμοποιήστε δακτυλικό αποτύπωμα για να ξεκλειδώσετε το Astra Music",
+  "asCouldntLoad": "Δεν ήταν δυνατή η φόρτωση του {name}",
+  "asRetry": "Δοκιμή ξανά",
+  "asVerifiedArtist": "Επαληθευμένος Καλλιτέχνης",
+  "asMonthlyListeners": "{count} μηνιαίοι ακροατές",
+  "asSaved": "Αποθηκεύτηκε",
+  "asSave": "Αποθήκευση",
+  "asPopular": "Δημοφιλή",
+  "asAlbums": "Άλμπουμ",
+  "asSingles": "Singles",
+  "asAbout": "Σχετικά",
+  "asFansAlsoLike": "Στους θαυμαστές αρέσει επίσης",
+  "asShowAll": "Εμφάνιση όλων",
+  "asShowLess": "Εμφάνιση λιγότερων",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Σχετικά",
+  "abPrivacyPolicyTitle": "Πολιτική Απορρήτου",
+  "abUpdate": "ΕΝΗΜΕΡΩΣΗ",
+  "abCheckForUpdate": "Έλεγχος για Ενημέρωση",
+  "abCheckForUpdateSubtitle": "Δείτε αν υπάρχει διαθέσιμη νέα έκδοση",
+  "abChangelog": "Αρχείο Καταγραφής Αλλαγών",
+  "abChangelogSubtitle": "Τι άλλαξε στις πρόσφατες εκδόσεις",
+  "abLegal": "ΝΟΜΙΚΑ",
+  "abPrivacyPolicy": "Πολιτική Απορρήτου",
+  "abPrivacyPolicySubtitle": "Πώς διαχειρίζονται τα δεδομένα σας",
+  "abTermsOfUse": "Όροι Χρήσης",
+  "abTermsOfUseSubtitle": "Η συμφωνία μεταξύ εσάς και του Astra",
+  "abCommunity": "ΚΟΙΝΟΤΗΤΑ",
+  "abSendFeedback": "Αποστολή Σχολίων",
+  "abSendFeedbackSubtitle": "Πείτε μας τη γνώμη σας, οποτεδήποτε",
+  "abShareApp": "Κοινή Χρήση Astra",
+  "abShareAppSubtitle": "Πείτε στους φίλους σας για αυτή την εφαρμογή",
+  "abDeveloper": "ΠΡΟΓΡΑΜΜΑΤΙΣΤΗΣ",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Φόρτωση...",
+  "abVersionBuild": "v{version} (build {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "ΑΝΑΠΑΡΑΓΩΓΗ ΣΤΟ ΠΑΡΑΣΚΗΝΙΟ",
+  "snPlayerNotification": "ΕΙΔΟΠΟΙΗΣΗ PLAYER",
+  "snNotificationStyle": "ΣΤΥΛ ΕΙΔΟΠΟΙΗΣΗΣ",
+  "snBgPlaybackEnabled": "Αναπαραγωγή στο Παρασκήνιο Ενεργοποιημένη",
+  "snAllowBgPlayback": "Να Επιτρέπεται η Αναπαραγωγή στο Παρασκήνιο",
+  "snBgPlaybackEnabledDesc": "Η μουσική θα συνεχίσει να παίζει με απενεργοποιημένη οθόνη ή κλειστή εφαρμογή",
+  "snAllowBgPlaybackDesc": "Πατήστε για να επιτρέψετε στη μουσική να συνεχίσει να παίζει στο παρασκήνιο — ορισμένα τηλέφωνα σταματούν την αναπαραγωγή χωρίς αυτό",
+  "snShowMediaNotif": "Εμφάνιση Ειδοποίησης Μέσων",
+  "snShowMediaNotifSubtitle": "Εμφάνιση του player στη γραμμή ειδοποιήσεων",
+  "snShowArtwork": "Εμφάνιση Εξωφύλλου Τραγουδιού",
+  "snShowArtworkSubtitle": "Εμφάνιση εξωφύλλου άλμπουμ στην ειδοποίηση",
+  "snShowPrevButton": "Εμφάνιση Κουμπιού Προηγούμενου Τραγουδιού",
+  "snShowPrevButtonSubtitle": "Προσθήκη κουμπιού προηγούμενου στην ειδοποίηση μέσων",
+  "snStyleCompact": "Συμπαγές",
+  "snStyleCompactDesc": "Μικρά, ελάχιστα χειριστήρια",
+  "snStyleExpanded": "Επεκταμένο",
+  "snStyleExpandedDesc": "Πλήρη χειριστήρια με εξώφυλλο",
+  "prProfile": "Προφίλ",
+  "prAurumListener": "Ακροατής Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Συγχρονισμός Βιβλιοθήκης",
+  "prBenefitSyncSub": "Η μουσική σας συγχρονισμένη σε όλες τις συσκευές",
+  "prBenefitLifetimeTitle": "Δια Βίου Πρόσβαση",
+  "prBenefitLifetimeSub": "Χωρίς συνδρομές, δικό σας για πάντα",
+  "prBenefitAdFreeTitle": "Χωρίς Διαφημίσεις",
+  "prBenefitAdFreeSub": "Μηδέν διακοπές, καθαρή μουσική",
+  "prBenefitQualityTitle": "Ήχος Υψηλής Ποιότητας",
+  "prBenefitQualitySub": "Η καλύτερη διαθέσιμη ποιότητα ροής",
+  "prBenefitOfflineTitle": "Έτοιμο για Εκτός Σύνδεσης",
+  "prBenefitOfflineSub": "Κατεβάστε και αναπαράγετε οπουδήποτε",
+  "prBenefitRecsTitle": "Έξυπνες Προτάσεις",
+  "prBenefitRecsSub": "Ουρά και ανακάλυψη βάσει διάθεσης",
+  "prAllFeaturesUnlocked": "Όλες οι λειτουργίες ξεκλειδωμένες",
+  "prUpgradeToUnlock": "Αναβαθμίστε για να ξεκλειδώσετε τα πάντα",
+  "prActive": "Ενεργό",
+  "prFree": "Δωρεάν",
+  "prSyncingLibrary": "Συγχρονισμός βιβλιοθήκης σας…",
+  "prSignedIn": "Συνδεδεμένος/η",
+  "prSyncLibraryTitle": "Συγχρονίστε τη Βιβλιοθήκη σας",
+  "prSyncLibrarySubtitle": "Συνδεθείτε για πρόσβαση σε όλες τις συσκευές",
+  "prSignIn": "Σύνδεση",
+  "prSignedInSynced": "Συνδεδεμένος/η — η βιβλιοθήκη σας είναι συγχρονισμένη",
+  "prSignedInUpgradePrompt": "Συνδεθήκατε! Αναβαθμίστε σε Premium για να ενεργοποιήσετε τον συγχρονισμό στο cloud.",
+  "prSignOutTitle": "Αποσύνδεση;",
+  "prSignOutBody": "Τα αγαπημένα σας τραγούδια, οι λίστες αναπαραγωγής, οι καλλιτέχνες που ακολουθείτε και το ιστορικό θα διαγραφούν από αυτή τη συσκευή. Συνδεθείτε ξανά οποτεδήποτε για να τα ανακτήσετε.",
+  "prCancel": "Ακύρωση",
+  "prSignOut": "Αποσύνδεση",
+  "prSignedOutCleared": "Αποσυνδεθήκατε — τα δεδομένα σας διαγράφηκαν από αυτή τη συσκευή",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Μουσική, όπως πρέπει να ακούγεται.",
+  "psRating": "Βαθμολογία 4,9★",
+  "psSecure": "Ασφαλές",
+  "psRefund": "Επιστροφή χρημάτων εντός 7 ημερών",
+  "psChoosePlan": "Επιλέξτε το πλάνο σας",
+  "psBadgeTryIt": "ΔΟΚΙΜΑΣΤΕ ΤΟ",
+  "psBadgeSave58": "ΕΞΟΙΚΟΝΟΜΗΣΤΕ 58%",
+  "psBadgeBestDeal": "ΚΑΛΥΤΕΡΗ ΠΡΟΣΦΟΡΑ",
+  "psEverythingIncluded": "Όλα συμπεριλαμβάνονται",
+  "psFeatHdAudioTitle": "Ήχος HD • 320kbps",
+  "psFeatHdAudioSub": "Κρυστάλλινη ποιότητα χωρίς απώλειες",
+  "psFeatSkipsTitle": "Απεριόριστες Παραλείψεις",
+  "psFeatSkipsSub": "Παραλείψτε όσα τραγούδια θέλετε",
+  "psFeatAdsTitle": "Μηδέν Διαφημίσεις",
+  "psFeatAdsSub": "Εμπειρία εντελώς χωρίς διαφημίσεις",
+  "psFeatAiTitle": "Προτάσεις AI",
+  "psFeatAiSub": "Τραγούδια επιλεγμένα ειδικά για εσάς",
+  "psFeatOfflineTitle": "Λήψεις Εκτός Σύνδεσης",
+  "psFeatOfflineSub": "Ακούστε χωρίς διαδίκτυο",
+  "psFeatSyncTitle": "Συγχρονισμός στο Cloud",
+  "psFeatSyncSub": "Η βιβλιοθήκη σας σε κάθε συσκευή",
+  "psFeatFollowTitle": "Αρέσει και Ακολουθήστε Καλλιτέχνες",
+  "psFeatFollowSub": "Δημιουργήστε την προσωπική σας συλλογή",
+  "psFeatPlaylistsTitle": "Απεριόριστες Λίστες Αναπαραγωγής",
+  "psFeatPlaylistsSub": "Δημιουργήστε και μοιραστείτε λίστες αναπαραγωγής",
+  "psFeatThemesTitle": "Αποκλειστικά Θέματα",
+  "psFeatThemesSub": "Premium χρώματα και στυλ player",
+  "psGetPlusPrice": "Αποκτήστε Plus — {price}",
+  "psSignInGetPlus": "Σύνδεση και Απόκτηση Plus",
+  "psPerMonth": "{price}/μήνα",
+  "psPerYear": "{price}/έτος",
+  "psOneTime": "{price} εφάπαξ",
+  "psSecurePayments": "🔒  Ασφαλείς πληρωμές μέσω Razorpay  •  Ακυρώστε οποτεδήποτε",
+  "psMoneyBack": "Εγγύηση επιστροφής χρημάτων 7 ημερών",
+  "psPlanMonthly": "1 Μήνας",
+  "psPlanYearly": "1 Έτος",
+  "psPlanLifetime": "Δια Βίου",
+  "psSubPerMonth": "τον μήνα",
+  "psSubPerYear": "τον χρόνο",
+  "psSubPayOnce": "πληρώστε μία φορά, δικό σας για πάντα",
+  "psSuccessTitle": "Τώρα είστε Plus ✦",
+  "psSuccessBody": "Όλες οι λειτουργίες είναι ξεκλειδωμένες.\nΑπολαύστε την πλήρη εμπειρία Astra.",
+  "psStartListening": "Ξεκινήστε την Ακρόαση",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Προεπιλογή συστήματος",
+  "fpLikeSongsFeature": "Αρέσει σε Τραγούδια",
+  "fpLikeSongsSignIn": "Συνδεθείτε με το Google για να αποθηκεύσετε τραγούδια στη βιβλιοθήκη σας.",
+  "fpClosePlayer": "Κλείσιμο player",
+  "fpNowPlaying": "ΑΝΑΠΑΡΑΓΕΤΑΙ ΤΩΡΑ",
+  "fpMoreOptions": "Περισσότερες επιλογές",
+  "fpUnlimitedSkipsFeature": "Απεριόριστες Παραλείψεις",
+  "fpUnlimitedSkipsSignIn": "Συνδεθείτε με το Google για να παραλείπετε όσες φορές θέλετε.",
+  "fpShuffle": "Τυχαία αναπαραγωγή",
+  "fpPrevious": "Προηγούμενο",
+  "fpNext": "Επόμενο",
+  "fpRepeat": "Επανάληψη",
+  "fpLocalBadge": "ΤΟΠΙΚΟ",
+  "fpQueueLyricsInfo": "Ουρά · Στίχοι · Πληροφορίες",
+  "fpPause": "Παύση",
+  "fpPlay": "Αναπαραγωγή",
+  "fpShareText": "{artist} — {title}\n\nΚοινή χρήση από το Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Τίτλος",
+  "fpSongInfoArtist": "Καλλιτέχνης",
+  "fpSongInfoAlbum": "Άλμπουμ",
+  "fpSongInfoDuration": "Διάρκεια",
+  "fpSongInfoYear": "Έτος",
+  "fpSongInfoLanguage": "Γλώσσα",
+  "fpSongInfo": "Πληροφορίες Τραγουδιού",
+  "fpAlreadyDownloaded": "Έχει ήδη ληφθεί",
+  "fpAlreadyDownloading": "Ήδη σε λήψη",
+  "fpAlreadyOnDevice": "Ήδη σε αυτή τη συσκευή",
+  "fpDownloadingSong": "Λήψη {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Αναπαραγωγή Επόμενου",
+  "fpAddToQueue": "Προσθήκη στην Ουρά",
+  "fpAddedToQueue": "Προστέθηκε στην ουρά",
+  "fpLiked": "Άρεσε",
+  "fpLikeAction": "Μου αρέσει",
+  "fpLikeSignInBuildLibrary": "Συνδεθείτε με το Google για να δημιουργήσετε την προσωπική σας βιβλιοθήκη.",
+  "fpAddedToLiked": "Προστέθηκε στα Αγαπημένα",
+  "fpRemovedFromLiked": "Αφαιρέθηκε από τα Αγαπημένα",
+  "fpShare": "Κοινή χρήση",
+  "fpSaveToPlaylist": "Αποθήκευση στη Λίστα Αναπαραγωγής",
+  "fpAudioEffects": "Ηχητικά Εφέ",
+  "fpSleepRemaining": "Ύπνος • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Χρονοδιακόπτης Ύπνου",
+  "fpDownloaded": "Ελήφθη",
+  "fpDownloading": "Λήψη…",
+  "fpDownload": "Λήψη",
+  "fpDownloadingPercent": "Λήψη {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Ουρά",
+  "fpLyrics": "Στίχοι",
+  "fpInfo": "Πληροφορίες",
+  "fpQueueEmpty": "Η ουρά είναι άδεια",
+  "fpUpNext": "ΕΠΟΜΕΝΟ",
+  "fpFindingSongs": "Αναζήτηση τραγουδιών για εσάς…",
+  "fpMoveToTop": "Μετακίνηση στην Κορυφή",
+  "fpRemoveFromQueue": "Αφαίρεση από την Ουρά",
+  "fpNoLyricsFound": "Δεν βρέθηκαν στίχοι",
+  "fpLyricsNotAvailable": "Οι στίχοι δεν είναι διαθέσιμοι για αυτό το τραγούδι",
+  "fpSourceLabel": "Πηγή",
+  "fpLocalLibrary": "Τοπική Βιβλιοθήκη",
+  "fpOnlineStream": "Ροή Διαδικτύου",
+  "fpDownloadFailed": "Δεν ήταν δυνατή η λήψη του \"{title}\" — η ροή δεν είναι διαθέσιμη",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

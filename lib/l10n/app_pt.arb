@@ -1,0 +1,1179 @@
+{
+  "@@locale": "pt",
+  "navHome": "Início",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Buscar",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Biblioteca",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Cancelar",
+  "commonSave": "Salvar",
+  "commonDone": "Concluído",
+  "commonRetry": "Tentar novamente",
+  "commonSeeAll": "Ver tudo",
+  "commonPlay": "Reproduzir",
+  "commonPause": "Pausar",
+  "commonShuffle": "Aleatório",
+  "commonDelete": "Excluir",
+  "commonEdit": "Editar",
+  "commonShare": "Compartilhar",
+  "commonAdd": "Adicionar",
+  "commonRemove": "Remover",
+  "commonSearch": "Buscar",
+  "commonSettings": "Configurações",
+  "commonOk": "OK",
+  "commonYes": "Sim",
+  "commonNo": "Não",
+  "settingsTitle": "Configurações",
+  "settingsAccount": "CONTA",
+  "settingsSectionGeneral": "Geral",
+  "settingsSectionPlayback": "Reprodução",
+  "settingsSectionSystem": "Sistema",
+  "settingsPlayerAudio": "Player e Áudio",
+  "settingsAppearance": "Aparência",
+  "settingsDownloads": "Downloads",
+  "settingsStorage": "Armazenamento",
+  "settingsAbout": "Sobre",
+  "settingsLanguage": "Idioma",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Escolha o idioma preferido do aplicativo",
+  "playerNowPlaying": "Tocando Agora",
+  "playerUpNext": "A Seguir",
+  "playerLyrics": "Letras",
+  "playerQueue": "Fila",
+  "playerInfo": "Informações",
+  "librarySongs": "Músicas",
+  "libraryPlaylists": "Playlists",
+  "libraryArtists": "Artistas",
+  "libraryAlbums": "Álbuns",
+  "libraryLikedSongs": "Músicas Curtidas",
+  "libraryDownloaded": "Baixadas",
+  "libraryEmptyState": "Nada aqui ainda",
+  "homeTrendingPlaylists": "Playlists em Alta",
+  "mixPullForMore": "Puxe para baixo para mais músicas",
+  "homeMoodAll": "Todos",
+  "homePlaylistsForYou": "Playlists para Você",
+  "homeAlbumsForYou": "Álbuns para Você",
+  "homeAfternoonPicks": "Seleção da Tarde",
+  "homeBollywoodMix": "Mix Bollywood",
+  "homeDevotional": "Devocional",
+  "homeTrendingNow": "Em Alta Agora",
+  "homeNewReleases": "Novos Lançamentos",
+  "feedbackTitle": "Gostando do Astra?",
+  "feedbackSubtitle": "Seu feedback nos ajuda a melhorar ainda mais.",
+  "feedbackHint": "Conte o que você pensa (opcional)",
+  "feedbackSend": "Enviar Feedback",
+  "feedbackNotNow": "Agora não",
+  "feedbackThankYouTitle": "Obrigado!",
+  "premiumSoundTitle": "Som Premium",
+  "premiumSoundSubtitle": "Som mais rico e completo em cada faixa — funciona com qualquer qualidade de fonte",
+  "bassBoostTitle": "Reforço de Graves",
+  "bassBoostSubtitle": "Realce as frequências graves para um som mais profundo",
+  "homePickSomething": "Escolha algo para tocar",
+  "homePopularArtists": "Artistas Populares",
+  "homeOnline": "Online",
+  "homeOffline": "Offline",
+  "homeCheckYourInternet": "Verifique sua conexão com a internet",
+  "homePlaybackSource": "Fonte de Reprodução",
+  "homePlaybackSourceSubtitle": "Escolha de onde o Astra reproduz música",
+  "homeOnlineStreaming": "Streaming Online",
+  "homeStreamOnlineDesc": "Transmitir música online",
+  "homeOfflineLibrary": "Biblioteca Offline",
+  "homeOfflineLibraryDesc": "Tocar apenas músicas baixadas",
+  "homeGrantPermission": "Conceder Permissão",
+  "homeStoragePermissionNeeded": "Permissão de armazenamento necessária",
+  "homeNoLocalSongs": "Nenhuma música local encontrada",
+  "homeScanAgain": "Escanear Novamente",
+  "homeLocalSongs": "Músicas Locais",
+  "homePlaybackDiagnostics": "Diagnóstico de Reprodução",
+  "commonClose": "Fechar",
+  "commonPlayAll": "Reproduzir Tudo",
+  "likedNoSongsYet": "Nenhuma música curtida ainda",
+  "likedTapToSave": "Toque em ♥ em qualquer música para salvá-la aqui",
+  "librarySongsCount": "{count, plural, =0{Nenhuma música} =1{1 música} other{{count} músicas}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Fila",
+  "queueEmpty": "A fila está vazia",
+  "queueEmptySubtitle": "As músicas que você tocar a seguir aparecerão aqui",
+  "albumNoSongsFound": "Nenhuma música encontrada",
+  "searchHint": "Músicas, artistas, álbuns...",
+  "searchRecent": "Recentes",
+  "searchClearAll": "Limpar tudo",
+  "searchNoResultsFor": "Nenhum resultado para \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Buscar em todos os lugares",
+  "searchYouMightAlsoLike": "Você também pode gostar",
+  "searchSeeAllResultsFor": "Ver todos os resultados para \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Busque suas músicas favoritas",
+  "searchAllInOnePlace": "Músicas, artistas, álbuns — tudo em um só lugar",
+  "searchTabSearch": "Buscar",
+  "searchTabBrowse": "Explorar",
+  "browseTypeToExplore": "Digite para explorar artistas e álbuns",
+  "browseNoResults": "Nenhum resultado",
+  "browseAlbumFallbackTitle": "Álbum",
+  "settingsPlayerAudioSubtitle": "Reprodução, equalizador, crossfade e comportamento",
+  "settingsAppearanceSubtitle": "Tema, cores, estilo do player e animações",
+  "settingsStorageSubtitle": "Downloads, cache de músicas e cache de imagens",
+  "settingsNotifications": "Notificações",
+  "settingsNotificationsSubtitle": "Estilo da notificação de mídia e capa",
+  "settingsPrivacy": "Privacidade",
+  "settingsPrivacySubtitle": "Bloqueio do app, modo anônimo e dados",
+  "settingsAboutSubtitle": "Versão, atualizações, privacidade e desenvolvedor",
+  "premiumFeature320kbps": "Streaming em 320kbps",
+  "premiumFeatureUnlimitedSkips": "Pular sem limites",
+  "premiumFeatureLikeFollow": "Curtir e seguir",
+  "premiumFeatureCreatePlaylists": "Criar playlists",
+  "premiumFeatureCloudSync": "Sincronização na nuvem",
+  "premiumFeatureExclusiveThemes": "Temas exclusivos",
+  "premiumAllFeaturesUnlocked": "Todos os recursos desbloqueados",
+  "premiumActive": "Ativo",
+  "premiumUpgradeTitle": "Fazer Upgrade para Premium",
+  "premiumUnlockEverything": "Desbloqueie tudo no Astra",
+  "premiumGetButton": "✦  Obter Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "REPRODUÇÃO",
+  "spSleepTimer": "TEMPORIZADOR DE SONO",
+  "spEqualizer": "EQUALIZADOR",
+  "spBehavior": "COMPORTAMENTO",
+  "spStreamQuality": "Qualidade de Streaming",
+  "spStreamQualitySubtitle": "Taxa de bits de áudio para streaming online",
+  "spQualityAuto": "Automático",
+  "spQualityAutoDesc": "Melhor disponível para cada música",
+  "spQualityLow": "Baixa",
+  "spQualityLowDesc": "48–96kbps · economiza dados",
+  "spQualityMedium": "Média",
+  "spQualityMediumDesc": "Até 160kbps",
+  "spQualityHigh": "Alta",
+  "spQualityHighDesc": "320kbps · qualidade de estúdio",
+  "spQualityDataSaver": "Economia Inteligente",
+  "spQualityDataSaverDesc": "Soa ótimo até em rede 2G",
+  "spQualityDataSaverDescExpanded": "Transmite o menor arquivo que sua conexão suporta e aumenta discretamente até 320kbps assim que a música tiver espaço para respirar.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Economia de Dados",
+  "spDataSaverSubtitle": "Forçar baixa qualidade em dados móveis",
+  "spGaplessPlayback": "Reprodução Sem Interrupções",
+  "spGaplessPlaybackSubtitle": "Sem silêncio entre as faixas",
+  "spShowCastIcon": "Mostrar ícone do Chromecast",
+  "spShowCastIconSubtitle": "Controle quando o ícone de transmissão aparece no player em tela cheia",
+  "spCastIconAuto": "Automático",
+  "spCastIconAlways": "Sempre mostrar",
+  "spCastIconHidden": "Oculto",
+  "spPlaybackSpeed": "Velocidade de Reprodução",
+  "spPlaybackSpeedSubtitle": "Aplica-se a músicas locais e online",
+  "spNormal": "Normal",
+  "spCrossfade": "Crossfade",
+  "spCrossfadeSubtitle": "Transição suave entre faixas",
+  "spOff": "Desligado",
+  "spVolumeNormalization": "Normalização de Volume",
+  "spVolumeNormalizationSubtitle": "Mantém todas as músicas em um volume consistente",
+  "spBassBoost": "Reforço de Graves",
+  "spBassBoostSubtitle": "Realce as frequências graves para um som mais profundo",
+  "spPremiumSound": "Som Premium",
+  "spPremiumSoundSubtitle": "Desbloqueie vocais nítidos, graves mais profundos e áudio premium imersivo",
+  "spPremiumSoundPartialSupport": "Alguns efeitos não são suportados neste dispositivo — clareza e graves continuam ativos",
+  "spSleepTimerActive": "Temporizador de Sono Ativo",
+  "spSleepTimerTitle": "Temporizador de Sono",
+  "spSleepTimerStopsIn": "Para em {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Defina um temporizador para parar a reprodução",
+  "spCancel": "Cancelar",
+  "spAutoSleepGuard": "PROTETOR DE SONO AUTOMÁTICO",
+  "asgTileTitle": "Protetor de Sono Automático",
+  "asgTileSubtitleOn": "Pausa após {hours}h de inatividade",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Entre para usar o Protetor de Sono Automático",
+  "asgTileSubtitleOff": "Desligado",
+  "asgTileAutomaticBadge": "Automático",
+  "asgTileOffBadge": "Desligado",
+  "asgSheetTitle": "Protetor de Sono Automático",
+  "asgSheetBody": "O Astra pausa automaticamente a reprodução após um período de inatividade para economizar bateria. Escolha quanto tempo ele aguarda.",
+  "asgSheetModeLabel": "Modo",
+  "asgSheetModeAutomatic": "Automático",
+  "asgSheetModeAutomaticDesc": "Monitora inatividade e pausa para economizar bateria",
+  "asgSheetModeOff": "Desligado",
+  "asgSheetModeOffDesc": "Nunca pausa automaticamente",
+  "asgSheetPremiumHint": "Funciona discretamente em segundo plano — ajustado para nunca atrapalhar",
+  "asgSheetDurationLabel": "Pausar após",
+  "asgSheetHours": "{count}h",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Salvo",
+  "asgSheetDone": "Concluído",
+  "asgResumePromptTitle": "Pausado após inatividade",
+  "asgResumePromptSubtitle": "Pausado às {time} — Retomar?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Retomar",
+  "asgResumePromptDismiss": "Dispensar",
+  "bsmTileTitle": "Modo de Economia de Bateria",
+  "bsmTileSubtitleActive": "Ativo — bateria em {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Ativa automaticamente abaixo de {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Desligado",
+  "bsmTileAutomaticBadge": "Automático",
+  "bsmTileOffBadge": "Desligado",
+  "bsmSheetTitle": "Modo de Economia de Bateria",
+  "bsmSheetBody": "Quando sua bateria está fraca, o Astra desativa automaticamente animações de fundo, desfoque e outros efeitos visuais — a reprodução continua exatamente normal.",
+  "bsmSheetPremiumHint": "Funciona discretamente em segundo plano — a reprodução nunca é afetada, apenas os visuais",
+  "bsmSheetModeLabel": "Modo",
+  "bsmSheetModeAutomatic": "Automático",
+  "bsmSheetModeAutomaticDesc": "Monitora o nível da bateria e economiza energia quando está baixa",
+  "bsmSheetModeOff": "Desligado",
+  "bsmSheetModeOffDesc": "Nunca ativa automaticamente",
+  "bsmSheetThresholdLabel": "Ativar abaixo de",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Salvo",
+  "bsmSheetDone": "Concluído",
+  "spEqualizerTitle": "Equalizador",
+  "spEqualizerSubtitle": "Equalizador de 10 bandas com predefinições",
+  "spKeepQueue": "Manter Fila do Player ao Reabrir",
+  "spKeepQueueSubtitle": "Restaurar fila após fechar o aplicativo",
+  "spStopOnSwipe": "Parar ao Deslizar dos Recentes",
+  "spStopOnSwipeSubtitle": "Parar reprodução quando o app for removido dos recentes",
+  "spPauseOnCall": "Pausar em Chamada Recebida",
+  "spPauseOnCallSubtitle": "Pausa automaticamente quando o telefone toca",
+  "spDuckNotifications": "Abaixar Volume para Notificações",
+  "spDuckNotificationsSubtitle": "DESLIGADO = notificações nunca abaixam nem pausam sua música",
+  "spShakeToSkip": "Sacudir para Pular Música",
+  "spShakeToSkipSubtitle": "Sacuda o telefone para ir à próxima faixa",
+  "spSwipeToChange": "Deslizar para Mudar de Música",
+  "spSwipeToChangeSubtitle": "Deslize na capa do player para pular",
+  "spHapticIntensity": "Intensidade Háptica",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Quão forte os toques e vibrações são sentidos em todo o aplicativo",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Desligado",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Leve",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Forte",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Duração do Histórico",
+  "spHistorySongsCount": "{count} músicas",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Temporizador de Sono",
+  "spSleepTimerSheetSubtitle": "A reprodução parará após o tempo selecionado",
+  "spFinishCurrentSong": "Terminar Música Atual",
+  "spFinishCurrentSongSubtitle": "Deixe a música atual terminar antes de parar",
+  "spStartTimer": "Iniciar Temporizador · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Cancelar Temporizador Ativo",
+  "spSleepTimerCustom": "Personalizado",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Definir",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Digite uma duração em minutos",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Máximo {max} minutos",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Fade out",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "A música diminui suavemente em vez de parar bruscamente",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Alta Taxa de Bits (320kbps)",
+  "spPremiumHighBitrateDesc": "Desbloqueie streaming em 320kbps com qualidade de estúdio com o Astra Plus.",
+  "spEqReset": "Redefinir",
+  "spEqPresets": "PREDEFINIÇÕES",
+  "spEq10Band": "EQUALIZADOR DE 10 BANDAS",
+  "saTheme": "TEMA",
+  "saFontStyle": "ESTILO DE FONTE",
+  "saNowPlayingCard": "CARTÃO TOCANDO AGORA",
+  "saArtworkShape": "FORMATO DA CAPA",
+  "saPlayer": "PLAYER",
+  "saLyrics": "LETRAS",
+  "saAnimations": "ANIMAÇÕES",
+  "saThemeDark": "Escuro",
+  "saThemeDarkDesc": "Suave para os olhos",
+  "saThemeAmoled": "Preto AMOLED",
+  "saThemeAmoledDesc": "Preto puro, economiza bateria",
+  "saThemeLight": "Claro",
+  "saThemeLightDesc": "Limpo e minimalista",
+  "saThemeSystem": "Padrão do Sistema",
+  "saThemeSystemDesc": "Seguir o tema do seu telefone",
+  "saDynamicThemeColor": "Cor de Tema Dinâmica",
+  "saDynamicThemeColorSubtitle": "Extrair cor da capa da música",
+  "saHighRefreshRate": "Alta Taxa de Atualização (120Hz)",
+  "saHighRefreshRateSubtitle": "Interface mais suave em dispositivos compatíveis",
+  "saAccentColor": "Cor de Destaque",
+  "saExtraColorsSignIn": "Cores extras = Entrar",
+  "saCustomAccentColorsFeature": "Cores de Destaque Personalizadas",
+  "saCustomAccentColorsDesc": "Entre com o Google para desbloquear mais cores de destaque.",
+  "saAppFont": "Fonte do App",
+  "saRoundedMonoSignIn": "Fontes premium = Entrar",
+  "saApplyingFont": "Aplicando fonte…",
+  "saFontUnlockFeature": "Fonte {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Entre com o Google para desbloquear esta fonte.",
+  "saCardStyleCompactDesc": "Capa pequena, texto ao lado",
+  "saCardStyleCardDesc": "Capa e informações equilibradas",
+  "saCardStyleImmersiveDesc": "Capa em largura total, interface mínima",
+  "saPremiumBadge": "Premium",
+  "saPlayerStyleUnlockFeature": "Estilo de Player {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Entre com o Google para desbloquear o estilo {style}.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Estilo de Fundo do Player",
+  "saPlayerBgStyleSubtitle": "Como o fundo do player aparece",
+  "saDynamicPlayerColor": "Cor Dinâmica do Player",
+  "saDynamicPlayerColorSubtitle": "Mudar a cor do player a partir da capa",
+  "saPlayerButtonColors": "Cores dos Botões do Player",
+  "saPlayerButtonColorsSubtitle": "Cor dos botões de reproduzir/pular",
+  "saPlayerSliderStyle": "Estilo da Barra do Player",
+  "saPlayerSliderStyleSubtitle": "Aparência da barra de progresso",
+  "saShowBlurredBg": "Mostrar Fundo Desfocado",
+  "saShowBlurredBgSubtitle": "Desfoque da capa atrás do player",
+  "saNavBarBlur": "Desfoque da Barra de Navegação",
+  "saNavBarBlurSubtitle": "Reduza para menos aquecimento da GPU/uso de bateria",
+  "saMiniPlayerBlur": "Desfoque do Mini Player",
+  "saMiniPlayerBlurSubtitle": "Reduza para menos aquecimento da GPU/uso de bateria",
+  "saLyricsTextPosition": "Posição do Texto da Letra",
+  "saLyricsTextPositionSubtitle": "Alinhamento da letra na tela",
+  "saLyricsTextSize": "Tamanho do Texto da Letra",
+  "saLyricsLineSpacing": "Espaçamento das Linhas da Letra",
+  "saShowLyricsOnPlayer": "Mostrar Letra no Player",
+  "saShowLyricsOnPlayerSubtitle": "Exibir a linha atual acima da barra de progresso",
+  "saLyricsViewMode": "Letras Imersivas",
+  "saLyricsViewModeSubtitle": "Letras em tela cheia com brilho a partir do player",
+  "saLyricsViewModeInline": "Em linha",
+  "saLyricsViewModeFullscreen": "Tela Cheia",
+  "saEnableAnimations": "Ativar Animações",
+  "saEnableAnimationsSubtitle": "Controle principal para todas as animações",
+  "saBackAnimations": "Animações de Voltar",
+  "saBackAnimationsSubtitle": "Animar o gesto de navegação para voltar",
+  "saScrollAnimations": "Animações de Rolagem",
+  "saScrollAnimationsSubtitle": "Aparecer itens gradualmente ao rolar",
+  "saBgGradientAnimation": "Animação de Gradiente de Fundo",
+  "saBgGradientAnimationSubtitle": "Mudança de cor animada no player",
+  "saShapeSquare": "Quadrado",
+  "saShapeRounded": "Arredondado",
+  "saShapeCircle": "Círculo",
+  "ssDownloads": "DOWNLOADS",
+  "ssSongCache": "CACHE DE MÚSICAS",
+  "ssImageCache": "CACHE DE IMAGENS",
+  "ssDownloadedSongs": "Músicas Baixadas",
+  "ssClearAllDownloads": "Limpar Todos os Downloads",
+  "ssDownloadQuality": "Qualidade de Download",
+  "ssDownloadQualitySubtitle": "Qualidade de áudio para músicas baixadas",
+  "ssAutoDownloadLiked": "Baixar Automaticamente Músicas Curtidas",
+  "ssAutoDownloadLikedSubtitle": "Baixar automaticamente as músicas que você curtir",
+  "ssWifiOnly": "Baixar Apenas com Wi-Fi",
+  "ssWifiOnlySubtitle": "Nunca usar dados móveis para downloads",
+  "ssMaxSongCacheSize": "Tamanho Máximo do Cache de Músicas",
+  "ssClearSongCache": "Limpar Cache de Músicas",
+  "ssMaxImageCacheSize": "Tamanho Máximo do Cache de Imagens",
+  "ssClearImageCache": "Limpar Cache de Imagens",
+  "ssClearConfirmTitle": "Limpar {title}?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Isso não pode ser desfeito.",
+  "ssCancel": "Cancelar",
+  "ssClear": "Limpar",
+  "ssAllDownloadsTitle": "Todos os Downloads",
+  "ssSongCacheTitle": "Cache de Músicas",
+  "ssImageCacheTitle": "Cache de Imagens",
+  "ssUsedLabel": "Usado: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Máximo: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "BLOQUEIO DO APP",
+  "sprAppLockTitle": "Bloqueio do App",
+  "sprAppLockSubtitleSet": "Defina um PIN para bloquear o app",
+  "sprAppLockSubtitleChange": "PIN definido — toque para alterar",
+  "sprSetPin": "Definir PIN",
+  "sprChangePin": "Alterar PIN",
+  "sprSetPinSubtitle": "Necessário para ativar o Bloqueio do App",
+  "sprChangePinSubtitle": "Altere seu PIN de 4 dígitos",
+  "sprBiometricUnlock": "Desbloqueio Biométrico",
+  "sprBiometricUnlockSubtitle": "Usar impressão digital em vez de PIN",
+  "sprAutoLockAfter": "Bloqueio Automático Após",
+  "sprAutoLockAfterSubtitle": "Quanto tempo em segundo plano antes de bloquear",
+  "sprDelayImmediately": "Imediatamente",
+  "sprDelayAfter1Min": "Após 1 min",
+  "sprDelayAfter5Min": "Após 5 min",
+  "sprDelayAfter10Min": "Após 10 min",
+  "sprDelayAfter30Min": "Após 30 min",
+  "sprDontLockWhilePlaying": "Não Bloquear Durante a Reprodução",
+  "sprDontLockWhilePlayingSubtitle": "O app não bloqueará enquanto uma música estiver tocando",
+  "sprIncognito": "ANÔNIMO",
+  "sprIncognitoMode": "Modo Anônimo",
+  "sprIncognitoModeSubtitle": "As músicas não aparecerão no histórico nem afetarão as recomendações",
+  "sprIncognitoOnInfo": "O modo anônimo está ATIVADO — o histórico de audição está pausado e as recomendações não serão atualizadas.",
+  "sprHideListeningStats": "Ocultar Estatísticas de Audição",
+  "sprHideListeningStatsSubtitle": "Não rastrear número de reproduções ou tempo ouvido",
+  "sprClearData": "LIMPAR DADOS",
+  "sprClearHistory": "Limpar Histórico de Audição",
+  "sprClearHistorySubtitle": "Remover todas as músicas tocadas recentemente",
+  "sprResetRecommendations": "Redefinir Recomendações",
+  "sprResetRecommendationsSubtitle": "Limpar pontuações de afinidade e recomeçar",
+  "sprClearAllData": "Limpar Todos os Dados do App",
+  "sprClearAllDataSubtitle": "Redefinir tudo — playlists, configurações, histórico",
+  "sprClearTitle": "Limpar {title}?",
+  "sprClearCannotUndo": "Isso não pode ser desfeito.",
+  "sprCancel": "Cancelar",
+  "sprClear": "Limpar",
+  "sprHistoryTitle": "Histórico de Audição",
+  "sprRecommendationsTitle": "Recomendações",
+  "sprAllAppDataTitle": "Todos os Dados do App",
+  "sprPinMustBe4Digits": "O PIN deve ter 4 dígitos",
+  "sprPinsDontMatch": "Os PINs não coincidem. Tente novamente.",
+  "sprConfirmPin": "Confirmar PIN",
+  "sprSetPinSheetTitle": "Definir PIN",
+  "sprChangePinSheetTitle": "Alterar PIN",
+  "sprEnterPinAgain": "Digite o PIN novamente para confirmar",
+  "sprChoose4DigitPin": "Escolha um PIN de 4 dígitos",
+  "sprRemovePin": "Remover PIN",
+  "sprNext": "Próximo",
+  "sprConfirm": "Confirmar",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Não foi possível carregar as músicas agora.\nPuxe para baixo ou toque em tentar novamente.",
+  "homeFailedToLoad": "Falha ao carregar.",
+  "homeFailedToLoadCheckConnection": "Não foi possível carregar agora. Puxe para baixo para tentar novamente.",
+  "homeLoadingPlaylist": "Carregando {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Sucessos de Arijit Singh",
+  "homePlaylistChartbusters2025": "Sucessos de 2025",
+  "homePlaylistFreshBollywood": "Bollywood Novidades",
+  "homePlaylistMovieBlockbusters": "Sucessos de Filmes",
+  "homePlaylistNewReleases": "Novos Lançamentos",
+  "homePlaylistPartyAnthems": "Hinos de Festa",
+  "homePlaylistRomanticThisWeek": "Românticas da Semana",
+  "homePlaylistTrendingNow": "Em Alta Agora",
+  "loginSyncSubtitle": "Entre para sincronizar sua biblioteca\nem todos os dispositivos",
+  "loginMaybeLater": "Talvez mais tarde",
+  "loginBenefitSyncDevices": "Sincronize playlists e favoritos em todos os dispositivos",
+  "loginBenefitResumeWhereLeft": "Continue exatamente de onde parou",
+  "loginBenefitLibrarySafe": "Sua biblioteca fica segura mesmo se você trocar de telefone",
+  "loginBenefitPersonalizedProfile": "Um perfil personalizado com seu nome e foto do Google",
+  "loginContinueWithGoogle": "Continuar com o Google",
+  "commonClear": "Limpar",
+  "commonCreate": "Criar",
+  "commonImport": "Importar",
+  "libraryActionCannotBeUndone": "Isso não pode ser desfeito.",
+  "libraryAddToPlaylist": "Adicionar à playlist",
+  "libraryAddedToPlaylist": "Adicionado a \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 música adicionada a \"{name}\"} other{{count} músicas adicionadas a \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{1 selecionada} other{{count} selecionadas}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Selecionar",
+  "librarySelectAll": "Selecionar tudo",
+  "libraryDeselectAll": "Desmarcar tudo",
+  "libraryRemoveSelectedFromPlaylist": "Remover da playlist",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Remover esta música da playlist?} other{Remover estas {count} músicas da playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 música removida} other{{count} músicas removidas}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Reproduzir em",
+  "castingToDevice": "Transmitindo para {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "dispositivo",
+  "castSessionDisconnect": "Desconectar",
+  "castSessionStopCasting": "Parar transmissão",
+  "castDeviceFallbackTitle": "Dispositivo de transmissão",
+  "castToDeviceLabel": "Transmitir para dispositivo",
+  "castPickerTitle": "Transmitir para",
+  "castPickerScanning": "Procurando dispositivos…",
+  "castPickerNoDevices": "Nenhum dispositivo encontrado. Verifique se seu Chromecast ou TV está na mesma rede Wi-Fi.",
+  "castPickerConnectFailed": "Não foi possível conectar. Tente novamente.",
+  "audioOutputAutoRoutingNotice": "Nesta versão do Android, a saída muda automaticamente para o dispositivo conectado mais recentemente.",
+  "audioOutputSwitchFailed": "Não foi possível trocar o dispositivo de saída. Tente novamente.",
+  "libraryAlbumTag": "Álbum",
+  "libraryAlbumsYouSaveAppearHere": "Os álbuns que você salvar aparecerão aqui.",
+  "libraryAlreadyInPlaylist": "Já está em \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{1 artista} other{{count} artistas}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Artista",
+  "libraryArtistsYouFollowAppearHere": "Os artistas que você seguir aparecerão aqui.",
+  "libraryClearHistoryConfirm": "{count, plural, =1{1 música será removida.} other{Todas as {count} músicas serão removidas.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Limpar Histórico?",
+  "libraryCollection": "Coleção",
+  "libraryComingSoon": "Em Breve",
+  "libraryCreateFirstPlaylistDesc": "Crie sua primeira playlist e\ncomece a organizar sua música.",
+  "libraryCreatePlaylist": "Criar Playlist",
+  "libraryImportFromYoutube": "Importar de Playlist do YouTube",
+  "libraryImportFromYoutubeDesc": "Cole um link de playlist do YouTube e o Astra trará todas as músicas, prontas para tocar.",
+  "libraryYoutubePlaylistLinkLabel": "Link da playlist",
+  "libraryYoutubeLinkEmptyError": "Cole um link de playlist para continuar.",
+  "libraryYoutubeImportFailedError": "Não foi possível importar essa playlist. Verifique o link e tente novamente.",
+  "libraryYoutubeImportInvalidLinkError": "Isso não parece ser um link de playlist. Copie o link no menu de compartilhamento da playlist e tente novamente.",
+  "libraryYoutubeImportMixError": "Mixes e estações de rádio não podem ser importados — apenas playlists comuns têm uma lista fixa de faixas. Tente uma playlist salva.",
+  "libraryYoutubeImportNetworkError": "Não foi possível acessar o YouTube. Verifique sua conexão e tente novamente.",
+  "libraryDefaultPlaylistName": "Minha Playlist",
+  "libraryDeletePlaylist": "Excluir playlist",
+  "libraryDeletePlaylistConfirm": "Excluir \"{name}\"?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Descrição (opcional)",
+  "libraryDownloadPlaylist": "Baixar playlist",
+  "libraryDownloadingPlaylist": "Baixando playlist…",
+  "libraryDownloadPlaylistProgress": "Baixando {done} de {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Falhou — toque para tentar novamente",
+  "libraryDownloadFromPlayerDesc": "Baixe uma música no player para ouvir offline.",
+  "libraryDownloadedCountHeader": "{count, plural, =1{1 BAIXADA} other{{count} BAIXADAS}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 música} other{{count} músicas}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Baixadas",
+  "libraryDownloadsTabInProgress": "Em andamento",
+  "libraryDownloadPaused": "Pausado",
+  "libraryDownloadResume": "Retomar",
+  "libraryDownloadPause": "Pausar",
+  "libraryDownloadCancel": "Cancelar",
+  "libraryDownloadingHeader": "BAIXANDO",
+  "libraryDownloadingPercent": "Baixando • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Editar Playlist",
+  "libraryHistory": "Histórico",
+  "libraryHistoryEarlierToday": "Mais cedo hoje",
+  "libraryHistoryJustNow": "Agora mesmo",
+  "libraryHistoryOlder": "Anteriores",
+  "libraryHistoryRecent": "Recentes",
+  "libraryHistoryYesterday": "Ontem",
+  "libraryLiked": "Curtidas",
+  "libraryLikedCount": "{count, plural, =0{0 curtidas} =1{1 curtida} other{{count} curtidas}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Arquivos Locais",
+  "libraryLoginToOrganizeDesc": "Entre com o Google para organizar sua música em playlists.",
+  "libraryNeedsPermissionToReadMusic": "O Astra precisa de permissão para ler sua música.",
+  "libraryNewPlaylist": "Nova Playlist",
+  "libraryNewPlaylistLower": "Nova playlist",
+  "libraryNoAlbumsSavedYet": "Nenhum álbum salvo ainda",
+  "libraryNoArtistsSavedYet": "Nenhum artista salvo ainda",
+  "libraryNoDownloadsYet": "Nenhum download ainda",
+  "libraryNoHistoryYet": "Nenhum histórico ainda",
+  "libraryNoLocalSongsFound": "Nenhuma música local encontrada",
+  "libraryLocalSearchHint": "Buscar músicas locais",
+  "libraryLocalSearchNoResults": "Nenhuma música local corresponde a \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Nenhuma playlist ainda",
+  "libraryNoSongsYetInPlaylist": "Nenhuma música ainda",
+  "libraryNothingHereYet": "Nada aqui ainda",
+  "libraryOnDeviceCount": "{count} no dispositivo",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Permissão Necessária",
+  "libraryPlaySomethingToSeeHistory": "Toque algo para ver o histórico",
+  "libraryPlaylistCount": "{count, plural, =1{1 playlist} other{{count} playlists}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Nome da playlist",
+  "libraryPlaylistNotFound": "Playlist não encontrada",
+  "libraryRecentlyPlayed": "Tocadas Recentemente",
+  "libraryRemoveDownload": "Remover download",
+  "libraryRemoveFromPlaylist": "Remover da playlist",
+  "libraryRemoveFromSavedAlbums": "Remover dos álbuns salvos",
+  "libraryChooseFromGallery": "Escolher da galeria",
+  "libraryRemoveCustomCover": "Remover capa personalizada",
+  "libraryRenamePlaylist": "Renomear playlist",
+  "librarySearchAndAddSongsHere": "Busque músicas e adicione-as aqui",
+  "librarySeeAllSongs": "{count, plural, =1{Ver 1 música} other{Ver todas as {count} músicas}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "As músicas que você tocar aparecerão aqui",
+  "libraryUnfollowArtist": "Deixar de seguir artista",
+  "libraryYourCollection": "Sua coleção",
+  "alWrongPin": "PIN incorreto. Tente novamente.",
+  "alEnterPinToUnlock": "Digite o PIN para desbloquear",
+  "alBiometricReason": "Use a impressão digital para desbloquear o Astra Music",
+  "asCouldntLoad": "Não foi possível carregar {name}",
+  "asRetry": "Tentar novamente",
+  "asVerifiedArtist": "Artista Verificado",
+  "asMonthlyListeners": "{count} ouvintes mensais",
+  "asSaved": "Salvo",
+  "asSave": "Salvar",
+  "asPopular": "Popular",
+  "asAlbums": "Álbuns",
+  "asSingles": "Singles",
+  "asAbout": "Sobre",
+  "asFansAlsoLike": "Fãs também gostam",
+  "asShowAll": "Mostrar tudo",
+  "asShowLess": "Mostrar menos",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Sobre",
+  "abPrivacyPolicyTitle": "Política de Privacidade",
+  "abUpdate": "ATUALIZAÇÃO",
+  "abCheckForUpdate": "Verificar Atualização",
+  "abCheckForUpdateSubtitle": "Ver se há uma nova versão disponível",
+  "abChangelog": "Registro de Alterações",
+  "abChangelogSubtitle": "O que mudou nas versões recentes",
+  "abLegal": "LEGAL",
+  "abPrivacyPolicy": "Política de Privacidade",
+  "abPrivacyPolicySubtitle": "Como seus dados são tratados",
+  "abTermsOfUse": "Termos de Uso",
+  "abTermsOfUseSubtitle": "O acordo entre você e o Astra",
+  "abCommunity": "COMUNIDADE",
+  "abSendFeedback": "Enviar Feedback",
+  "abSendFeedbackSubtitle": "Conte o que você pensa, a qualquer momento",
+  "abShareApp": "Compartilhar Astra",
+  "abShareAppSubtitle": "Conte aos seus amigos sobre este aplicativo",
+  "abDeveloper": "DESENVOLVEDOR",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Carregando...",
+  "abVersionBuild": "v{version} (build {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "REPRODUÇÃO EM SEGUNDO PLANO",
+  "snPlayerNotification": "NOTIFICAÇÃO DO PLAYER",
+  "snNotificationStyle": "ESTILO DA NOTIFICAÇÃO",
+  "snBgPlaybackEnabled": "Reprodução em Segundo Plano Ativada",
+  "snAllowBgPlayback": "Permitir Reprodução em Segundo Plano",
+  "snBgPlaybackEnabledDesc": "A música continuará tocando com a tela desligada ou o app fechado",
+  "snAllowBgPlaybackDesc": "Toque para permitir que a música continue tocando em segundo plano — alguns telefones interrompem a reprodução sem isso",
+  "snShowMediaNotif": "Mostrar Notificação de Mídia",
+  "snShowMediaNotifSubtitle": "Exibir o player na barra de notificações",
+  "snShowArtwork": "Mostrar Capa da Música",
+  "snShowArtworkSubtitle": "Exibir a capa do álbum na notificação",
+  "snShowPrevButton": "Mostrar Botão de Faixa Anterior",
+  "snShowPrevButtonSubtitle": "Adicionar botão anterior na notificação de mídia",
+  "snStyleCompact": "Compacto",
+  "snStyleCompactDesc": "Controles pequenos e minimalistas",
+  "snStyleExpanded": "Expandido",
+  "snStyleExpandedDesc": "Controles completos com capa",
+  "prProfile": "Perfil",
+  "prAurumListener": "Ouvinte Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Sincronizar Biblioteca",
+  "prBenefitSyncSub": "Sua música sincronizada em todos os dispositivos",
+  "prBenefitLifetimeTitle": "Acesso Vitalício",
+  "prBenefitLifetimeSub": "Sem assinaturas, seu para sempre",
+  "prBenefitAdFreeTitle": "Sem Anúncios",
+  "prBenefitAdFreeSub": "Zero interrupções, música pura",
+  "prBenefitQualityTitle": "Áudio de Alta Qualidade",
+  "prBenefitQualitySub": "Melhor qualidade de streaming disponível",
+  "prBenefitOfflineTitle": "Pronto para Offline",
+  "prBenefitOfflineSub": "Baixe e toque em qualquer lugar",
+  "prBenefitRecsTitle": "Recomendações Inteligentes",
+  "prBenefitRecsSub": "Fila e descoberta baseadas em humor",
+  "prAllFeaturesUnlocked": "Todos os recursos desbloqueados",
+  "prUpgradeToUnlock": "Faça upgrade para desbloquear tudo",
+  "prActive": "Ativo",
+  "prFree": "Grátis",
+  "prSyncingLibrary": "Sincronizando sua biblioteca…",
+  "prSignedIn": "Conectado",
+  "prSyncLibraryTitle": "Sincronize Sua Biblioteca",
+  "prSyncLibrarySubtitle": "Entre para acessar em todos os dispositivos",
+  "prSignIn": "Entrar",
+  "prSignedInSynced": "Conectado — sua biblioteca está sincronizada",
+  "prSignedInUpgradePrompt": "Conectado! Faça upgrade para Premium para ativar a sincronização na nuvem.",
+  "prSignOutTitle": "Sair?",
+  "prSignOutBody": "Suas músicas curtidas, playlists, artistas seguidos e histórico serão apagados deste dispositivo. Entre novamente a qualquer momento para recuperá-los.",
+  "prCancel": "Cancelar",
+  "prSignOut": "Sair",
+  "prSignedOutCleared": "Desconectado — seus dados foram apagados deste dispositivo",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Música, do jeito que deveria ser ouvida.",
+  "psRating": "4,9★ de Avaliação",
+  "psSecure": "Seguro",
+  "psRefund": "Reembolso em 7 dias",
+  "psChoosePlan": "Escolha seu plano",
+  "psBadgeTryIt": "EXPERIMENTE",
+  "psBadgeSave58": "ECONOMIZE 58%",
+  "psBadgeBestDeal": "MELHOR OFERTA",
+  "psEverythingIncluded": "Tudo incluído",
+  "psFeatHdAudioTitle": "Áudio HD • 320kbps",
+  "psFeatHdAudioSub": "Qualidade sem perdas cristalina",
+  "psFeatSkipsTitle": "Pulos Ilimitados",
+  "psFeatSkipsSub": "Pule quantas músicas quiser",
+  "psFeatAdsTitle": "Zero Anúncios",
+  "psFeatAdsSub": "Experiência completamente sem anúncios",
+  "psFeatAiTitle": "Recomendações por IA",
+  "psFeatAiSub": "Músicas selecionadas só para você",
+  "psFeatOfflineTitle": "Downloads Offline",
+  "psFeatOfflineSub": "Ouça sem internet",
+  "psFeatSyncTitle": "Sincronização na Nuvem",
+  "psFeatSyncSub": "Sua biblioteca em todos os dispositivos",
+  "psFeatFollowTitle": "Curtir e Seguir Artistas",
+  "psFeatFollowSub": "Monte sua coleção pessoal",
+  "psFeatPlaylistsTitle": "Playlists Ilimitadas",
+  "psFeatPlaylistsSub": "Crie e compartilhe playlists",
+  "psFeatThemesTitle": "Temas Exclusivos",
+  "psFeatThemesSub": "Cores e estilos de player premium",
+  "psGetPlusPrice": "Obter Plus — {price}",
+  "psSignInGetPlus": "Entrar e Obter Plus",
+  "psPerMonth": "{price}/mês",
+  "psPerYear": "{price}/ano",
+  "psOneTime": "{price} pagamento único",
+  "psSecurePayments": "🔒  Pagamentos seguros via Razorpay  •  Cancele quando quiser",
+  "psMoneyBack": "Garantia de reembolso em 7 dias",
+  "psPlanMonthly": "1 Mês",
+  "psPlanYearly": "1 Ano",
+  "psPlanLifetime": "Vitalício",
+  "psSubPerMonth": "por mês",
+  "psSubPerYear": "por ano",
+  "psSubPayOnce": "pague uma vez, seja dono para sempre",
+  "psSuccessTitle": "Agora você é Plus ✦",
+  "psSuccessBody": "Todos os recursos estão desbloqueados.\nAproveite a experiência completa do Astra.",
+  "psStartListening": "Começar a Ouvir",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Padrão do sistema",
+  "fpLikeSongsFeature": "Curtir Músicas",
+  "fpLikeSongsSignIn": "Entre com o Google para salvar músicas na sua biblioteca.",
+  "fpClosePlayer": "Fechar player",
+  "fpNowPlaying": "TOCANDO AGORA",
+  "fpMoreOptions": "Mais opções",
+  "fpUnlimitedSkipsFeature": "Pulos Ilimitados",
+  "fpUnlimitedSkipsSignIn": "Entre com o Google para pular quantas vezes quiser.",
+  "fpShuffle": "Aleatório",
+  "fpPrevious": "Anterior",
+  "fpNext": "Próxima",
+  "fpRepeat": "Repetir",
+  "fpLocalBadge": "LOCAL",
+  "fpQueueLyricsInfo": "Fila · Letras · Informações",
+  "fpPause": "Pausar",
+  "fpPlay": "Reproduzir",
+  "fpShareText": "{artist} — {title}\n\nCompartilhado do Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Título",
+  "fpSongInfoArtist": "Artista",
+  "fpSongInfoAlbum": "Álbum",
+  "fpSongInfoDuration": "Duração",
+  "fpSongInfoYear": "Ano",
+  "fpSongInfoLanguage": "Idioma",
+  "fpSongInfo": "Informações da Música",
+  "fpAlreadyDownloaded": "Já baixada",
+  "fpAlreadyDownloading": "Já baixando",
+  "fpAlreadyOnDevice": "Já está neste dispositivo",
+  "fpDownloadingSong": "Baixando {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Tocar a Seguir",
+  "fpAddToQueue": "Adicionar à Fila",
+  "fpAddedToQueue": "Adicionado à fila",
+  "fpLiked": "Curtida",
+  "fpLikeAction": "Curtir",
+  "fpLikeSignInBuildLibrary": "Entre com o Google para construir sua biblioteca pessoal.",
+  "fpAddedToLiked": "Adicionado às Curtidas",
+  "fpRemovedFromLiked": "Removido das Curtidas",
+  "fpShare": "Compartilhar",
+  "fpSaveToPlaylist": "Salvar na Playlist",
+  "fpAudioEffects": "Efeitos de Áudio",
+  "fpSleepRemaining": "Sono • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Temporizador de Sono",
+  "fpDownloaded": "Baixada",
+  "fpDownloading": "Baixando…",
+  "fpDownload": "Baixar",
+  "fpDownloadingPercent": "Baixando {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Fila",
+  "fpLyrics": "Letras",
+  "fpInfo": "Informações",
+  "fpQueueEmpty": "A fila está vazia",
+  "fpUpNext": "A SEGUIR",
+  "fpFindingSongs": "Encontrando músicas para você…",
+  "fpMoveToTop": "Mover para o Topo",
+  "fpRemoveFromQueue": "Remover da Fila",
+  "fpNoLyricsFound": "Nenhuma letra encontrada",
+  "fpLyricsNotAvailable": "Letra não disponível para esta música",
+  "fpSourceLabel": "Fonte",
+  "fpLocalLibrary": "Biblioteca Local",
+  "fpOnlineStream": "Transmissão Online",
+  "fpDownloadFailed": "Não foi possível baixar \"{title}\" — transmissão indisponível",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

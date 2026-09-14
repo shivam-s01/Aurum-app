@@ -1,0 +1,1179 @@
+{
+  "@@locale": "nl",
+  "navHome": "Start",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Zoeken",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Bibliotheek",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Annuleren",
+  "commonSave": "Opslaan",
+  "commonDone": "Klaar",
+  "commonRetry": "Opnieuw proberen",
+  "commonSeeAll": "Alles bekijken",
+  "commonPlay": "Afspelen",
+  "commonPause": "Pauzeren",
+  "commonShuffle": "Shuffle",
+  "commonDelete": "Verwijderen",
+  "commonEdit": "Bewerken",
+  "commonShare": "Delen",
+  "commonAdd": "Toevoegen",
+  "commonRemove": "Verwijderen",
+  "commonSearch": "Zoeken",
+  "commonSettings": "Instellingen",
+  "commonOk": "OK",
+  "commonYes": "Ja",
+  "commonNo": "Nee",
+  "settingsTitle": "Instellingen",
+  "settingsAccount": "ACCOUNT",
+  "settingsSectionGeneral": "Algemeen",
+  "settingsSectionPlayback": "Afspelen",
+  "settingsSectionSystem": "Systeem",
+  "settingsPlayerAudio": "Speler en Audio",
+  "settingsAppearance": "Uiterlijk",
+  "settingsDownloads": "Downloads",
+  "settingsStorage": "Opslag",
+  "settingsAbout": "Over",
+  "settingsLanguage": "Taal",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Kies je voorkeurstaal voor de app",
+  "playerNowPlaying": "Nu Speelt",
+  "playerUpNext": "Hierna",
+  "playerLyrics": "Songtekst",
+  "playerQueue": "Wachtrij",
+  "playerInfo": "Info",
+  "librarySongs": "Nummers",
+  "libraryPlaylists": "Afspeellijsten",
+  "libraryArtists": "Artiesten",
+  "libraryAlbums": "Albums",
+  "libraryLikedSongs": "Leuk Gevonden Nummers",
+  "libraryDownloaded": "Gedownload",
+  "libraryEmptyState": "Nog niets hier",
+  "homeTrendingPlaylists": "Populaire Afspeellijsten",
+  "mixPullForMore": "Trek naar beneden voor meer nummers",
+  "homeMoodAll": "Alles",
+  "homePlaylistsForYou": "Afspeellijsten voor Jou",
+  "homeAlbumsForYou": "Albums voor Jou",
+  "homeAfternoonPicks": "Middagselectie",
+  "homeBollywoodMix": "Bollywood Mix",
+  "homeDevotional": "Devotioneel",
+  "homeTrendingNow": "Nu Populair",
+  "homeNewReleases": "Nieuwe Releases",
+  "feedbackTitle": "Vind je Astra leuk?",
+  "feedbackSubtitle": "Jouw feedback helpt ons de app nog beter te maken.",
+  "feedbackHint": "Vertel ons wat je vindt (optioneel)",
+  "feedbackSend": "Feedback Versturen",
+  "feedbackNotNow": "Niet nu",
+  "feedbackThankYouTitle": "Bedankt!",
+  "premiumSoundTitle": "Premium Geluid",
+  "premiumSoundSubtitle": "Rijkere, vollere klank bij elk nummer — werkt met elke bronkwaliteit",
+  "bassBoostTitle": "Bass Boost",
+  "bassBoostSubtitle": "Versterk lage frequenties voor een dieper geluid",
+  "homePickSomething": "Kies iets om af te spelen",
+  "homePopularArtists": "Populaire Artiesten",
+  "homeOnline": "Online",
+  "homeOffline": "Offline",
+  "homeCheckYourInternet": "Controleer je internetverbinding",
+  "homePlaybackSource": "Afspeelbron",
+  "homePlaybackSourceSubtitle": "Kies waar Astra muziek vandaan speelt",
+  "homeOnlineStreaming": "Online Streaming",
+  "homeStreamOnlineDesc": "Muziek online streamen",
+  "homeOfflineLibrary": "Offline Bibliotheek",
+  "homeOfflineLibraryDesc": "Alleen gedownloade nummers afspelen",
+  "homeGrantPermission": "Toestemming Geven",
+  "homeStoragePermissionNeeded": "Opslagtoestemming vereist",
+  "homeNoLocalSongs": "Geen lokale nummers gevonden",
+  "homeScanAgain": "Opnieuw Scannen",
+  "homeLocalSongs": "Lokale Nummers",
+  "homePlaybackDiagnostics": "Afspeeldiagnostiek",
+  "commonClose": "Sluiten",
+  "commonPlayAll": "Alles Afspelen",
+  "likedNoSongsYet": "Nog geen nummers leuk gevonden",
+  "likedTapToSave": "Tik op ♥ bij een nummer om het hier op te slaan",
+  "librarySongsCount": "{count, plural, =0{Geen nummers} =1{1 nummer} other{{count} nummers}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Wachtrij",
+  "queueEmpty": "Wachtrij is leeg",
+  "queueEmptySubtitle": "Nummers die je hierna afspeelt komen hier te staan",
+  "albumNoSongsFound": "Geen nummers gevonden",
+  "searchHint": "Nummers, artiesten, albums...",
+  "searchRecent": "Recent",
+  "searchClearAll": "Alles wissen",
+  "searchNoResultsFor": "Geen resultaten voor \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Overal zoeken",
+  "searchYouMightAlsoLike": "Dit vind je misschien ook leuk",
+  "searchSeeAllResultsFor": "Alle resultaten bekijken voor \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Zoek je favoriete nummers",
+  "searchAllInOnePlace": "Nummers, artiesten, albums — allemaal op één plek",
+  "searchTabSearch": "Zoeken",
+  "searchTabBrowse": "Bladeren",
+  "browseTypeToExplore": "Typ om artiesten en albums te ontdekken",
+  "browseNoResults": "Geen resultaten",
+  "browseAlbumFallbackTitle": "Album",
+  "settingsPlayerAudioSubtitle": "Afspelen, equalizer, crossfade en gedrag",
+  "settingsAppearanceSubtitle": "Thema, kleuren, spelerstijl en animaties",
+  "settingsStorageSubtitle": "Downloads, nummercache en afbeeldingscache",
+  "settingsNotifications": "Meldingen",
+  "settingsNotificationsSubtitle": "Mediameldingstijl en artwork",
+  "settingsPrivacy": "Privacy",
+  "settingsPrivacySubtitle": "App-vergrendeling, incognitomodus en gegevens",
+  "settingsAboutSubtitle": "Versie, updates, privacy en ontwikkelaar",
+  "premiumFeature320kbps": "320kbps streaming",
+  "premiumFeatureUnlimitedSkips": "Onbeperkt overslaan",
+  "premiumFeatureLikeFollow": "Leuk vinden en volgen",
+  "premiumFeatureCreatePlaylists": "Afspeellijsten maken",
+  "premiumFeatureCloudSync": "Cloudsynchronisatie",
+  "premiumFeatureExclusiveThemes": "Exclusieve thema's",
+  "premiumAllFeaturesUnlocked": "Alle functies ontgrendeld",
+  "premiumActive": "Actief",
+  "premiumUpgradeTitle": "Upgraden naar Premium",
+  "premiumUnlockEverything": "Ontgrendel alles in Astra",
+  "premiumGetButton": "✦  Astra Premium Aanschaffen",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "AFSPELEN",
+  "spSleepTimer": "SLAAPTIMER",
+  "spEqualizer": "EQUALIZER",
+  "spBehavior": "GEDRAG",
+  "spStreamQuality": "Streamkwaliteit",
+  "spStreamQualitySubtitle": "Audiobitrate voor online streaming",
+  "spQualityAuto": "Automatisch",
+  "spQualityAutoDesc": "Beste beschikbare kwaliteit per nummer",
+  "spQualityLow": "Laag",
+  "spQualityLowDesc": "48–96kbps · bespaart data",
+  "spQualityMedium": "Gemiddeld",
+  "spQualityMediumDesc": "Tot 160kbps",
+  "spQualityHigh": "Hoog",
+  "spQualityHighDesc": "320kbps · studiokwaliteit",
+  "spQualityDataSaver": "Slimme Besparing",
+  "spQualityDataSaverDesc": "Klinkt goed, zelfs op 2G",
+  "spQualityDataSaverDescExpanded": "Streamt het kleinste bestand dat je verbinding aankan en verhoogt daarna geleidelijk naar 320kbps zodra het nummer ruimte krijgt.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Databesparing",
+  "spDataSaverSubtitle": "Lage kwaliteit forceren bij mobiele data",
+  "spGaplessPlayback": "Naadloos Afspelen",
+  "spGaplessPlaybackSubtitle": "Geen stilte tussen nummers",
+  "spShowCastIcon": "Chromecast-icoon Tonen",
+  "spShowCastIconSubtitle": "Bepaal wanneer het cast-icoon verschijnt in de volledige speler",
+  "spCastIconAuto": "Automatisch",
+  "spCastIconAlways": "Altijd tonen",
+  "spCastIconHidden": "Verborgen",
+  "spPlaybackSpeed": "Afspeelsnelheid",
+  "spPlaybackSpeedSubtitle": "Geldt voor zowel lokale als online nummers",
+  "spNormal": "Normaal",
+  "spCrossfade": "Crossfade",
+  "spCrossfadeSubtitle": "Vloeiende overgang tussen nummers",
+  "spOff": "Uit",
+  "spVolumeNormalization": "Volumenormalisatie",
+  "spVolumeNormalizationSubtitle": "Houdt alle nummers op een consistent volumeniveau",
+  "spBassBoost": "Bass Boost",
+  "spBassBoostSubtitle": "Versterk lage frequenties voor een dieper geluid",
+  "spPremiumSound": "Premium Geluid",
+  "spPremiumSoundSubtitle": "Ontgrendel kristalheldere vocalen, diepere bas en meeslepend premium geluid",
+  "spPremiumSoundPartialSupport": "Sommige effecten worden niet ondersteund op dit apparaat — helderheid en bas zijn nog steeds actief",
+  "spSleepTimerActive": "Slaaptimer Actief",
+  "spSleepTimerTitle": "Slaaptimer",
+  "spSleepTimerStopsIn": "Stopt over {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Stel een timer in om af te spelen te stoppen",
+  "spCancel": "Annuleren",
+  "spAutoSleepGuard": "AUTOMATISCHE SLAAPBEVEILIGING",
+  "asgTileTitle": "Automatische Slaapbeveiliging",
+  "asgTileSubtitleOn": "Pauzeert na {hours}u inactiviteit",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Log in om Automatische Slaapbeveiliging te gebruiken",
+  "asgTileSubtitleOff": "Uit",
+  "asgTileAutomaticBadge": "Automatisch",
+  "asgTileOffBadge": "Uit",
+  "asgSheetTitle": "Automatische Slaapbeveiliging",
+  "asgSheetBody": "Astra pauzeert het afspelen automatisch na een periode van inactiviteit om je batterij te sparen. Kies hoe lang het wacht.",
+  "asgSheetModeLabel": "Modus",
+  "asgSheetModeAutomatic": "Automatisch",
+  "asgSheetModeAutomaticDesc": "Let op inactiviteit en pauzeert om batterij te besparen",
+  "asgSheetModeOff": "Uit",
+  "asgSheetModeOffDesc": "Pauzeert nooit automatisch",
+  "asgSheetPremiumHint": "Werkt stil op de achtergrond — zo afgesteld dat het je nooit in de weg zit",
+  "asgSheetDurationLabel": "Pauzeren na",
+  "asgSheetHours": "{count}u",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Opgeslagen",
+  "asgSheetDone": "Klaar",
+  "asgResumePromptTitle": "Gepauzeerd na inactiviteit",
+  "asgResumePromptSubtitle": "Gepauzeerd om {time} — Hervatten?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Hervatten",
+  "asgResumePromptDismiss": "Sluiten",
+  "bsmTileTitle": "Batterijbesparingsmodus",
+  "bsmTileSubtitleActive": "Actief — batterij op {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Wordt automatisch geactiveerd onder {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Uit",
+  "bsmTileAutomaticBadge": "Automatisch",
+  "bsmTileOffBadge": "Uit",
+  "bsmSheetTitle": "Batterijbesparingsmodus",
+  "bsmSheetBody": "Als je batterij bijna leeg is, schakelt Astra automatisch achtergrondanimaties, vervaging en andere visuele effecten uit — het afspelen gaat gewoon normaal door.",
+  "bsmSheetPremiumHint": "Werkt stil op de achtergrond — het afspelen wordt nooit beïnvloed, alleen het beeld",
+  "bsmSheetModeLabel": "Modus",
+  "bsmSheetModeAutomatic": "Automatisch",
+  "bsmSheetModeAutomaticDesc": "Houdt het batterijniveau in de gaten en bespaart stroom als het laag is",
+  "bsmSheetModeOff": "Uit",
+  "bsmSheetModeOffDesc": "Wordt nooit automatisch geactiveerd",
+  "bsmSheetThresholdLabel": "Activeren onder",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Opgeslagen",
+  "bsmSheetDone": "Klaar",
+  "spEqualizerTitle": "Equalizer",
+  "spEqualizerSubtitle": "10-bands EQ met presets",
+  "spKeepQueue": "Wachtrij Behouden bij Heropenen",
+  "spKeepQueueSubtitle": "Wachtrij herstellen na sluiten van de app",
+  "spStopOnSwipe": "Stoppen bij Wegvegen uit Recente Apps",
+  "spStopOnSwipeSubtitle": "Afspelen stoppen wanneer app wordt weggeveegd",
+  "spPauseOnCall": "Pauzeren bij Inkomend Gesprek",
+  "spPauseOnCallSubtitle": "Pauzeert automatisch wanneer de telefoon overgaat",
+  "spDuckNotifications": "Volume Verlagen voor Meldingen",
+  "spDuckNotificationsSubtitle": "UIT = meldingen verlagen of pauzeren je nummer nooit",
+  "spShakeToSkip": "Schudden om te Skippen",
+  "spShakeToSkipSubtitle": "Schud de telefoon om naar het volgende nummer te gaan",
+  "spSwipeToChange": "Vegen om Nummer te Wijzigen",
+  "spSwipeToChangeSubtitle": "Veeg op de albumhoes om te skippen",
+  "spHapticIntensity": "Trilintensiteit",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Hoe sterk tikken en trillingen aanvoelen in de hele app",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Uit",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Licht",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Sterk",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Geschiedenisduur",
+  "spHistorySongsCount": "{count} nummers",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Slaaptimer",
+  "spSleepTimerSheetSubtitle": "Afspelen stopt na de geselecteerde tijd",
+  "spFinishCurrentSong": "Huidig Nummer Afmaken",
+  "spFinishCurrentSongSubtitle": "Laat het huidige nummer eindigen voordat het stopt",
+  "spStartTimer": "Timer Starten · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Actieve Timer Annuleren",
+  "spSleepTimerCustom": "Aangepast",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Instellen",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Voer een duur in minuten in",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Max {max} minuten",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Uitfaden",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Muziek sterft geleidelijk weg in plaats van abrupt te stoppen",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Hoge Bitrate (320kbps)",
+  "spPremiumHighBitrateDesc": "Ontgrendel studiokwaliteit 320kbps streaming met Astra Plus.",
+  "spEqReset": "Resetten",
+  "spEqPresets": "PRESETS",
+  "spEq10Band": "10-BANDS EQ",
+  "saTheme": "THEMA",
+  "saFontStyle": "LETTERTYPESTIJL",
+  "saNowPlayingCard": "NU SPEELT-KAART",
+  "saArtworkShape": "VORM VAN ARTWORK",
+  "saPlayer": "SPELER",
+  "saLyrics": "SONGTEKST",
+  "saAnimations": "ANIMATIES",
+  "saThemeDark": "Donker",
+  "saThemeDarkDesc": "Rustgevend voor de ogen",
+  "saThemeAmoled": "AMOLED Zwart",
+  "saThemeAmoledDesc": "Puur zwart, bespaart batterij",
+  "saThemeLight": "Licht",
+  "saThemeLightDesc": "Helder en minimalistisch",
+  "saThemeSystem": "Systeemstandaard",
+  "saThemeSystemDesc": "Volgt het thema van je telefoon",
+  "saDynamicThemeColor": "Dynamische Themakleur",
+  "saDynamicThemeColorSubtitle": "Kleur uit de albumhoes halen",
+  "saHighRefreshRate": "Hoge Verversingssnelheid (120Hz)",
+  "saHighRefreshRateSubtitle": "Vloeiendere interface op ondersteunde apparaten",
+  "saAccentColor": "Accentkleur",
+  "saExtraColorsSignIn": "Extra kleuren = Inloggen",
+  "saCustomAccentColorsFeature": "Aangepaste Accentkleuren",
+  "saCustomAccentColorsDesc": "Log in met Google om meer accentkleuren te ontgrendelen.",
+  "saAppFont": "App-lettertype",
+  "saRoundedMonoSignIn": "Premium lettertypes = Inloggen",
+  "saApplyingFont": "Lettertype toepassen…",
+  "saFontUnlockFeature": "{font}-lettertype",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Log in met Google om dit lettertype te ontgrendelen.",
+  "saCardStyleCompactDesc": "Kleine albumhoes, tekst ernaast",
+  "saCardStyleCardDesc": "Gebalanceerde albumhoes en info",
+  "saCardStyleImmersiveDesc": "Albumhoes op volledige breedte, minimale interface",
+  "saPremiumBadge": "Premium",
+  "saPlayerStyleUnlockFeature": "{style}-spelerstijl",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Log in met Google om de {style}-stijl te ontgrendelen.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Achtergrondstijl Speler",
+  "saPlayerBgStyleSubtitle": "Hoe de spelerachtergrond eruitziet",
+  "saDynamicPlayerColor": "Dynamische Spelerkleur",
+  "saDynamicPlayerColorSubtitle": "Spelerkleur veranderen op basis van albumhoes",
+  "saPlayerButtonColors": "Kleuren van Spelerknoppen",
+  "saPlayerButtonColorsSubtitle": "Kleur van afspelen/overslaan-knoppen",
+  "saPlayerSliderStyle": "Stijl van Spelerbalk",
+  "saPlayerSliderStyleSubtitle": "Uiterlijk van de zoekbalk",
+  "saShowBlurredBg": "Vervaagde Achtergrond Tonen",
+  "saShowBlurredBgSubtitle": "Vervaagde albumhoes achter de speler",
+  "saNavBarBlur": "Vervaging Navigatiebalk",
+  "saNavBarBlurSubtitle": "Lager instellen voor minder GPU-warmte/batterijgebruik",
+  "saMiniPlayerBlur": "Vervaging Mini-speler",
+  "saMiniPlayerBlurSubtitle": "Lager instellen voor minder GPU-warmte/batterijgebruik",
+  "saLyricsTextPosition": "Positie Songtekst",
+  "saLyricsTextPositionSubtitle": "Uitlijning van de songtekst op het scherm",
+  "saLyricsTextSize": "Tekstgrootte Songtekst",
+  "saLyricsLineSpacing": "Regelafstand Songtekst",
+  "saShowLyricsOnPlayer": "Songtekst Tonen in Speler",
+  "saShowLyricsOnPlayerSubtitle": "Toon de huidige regel boven de zoekbalk",
+  "saLyricsViewMode": "Meeslepende Songteksten",
+  "saLyricsViewModeSubtitle": "Songtekst op volledig scherm met gloed vanuit de speler",
+  "saLyricsViewModeInline": "Inline",
+  "saLyricsViewModeFullscreen": "Volledig Scherm",
+  "saEnableAnimations": "Animaties Inschakelen",
+  "saEnableAnimationsSubtitle": "Hoofdschakelaar voor alle animaties",
+  "saBackAnimations": "Terug-animaties",
+  "saBackAnimationsSubtitle": "Animeer het terug-navigatiegebaar",
+  "saScrollAnimations": "Scrollanimaties",
+  "saScrollAnimationsSubtitle": "Items vervagen in tijdens het scrollen",
+  "saBgGradientAnimation": "Achtergrondverloop-animatie",
+  "saBgGradientAnimationSubtitle": "Geanimeerde kleurverschuiving in de speler",
+  "saShapeSquare": "Vierkant",
+  "saShapeRounded": "Afgerond",
+  "saShapeCircle": "Cirkel",
+  "ssDownloads": "DOWNLOADS",
+  "ssSongCache": "NUMMERCACHE",
+  "ssImageCache": "AFBEELDINGSCACHE",
+  "ssDownloadedSongs": "Gedownloade Nummers",
+  "ssClearAllDownloads": "Alle Downloads Wissen",
+  "ssDownloadQuality": "Downloadkwaliteit",
+  "ssDownloadQualitySubtitle": "Audiokwaliteit voor gedownloade nummers",
+  "ssAutoDownloadLiked": "Automatisch Leuk Gevonden Nummers Downloaden",
+  "ssAutoDownloadLikedSubtitle": "Nummers die je leuk vindt automatisch downloaden",
+  "ssWifiOnly": "Alleen Downloaden via WiFi",
+  "ssWifiOnlySubtitle": "Nooit mobiele data gebruiken voor downloads",
+  "ssMaxSongCacheSize": "Maximale Grootte Nummercache",
+  "ssClearSongCache": "Nummercache Wissen",
+  "ssMaxImageCacheSize": "Maximale Grootte Afbeeldingscache",
+  "ssClearImageCache": "Afbeeldingscache Wissen",
+  "ssClearConfirmTitle": "{title} wissen?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Dit kan niet ongedaan worden gemaakt.",
+  "ssCancel": "Annuleren",
+  "ssClear": "Wissen",
+  "ssAllDownloadsTitle": "Alle Downloads",
+  "ssSongCacheTitle": "Nummercache",
+  "ssImageCacheTitle": "Afbeeldingscache",
+  "ssUsedLabel": "Gebruikt: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Max: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "APP-VERGRENDELING",
+  "sprAppLockTitle": "App-vergrendeling",
+  "sprAppLockSubtitleSet": "Stel een pincode in om de app te vergrendelen",
+  "sprAppLockSubtitleChange": "Pincode ingesteld — tik om te wijzigen",
+  "sprSetPin": "Pincode Instellen",
+  "sprChangePin": "Pincode Wijzigen",
+  "sprSetPinSubtitle": "Vereist om App-vergrendeling in te schakelen",
+  "sprChangePinSubtitle": "Wijzig je 4-cijferige pincode",
+  "sprBiometricUnlock": "Biometrisch Ontgrendelen",
+  "sprBiometricUnlockSubtitle": "Gebruik vingerafdruk in plaats van pincode",
+  "sprAutoLockAfter": "Automatisch Vergrendelen Na",
+  "sprAutoLockAfterSubtitle": "Hoe lang op de achtergrond voordat vergrendeling plaatsvindt",
+  "sprDelayImmediately": "Direct",
+  "sprDelayAfter1Min": "Na 1 min",
+  "sprDelayAfter5Min": "Na 5 min",
+  "sprDelayAfter10Min": "Na 10 min",
+  "sprDelayAfter30Min": "Na 30 min",
+  "sprDontLockWhilePlaying": "Niet Vergrendelen Tijdens Afspelen",
+  "sprDontLockWhilePlayingSubtitle": "De app vergrendelt niet zolang een nummer speelt",
+  "sprIncognito": "INCOGNITO",
+  "sprIncognitoMode": "Incognitomodus",
+  "sprIncognitoModeSubtitle": "Nummers verschijnen niet in de geschiedenis en beïnvloeden geen aanbevelingen",
+  "sprIncognitoOnInfo": "Incognito staat AAN — luistergeschiedenis is gepauzeerd en aanbevelingen worden niet bijgewerkt.",
+  "sprHideListeningStats": "Luisterstatistieken Verbergen",
+  "sprHideListeningStatsSubtitle": "Geen afspeelaantallen of luistertijd bijhouden",
+  "sprClearData": "GEGEVENS WISSEN",
+  "sprClearHistory": "Luistergeschiedenis Wissen",
+  "sprClearHistorySubtitle": "Alle recent afgespeelde nummers verwijderen",
+  "sprResetRecommendations": "Aanbevelingen Resetten",
+  "sprResetRecommendationsSubtitle": "Affiniteitsscores wissen en opnieuw beginnen",
+  "sprClearAllData": "Alle App-gegevens Wissen",
+  "sprClearAllDataSubtitle": "Alles resetten — afspeellijsten, instellingen, geschiedenis",
+  "sprClearTitle": "{title} wissen?",
+  "sprClearCannotUndo": "Dit kan niet ongedaan worden gemaakt.",
+  "sprCancel": "Annuleren",
+  "sprClear": "Wissen",
+  "sprHistoryTitle": "Luistergeschiedenis",
+  "sprRecommendationsTitle": "Aanbevelingen",
+  "sprAllAppDataTitle": "Alle App-gegevens",
+  "sprPinMustBe4Digits": "Pincode moet 4 cijfers zijn",
+  "sprPinsDontMatch": "Pincodes komen niet overeen. Probeer opnieuw.",
+  "sprConfirmPin": "Pincode Bevestigen",
+  "sprSetPinSheetTitle": "Pincode Instellen",
+  "sprChangePinSheetTitle": "Pincode Wijzigen",
+  "sprEnterPinAgain": "Voer de pincode opnieuw in ter bevestiging",
+  "sprChoose4DigitPin": "Kies een 4-cijferige pincode",
+  "sprRemovePin": "Pincode Verwijderen",
+  "sprNext": "Volgende",
+  "sprConfirm": "Bevestigen",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Kon nummers nu niet laden.\nTrek naar beneden of tik op opnieuw proberen.",
+  "homeFailedToLoad": "Laden mislukt.",
+  "homeFailedToLoadCheckConnection": "Kon nu niet laden. Trek naar beneden om opnieuw te proberen.",
+  "homeLoadingPlaylist": "{name} laden...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Arijit Singh Hits",
+  "homePlaylistChartbusters2025": "Chartbusters 2025",
+  "homePlaylistFreshBollywood": "Fris Bollywood",
+  "homePlaylistMovieBlockbusters": "Filmknallers",
+  "homePlaylistNewReleases": "Nieuwe Releases",
+  "homePlaylistPartyAnthems": "Feesthits",
+  "homePlaylistRomanticThisWeek": "Romantisch Deze Week",
+  "homePlaylistTrendingNow": "Nu Populair",
+  "loginSyncSubtitle": "Log in om je bibliotheek te synchroniseren\nop elk apparaat",
+  "loginMaybeLater": "Misschien later",
+  "loginBenefitSyncDevices": "Synchroniseer afspeellijsten en favorieten op elk apparaat",
+  "loginBenefitResumeWhereLeft": "Ga precies verder waar je gebleven was",
+  "loginBenefitLibrarySafe": "Je bibliotheek blijft veilig, ook als je van telefoon wisselt",
+  "loginBenefitPersonalizedProfile": "Een persoonlijk profiel met je Google-naam en foto",
+  "loginContinueWithGoogle": "Doorgaan met Google",
+  "commonClear": "Wissen",
+  "commonCreate": "Maken",
+  "commonImport": "Importeren",
+  "libraryActionCannotBeUndone": "Dit kan niet ongedaan worden gemaakt.",
+  "libraryAddToPlaylist": "Toevoegen aan afspeellijst",
+  "libraryAddedToPlaylist": "Toegevoegd aan \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 nummer toegevoegd aan \"{name}\"} other{{count} nummers toegevoegd aan \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{1 geselecteerd} other{{count} geselecteerd}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Selecteren",
+  "librarySelectAll": "Alles selecteren",
+  "libraryDeselectAll": "Alles deselecteren",
+  "libraryRemoveSelectedFromPlaylist": "Verwijderen uit afspeellijst",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Dit nummer uit de afspeellijst verwijderen?} other{Deze {count} nummers uit de afspeellijst verwijderen?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 nummer verwijderd} other{{count} nummers verwijderd}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Afspelen op",
+  "castingToDevice": "Casten naar {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "apparaat",
+  "castSessionDisconnect": "Verbinding verbreken",
+  "castSessionStopCasting": "Casten stoppen",
+  "castDeviceFallbackTitle": "Cast-apparaat",
+  "castToDeviceLabel": "Casten naar apparaat",
+  "castPickerTitle": "Casten naar",
+  "castPickerScanning": "Apparaten zoeken…",
+  "castPickerNoDevices": "Geen apparaten gevonden. Zorg dat je Chromecast of tv op hetzelfde wifi-netwerk zit.",
+  "castPickerConnectFailed": "Kon geen verbinding maken. Probeer opnieuw.",
+  "audioOutputAutoRoutingNotice": "Op deze Android-versie schakelt de uitvoer automatisch over naar het laatst verbonden apparaat.",
+  "audioOutputSwitchFailed": "Kon uitvoerapparaat niet wisselen. Probeer opnieuw.",
+  "libraryAlbumTag": "Album",
+  "libraryAlbumsYouSaveAppearHere": "Albums die je opslaat verschijnen hier.",
+  "libraryAlreadyInPlaylist": "Al aanwezig in \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{1 artiest} other{{count} artiesten}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Artiest",
+  "libraryArtistsYouFollowAppearHere": "Artiesten die je volgt verschijnen hier.",
+  "libraryClearHistoryConfirm": "{count, plural, =1{1 nummer wordt verwijderd.} other{Alle {count} nummers worden verwijderd.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Geschiedenis Wissen?",
+  "libraryCollection": "Collectie",
+  "libraryComingSoon": "Binnenkort Beschikbaar",
+  "libraryCreateFirstPlaylistDesc": "Maak je eerste afspeellijst en\nbegin met het samenstellen van je muziek.",
+  "libraryCreatePlaylist": "Afspeellijst Maken",
+  "libraryImportFromYoutube": "Importeren van YouTube-afspeellijst",
+  "libraryImportFromYoutubeDesc": "Plak een link naar een YouTube-afspeellijst en Astra haalt alle nummers op, klaar om af te spelen.",
+  "libraryYoutubePlaylistLinkLabel": "Afspeellijst-link",
+  "libraryYoutubeLinkEmptyError": "Plak een link naar een afspeellijst om door te gaan.",
+  "libraryYoutubeImportFailedError": "Kon die afspeellijst niet importeren. Controleer de link en probeer opnieuw.",
+  "libraryYoutubeImportInvalidLinkError": "Dit lijkt geen link naar een afspeellijst te zijn. Kopieer de link uit het deelmenu van de afspeellijst en probeer opnieuw.",
+  "libraryYoutubeImportMixError": "Mixes en radiozenders kunnen niet worden geïmporteerd — alleen gewone afspeellijsten hebben een vaste tracklist. Probeer een opgeslagen afspeellijst.",
+  "libraryYoutubeImportNetworkError": "Kon YouTube niet bereiken. Controleer je verbinding en probeer opnieuw.",
+  "libraryDefaultPlaylistName": "Mijn Afspeellijst",
+  "libraryDeletePlaylist": "Afspeellijst verwijderen",
+  "libraryDeletePlaylistConfirm": "\"{name}\" verwijderen?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Beschrijving (optioneel)",
+  "libraryDownloadPlaylist": "Afspeellijst downloaden",
+  "libraryDownloadingPlaylist": "Afspeellijst downloaden…",
+  "libraryDownloadPlaylistProgress": "{done} van {total} downloaden",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Mislukt — tik om opnieuw te proberen",
+  "libraryDownloadFromPlayerDesc": "Download een nummer vanuit de speler om offline te luisteren.",
+  "libraryDownloadedCountHeader": "{count, plural, =1{1 GEDOWNLOAD} other{{count} GEDOWNLOAD}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 nummer} other{{count} nummers}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Gedownload",
+  "libraryDownloadsTabInProgress": "Bezig",
+  "libraryDownloadPaused": "Gepauzeerd",
+  "libraryDownloadResume": "Hervatten",
+  "libraryDownloadPause": "Pauzeren",
+  "libraryDownloadCancel": "Annuleren",
+  "libraryDownloadingHeader": "BEZIG MET DOWNLOADEN",
+  "libraryDownloadingPercent": "Downloaden • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Afspeellijst Bewerken",
+  "libraryHistory": "Geschiedenis",
+  "libraryHistoryEarlierToday": "Eerder vandaag",
+  "libraryHistoryJustNow": "Zojuist",
+  "libraryHistoryOlder": "Ouder",
+  "libraryHistoryRecent": "Recent",
+  "libraryHistoryYesterday": "Gisteren",
+  "libraryLiked": "Leuk Gevonden",
+  "libraryLikedCount": "{count, plural, =0{0 leuk gevonden} =1{1 leuk gevonden} other{{count} leuk gevonden}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Lokale Bestanden",
+  "libraryLoginToOrganizeDesc": "Log in met Google om je muziek te organiseren in afspeellijsten.",
+  "libraryNeedsPermissionToReadMusic": "Astra heeft toestemming nodig om je muziek te lezen.",
+  "libraryNewPlaylist": "Nieuwe Afspeellijst",
+  "libraryNewPlaylistLower": "Nieuwe afspeellijst",
+  "libraryNoAlbumsSavedYet": "Nog geen albums opgeslagen",
+  "libraryNoArtistsSavedYet": "Nog geen artiesten opgeslagen",
+  "libraryNoDownloadsYet": "Nog geen downloads",
+  "libraryNoHistoryYet": "Nog geen geschiedenis",
+  "libraryNoLocalSongsFound": "Geen lokale nummers gevonden",
+  "libraryLocalSearchHint": "Lokale nummers zoeken",
+  "libraryLocalSearchNoResults": "Geen lokale nummers komen overeen met \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Nog geen afspeellijsten",
+  "libraryNoSongsYetInPlaylist": "Nog geen nummers",
+  "libraryNothingHereYet": "Nog niets hier",
+  "libraryOnDeviceCount": "{count} op apparaat",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Toestemming Vereist",
+  "libraryPlaySomethingToSeeHistory": "Speel iets af om geschiedenis te zien",
+  "libraryPlaylistCount": "{count, plural, =1{1 afspeellijst} other{{count} afspeellijsten}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Naam afspeellijst",
+  "libraryPlaylistNotFound": "Afspeellijst niet gevonden",
+  "libraryRecentlyPlayed": "Onlangs Afgespeeld",
+  "libraryRemoveDownload": "Download verwijderen",
+  "libraryRemoveFromPlaylist": "Verwijderen uit afspeellijst",
+  "libraryRemoveFromSavedAlbums": "Verwijderen uit opgeslagen albums",
+  "libraryChooseFromGallery": "Kiezen uit galerij",
+  "libraryRemoveCustomCover": "Aangepaste hoes verwijderen",
+  "libraryRenamePlaylist": "Afspeellijst hernoemen",
+  "librarySearchAndAddSongsHere": "Zoek nummers en voeg ze hier toe",
+  "librarySeeAllSongs": "{count, plural, =1{Bekijk 1 nummer} other{Bekijk alle {count} nummers}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Nummers die je afspeelt verschijnen hier",
+  "libraryUnfollowArtist": "Artiest ontvolgen",
+  "libraryYourCollection": "Jouw collectie",
+  "alWrongPin": "Onjuiste pincode. Probeer opnieuw.",
+  "alEnterPinToUnlock": "Voer pincode in om te ontgrendelen",
+  "alBiometricReason": "Gebruik vingerafdruk om Astra Music te ontgrendelen",
+  "asCouldntLoad": "Kon {name} niet laden",
+  "asRetry": "Opnieuw proberen",
+  "asVerifiedArtist": "Geverifieerde Artiest",
+  "asMonthlyListeners": "{count} maandelijkse luisteraars",
+  "asSaved": "Opgeslagen",
+  "asSave": "Opslaan",
+  "asPopular": "Populair",
+  "asAlbums": "Albums",
+  "asSingles": "Singles",
+  "asAbout": "Over",
+  "asFansAlsoLike": "Fans vinden dit ook leuk",
+  "asShowAll": "Alles tonen",
+  "asShowLess": "Minder tonen",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Over",
+  "abPrivacyPolicyTitle": "Privacybeleid",
+  "abUpdate": "UPDATE",
+  "abCheckForUpdate": "Controleren op Update",
+  "abCheckForUpdateSubtitle": "Bekijk of er een nieuwe versie beschikbaar is",
+  "abChangelog": "Wijzigingslogboek",
+  "abChangelogSubtitle": "Wat er is veranderd in recente versies",
+  "abLegal": "JURIDISCH",
+  "abPrivacyPolicy": "Privacybeleid",
+  "abPrivacyPolicySubtitle": "Hoe je gegevens worden behandeld",
+  "abTermsOfUse": "Gebruiksvoorwaarden",
+  "abTermsOfUseSubtitle": "De overeenkomst tussen jou en Astra",
+  "abCommunity": "COMMUNITY",
+  "abSendFeedback": "Feedback Versturen",
+  "abSendFeedbackSubtitle": "Vertel ons wat je vindt, wanneer dan ook",
+  "abShareApp": "Astra Delen",
+  "abShareAppSubtitle": "Vertel je vrienden over deze app",
+  "abDeveloper": "ONTWIKKELAAR",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Laden...",
+  "abVersionBuild": "v{version} (build {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "AFSPELEN OP DE ACHTERGROND",
+  "snPlayerNotification": "SPELERMELDING",
+  "snNotificationStyle": "MELDINGSSTIJL",
+  "snBgPlaybackEnabled": "Afspelen op Achtergrond Ingeschakeld",
+  "snAllowBgPlayback": "Afspelen op Achtergrond Toestaan",
+  "snBgPlaybackEnabledDesc": "Muziek blijft spelen met uitgeschakeld scherm of gesloten app",
+  "snAllowBgPlaybackDesc": "Tik om muziek toe te staan door te spelen op de achtergrond — sommige telefoons stoppen anders het afspelen",
+  "snShowMediaNotif": "Mediamelding Tonen",
+  "snShowMediaNotifSubtitle": "Speler weergeven in meldingsbalk",
+  "snShowArtwork": "Albumhoes Tonen",
+  "snShowArtworkSubtitle": "Albumhoes weergeven in melding",
+  "snShowPrevButton": "Vorige-knop Tonen",
+  "snShowPrevButtonSubtitle": "Vorige-knop toevoegen aan mediamelding",
+  "snStyleCompact": "Compact",
+  "snStyleCompactDesc": "Kleine, minimale bediening",
+  "snStyleExpanded": "Uitgebreid",
+  "snStyleExpandedDesc": "Volledige bediening met albumhoes",
+  "prProfile": "Profiel",
+  "prAurumListener": "Astra Luisteraar",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Bibliotheek Synchroniseren",
+  "prBenefitSyncSub": "Je muziek gesynchroniseerd op alle apparaten",
+  "prBenefitLifetimeTitle": "Levenslange Toegang",
+  "prBenefitLifetimeSub": "Geen abonnementen, voor altijd van jou",
+  "prBenefitAdFreeTitle": "Advertentievrij",
+  "prBenefitAdFreeSub": "Geen onderbrekingen, pure muziek",
+  "prBenefitQualityTitle": "Hoge Geluidskwaliteit",
+  "prBenefitQualitySub": "Best beschikbare streamkwaliteit",
+  "prBenefitOfflineTitle": "Offline Klaar",
+  "prBenefitOfflineSub": "Download en speel overal af",
+  "prBenefitRecsTitle": "Slimme Aanbevelingen",
+  "prBenefitRecsSub": "Wachtrij en ontdekking op basis van stemming",
+  "prAllFeaturesUnlocked": "Alle functies ontgrendeld",
+  "prUpgradeToUnlock": "Upgrade om alles te ontgrendelen",
+  "prActive": "Actief",
+  "prFree": "Gratis",
+  "prSyncingLibrary": "Bibliotheek synchroniseren…",
+  "prSignedIn": "Ingelogd",
+  "prSyncLibraryTitle": "Synchroniseer Je Bibliotheek",
+  "prSyncLibrarySubtitle": "Log in voor toegang op alle apparaten",
+  "prSignIn": "Inloggen",
+  "prSignedInSynced": "Ingelogd — je bibliotheek is gesynchroniseerd",
+  "prSignedInUpgradePrompt": "Ingelogd! Upgrade naar Premium om cloudsynchronisatie in te schakelen.",
+  "prSignOutTitle": "Uitloggen?",
+  "prSignOutBody": "Je leuk gevonden nummers, afspeellijsten, gevolgde artiesten en geschiedenis worden van dit apparaat gewist. Log op elk moment weer in om ze terug te krijgen.",
+  "prCancel": "Annuleren",
+  "prSignOut": "Uitloggen",
+  "prSignedOutCleared": "Uitgelogd — je gegevens zijn gewist van dit apparaat",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Muziek, zoals het bedoeld is om gehoord te worden.",
+  "psRating": "4,9★ Beoordeling",
+  "psSecure": "Veilig",
+  "psRefund": "7 dagen restitutie",
+  "psChoosePlan": "Kies je abonnement",
+  "psBadgeTryIt": "PROBEER HET",
+  "psBadgeSave58": "BESPAAR 58%",
+  "psBadgeBestDeal": "BESTE DEAL",
+  "psEverythingIncluded": "Alles inbegrepen",
+  "psFeatHdAudioTitle": "HD-audio • 320kbps",
+  "psFeatHdAudioSub": "Kristalheldere lossless kwaliteit",
+  "psFeatSkipsTitle": "Onbeperkt Overslaan",
+  "psFeatSkipsSub": "Sla zoveel nummers over als je wilt",
+  "psFeatAdsTitle": "Nul Advertenties",
+  "psFeatAdsSub": "Volledig advertentievrije ervaring",
+  "psFeatAiTitle": "AI-aanbevelingen",
+  "psFeatAiSub": "Nummers speciaal voor jou samengesteld",
+  "psFeatOfflineTitle": "Offline Downloads",
+  "psFeatOfflineSub": "Luister zonder internet",
+  "psFeatSyncTitle": "Cloudsynchronisatie",
+  "psFeatSyncSub": "Je bibliotheek op elk apparaat",
+  "psFeatFollowTitle": "Artiesten Leuk Vinden en Volgen",
+  "psFeatFollowSub": "Bouw je persoonlijke collectie op",
+  "psFeatPlaylistsTitle": "Onbeperkt Afspeellijsten",
+  "psFeatPlaylistsSub": "Maak en deel afspeellijsten",
+  "psFeatThemesTitle": "Exclusieve Thema's",
+  "psFeatThemesSub": "Premium kleuren en spelerstijlen",
+  "psGetPlusPrice": "Plus Aanschaffen — {price}",
+  "psSignInGetPlus": "Inloggen en Plus Aanschaffen",
+  "psPerMonth": "{price}/maand",
+  "psPerYear": "{price}/jaar",
+  "psOneTime": "{price} eenmalig",
+  "psSecurePayments": "🔒  Veilige betalingen via Razorpay  •  Op elk moment opzegbaar",
+  "psMoneyBack": "7 dagen geld-terug-garantie",
+  "psPlanMonthly": "1 Maand",
+  "psPlanYearly": "1 Jaar",
+  "psPlanLifetime": "Levenslang",
+  "psSubPerMonth": "per maand",
+  "psSubPerYear": "per jaar",
+  "psSubPayOnce": "eenmalig betalen, voor altijd van jou",
+  "psSuccessTitle": "Je bent nu Plus ✦",
+  "psSuccessBody": "Alle functies zijn ontgrendeld.\nGeniet van de volledige Astra-ervaring.",
+  "psStartListening": "Beginnen met Luisteren",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Systeemstandaard",
+  "fpLikeSongsFeature": "Nummers Leuk Vinden",
+  "fpLikeSongsSignIn": "Log in met Google om nummers op te slaan in je bibliotheek.",
+  "fpClosePlayer": "Speler sluiten",
+  "fpNowPlaying": "NU SPEELT",
+  "fpMoreOptions": "Meer opties",
+  "fpUnlimitedSkipsFeature": "Onbeperkt Overslaan",
+  "fpUnlimitedSkipsSignIn": "Log in met Google om zo vaak te skippen als je wilt.",
+  "fpShuffle": "Shuffle",
+  "fpPrevious": "Vorige",
+  "fpNext": "Volgende",
+  "fpRepeat": "Herhalen",
+  "fpLocalBadge": "LOKAAL",
+  "fpQueueLyricsInfo": "Wachtrij · Songtekst · Info",
+  "fpPause": "Pauzeren",
+  "fpPlay": "Afspelen",
+  "fpShareText": "{artist} — {title}\n\nGedeeld vanuit Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Titel",
+  "fpSongInfoArtist": "Artiest",
+  "fpSongInfoAlbum": "Album",
+  "fpSongInfoDuration": "Duur",
+  "fpSongInfoYear": "Jaar",
+  "fpSongInfoLanguage": "Taal",
+  "fpSongInfo": "Nummerinfo",
+  "fpAlreadyDownloaded": "Al gedownload",
+  "fpAlreadyDownloading": "Al aan het downloaden",
+  "fpAlreadyOnDevice": "Al op dit apparaat",
+  "fpDownloadingSong": "{title} downloaden…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Hierna Afspelen",
+  "fpAddToQueue": "Toevoegen aan Wachtrij",
+  "fpAddedToQueue": "Toegevoegd aan wachtrij",
+  "fpLiked": "Leuk Gevonden",
+  "fpLikeAction": "Leuk Vinden",
+  "fpLikeSignInBuildLibrary": "Log in met Google om je persoonlijke bibliotheek op te bouwen.",
+  "fpAddedToLiked": "Toegevoegd aan Leuk Gevonden",
+  "fpRemovedFromLiked": "Verwijderd uit Leuk Gevonden",
+  "fpShare": "Delen",
+  "fpSaveToPlaylist": "Opslaan naar Afspeellijst",
+  "fpAudioEffects": "Audio-effecten",
+  "fpSleepRemaining": "Slaap • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Slaaptimer",
+  "fpDownloaded": "Gedownload",
+  "fpDownloading": "Downloaden…",
+  "fpDownload": "Downloaden",
+  "fpDownloadingPercent": "{percent}% downloaden",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Wachtrij",
+  "fpLyrics": "Songtekst",
+  "fpInfo": "Info",
+  "fpQueueEmpty": "Wachtrij is leeg",
+  "fpUpNext": "HIERNA",
+  "fpFindingSongs": "Nummers voor je zoeken…",
+  "fpMoveToTop": "Naar Boven Verplaatsen",
+  "fpRemoveFromQueue": "Verwijderen uit Wachtrij",
+  "fpNoLyricsFound": "Geen songtekst gevonden",
+  "fpLyricsNotAvailable": "Songtekst niet beschikbaar voor dit nummer",
+  "fpSourceLabel": "Bron",
+  "fpLocalLibrary": "Lokale Bibliotheek",
+  "fpOnlineStream": "Online Stream",
+  "fpDownloadFailed": "Kon \"{title}\" niet downloaden — stream niet beschikbaar",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

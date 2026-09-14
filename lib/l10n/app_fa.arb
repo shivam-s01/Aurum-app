@@ -1,0 +1,1179 @@
+{
+  "@@locale": "fa",
+  "navHome": "خانه",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "جستجو",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "کتابخانه",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "لغو",
+  "commonSave": "ذخیره",
+  "commonDone": "انجام شد",
+  "commonRetry": "تلاش مجدد",
+  "commonSeeAll": "مشاهده همه",
+  "commonPlay": "پخش",
+  "commonPause": "توقف موقت",
+  "commonShuffle": "پخش تصادفی",
+  "commonDelete": "حذف",
+  "commonEdit": "ویرایش",
+  "commonShare": "اشتراک‌گذاری",
+  "commonAdd": "افزودن",
+  "commonRemove": "حذف",
+  "commonSearch": "جستجو",
+  "commonSettings": "تنظیمات",
+  "commonOk": "تأیید",
+  "commonYes": "بله",
+  "commonNo": "خیر",
+  "settingsTitle": "تنظیمات",
+  "settingsAccount": "حساب کاربری",
+  "settingsSectionGeneral": "عمومی",
+  "settingsSectionPlayback": "پخش",
+  "settingsSectionSystem": "سیستم",
+  "settingsPlayerAudio": "پخش‌کننده و صدا",
+  "settingsAppearance": "ظاهر",
+  "settingsDownloads": "دانلودها",
+  "settingsStorage": "فضای ذخیره‌سازی",
+  "settingsAbout": "درباره",
+  "settingsLanguage": "زبان",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "زبان مورد نظر خود را برای برنامه انتخاب کنید",
+  "playerNowPlaying": "در حال پخش",
+  "playerUpNext": "بعدی",
+  "playerLyrics": "متن ترانه",
+  "playerQueue": "صف پخش",
+  "playerInfo": "اطلاعات",
+  "librarySongs": "آهنگ‌ها",
+  "libraryPlaylists": "پلی‌لیست‌ها",
+  "libraryArtists": "هنرمندان",
+  "libraryAlbums": "آلبوم‌ها",
+  "libraryLikedSongs": "آهنگ‌های پسندیده",
+  "libraryDownloaded": "دانلود شده",
+  "libraryEmptyState": "هنوز چیزی اینجا نیست",
+  "homeTrendingPlaylists": "پلی‌لیست‌های پرطرفدار",
+  "mixPullForMore": "برای آهنگ‌های بیشتر پایین بکشید",
+  "homeMoodAll": "همه",
+  "homePlaylistsForYou": "پلی‌لیست‌ها برای شما",
+  "homeAlbumsForYou": "آلبوم‌ها برای شما",
+  "homeAfternoonPicks": "انتخاب‌های بعدازظهر",
+  "homeBollywoodMix": "میکس بالیوود",
+  "homeDevotional": "مذهبی",
+  "homeTrendingNow": "پرطرفدار اکنون",
+  "homeNewReleases": "انتشارات جدید",
+  "feedbackTitle": "از Astra لذت می‌برید؟",
+  "feedbackSubtitle": "بازخورد شما به ما کمک می‌کند آن را بهتر کنیم.",
+  "feedbackHint": "نظر خود را بگویید (اختیاری)",
+  "feedbackSend": "ارسال بازخورد",
+  "feedbackNotNow": "الان نه",
+  "feedbackThankYouTitle": "متشکریم!",
+  "premiumSoundTitle": "صدای پرمیوم",
+  "premiumSoundSubtitle": "صدای غنی‌تر و کامل‌تر در هر آهنگ — با هر کیفیت منبعی کار می‌کند",
+  "bassBoostTitle": "تقویت باس",
+  "bassBoostSubtitle": "فرکانس‌های پایین را برای صدایی عمیق‌تر تقویت کنید",
+  "homePickSomething": "چیزی برای پخش انتخاب کنید",
+  "homePopularArtists": "هنرمندان محبوب",
+  "homeOnline": "آنلاین",
+  "homeOffline": "آفلاین",
+  "homeCheckYourInternet": "اتصال اینترنت خود را بررسی کنید",
+  "homePlaybackSource": "منبع پخش",
+  "homePlaybackSourceSubtitle": "انتخاب کنید Astra از کجا موسیقی پخش کند",
+  "homeOnlineStreaming": "پخش آنلاین",
+  "homeStreamOnlineDesc": "پخش موسیقی به صورت آنلاین",
+  "homeOfflineLibrary": "کتابخانه آفلاین",
+  "homeOfflineLibraryDesc": "فقط پخش آهنگ‌های دانلود شده",
+  "homeGrantPermission": "اعطای مجوز",
+  "homeStoragePermissionNeeded": "نیاز به مجوز ذخیره‌سازی",
+  "homeNoLocalSongs": "هیچ آهنگ محلی یافت نشد",
+  "homeScanAgain": "اسکن مجدد",
+  "homeLocalSongs": "آهنگ‌های محلی",
+  "homePlaybackDiagnostics": "عیب‌یابی پخش",
+  "commonClose": "بستن",
+  "commonPlayAll": "پخش همه",
+  "likedNoSongsYet": "هنوز آهنگ پسندیده‌ای وجود ندارد",
+  "likedTapToSave": "روی ♥ هر آهنگی بزنید تا اینجا ذخیره شود",
+  "librarySongsCount": "{count, plural, =0{بدون آهنگ} =1{۱ آهنگ} other{{count} آهنگ}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "صف پخش",
+  "queueEmpty": "صف پخش خالی است",
+  "queueEmptySubtitle": "آهنگ‌هایی که در ادامه پخش می‌کنید اینجا نمایش داده می‌شوند",
+  "albumNoSongsFound": "هیچ آهنگی یافت نشد",
+  "searchHint": "آهنگ‌ها، هنرمندان، آلبوم‌ها...",
+  "searchRecent": "اخیر",
+  "searchClearAll": "پاک کردن همه",
+  "searchNoResultsFor": "نتیجه‌ای برای \"{query}\" یافت نشد",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "جستجو در همه جا",
+  "searchYouMightAlsoLike": "ممکن است این‌ها را هم دوست داشته باشید",
+  "searchSeeAllResultsFor": "مشاهده همه نتایج برای \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "آهنگ‌های مورد علاقه خود را جستجو کنید",
+  "searchAllInOnePlace": "آهنگ‌ها، هنرمندان، آلبوم‌ها — همه در یک جا",
+  "searchTabSearch": "جستجو",
+  "searchTabBrowse": "مرور",
+  "browseTypeToExplore": "برای کاوش در هنرمندان و آلبوم‌ها تایپ کنید",
+  "browseNoResults": "نتیجه‌ای یافت نشد",
+  "browseAlbumFallbackTitle": "آلبوم",
+  "settingsPlayerAudioSubtitle": "پخش، اکولایزر، کراس‌فید و رفتار",
+  "settingsAppearanceSubtitle": "تم، رنگ‌ها، سبک پخش‌کننده و انیمیشن‌ها",
+  "settingsStorageSubtitle": "دانلودها، حافظه پنهان آهنگ و تصویر",
+  "settingsNotifications": "اعلان‌ها",
+  "settingsNotificationsSubtitle": "سبک اعلان رسانه و تصویر جلد",
+  "settingsPrivacy": "حریم خصوصی",
+  "settingsPrivacySubtitle": "قفل برنامه، حالت ناشناس و داده‌ها",
+  "settingsAboutSubtitle": "نسخه، به‌روزرسانی‌ها، حریم خصوصی و توسعه‌دهنده",
+  "premiumFeature320kbps": "پخش با کیفیت ۳۲۰kbps",
+  "premiumFeatureUnlimitedSkips": "رد کردن نامحدود",
+  "premiumFeatureLikeFollow": "پسندیدن و دنبال کردن",
+  "premiumFeatureCreatePlaylists": "ایجاد پلی‌لیست",
+  "premiumFeatureCloudSync": "همگام‌سازی ابری",
+  "premiumFeatureExclusiveThemes": "تم‌های اختصاصی",
+  "premiumAllFeaturesUnlocked": "همه ویژگی‌ها باز شد",
+  "premiumActive": "فعال",
+  "premiumUpgradeTitle": "ارتقا به پرمیوم",
+  "premiumUnlockEverything": "همه چیز را در Astra باز کنید",
+  "premiumGetButton": "✦  دریافت Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "پخش",
+  "spSleepTimer": "تایمر خواب",
+  "spEqualizer": "اکولایزر",
+  "spBehavior": "رفتار",
+  "spStreamQuality": "کیفیت پخش جریانی",
+  "spStreamQualitySubtitle": "نرخ بیت صدا برای پخش آنلاین",
+  "spQualityAuto": "خودکار",
+  "spQualityAutoDesc": "بهترین کیفیت موجود برای هر آهنگ",
+  "spQualityLow": "پایین",
+  "spQualityLowDesc": "۴۸–۹۶kbps · صرفه‌جویی در داده",
+  "spQualityMedium": "متوسط",
+  "spQualityMediumDesc": "تا ۱۶۰kbps",
+  "spQualityHigh": "بالا",
+  "spQualityHighDesc": "۳۲۰kbps · کیفیت استودیویی",
+  "spQualityDataSaver": "صرفه‌جویی هوشمند",
+  "spQualityDataSaverDesc": "حتی روی 2G هم عالی است",
+  "spQualityDataSaverDescExpanded": "کوچک‌ترین فایلی که اتصال شما تحمل می‌کند پخش می‌شود، سپس به آرامی تا ۳۲۰kbps افزایش می‌یابد به محض اینکه آهنگ فضای کافی داشته باشد.",
+  "spPlusBadge": "پلاس",
+  "spDataSaver": "صرفه‌جویی داده",
+  "spDataSaverSubtitle": "اجبار کیفیت پایین در داده موبایل",
+  "spGaplessPlayback": "پخش بدون وقفه",
+  "spGaplessPlaybackSubtitle": "بدون سکوت بین آهنگ‌ها",
+  "spShowCastIcon": "نمایش نماد Chromecast",
+  "spShowCastIconSubtitle": "کنترل زمان نمایش نماد کست در پخش‌کننده تمام‌صفحه",
+  "spCastIconAuto": "خودکار",
+  "spCastIconAlways": "همیشه نمایش",
+  "spCastIconHidden": "پنهان",
+  "spPlaybackSpeed": "سرعت پخش",
+  "spPlaybackSpeedSubtitle": "برای آهنگ‌های محلی و آنلاین اعمال می‌شود",
+  "spNormal": "عادی",
+  "spCrossfade": "کراس‌فید",
+  "spCrossfadeSubtitle": "انتقال نرم بین آهنگ‌ها",
+  "spOff": "خاموش",
+  "spVolumeNormalization": "یکسان‌سازی صدا",
+  "spVolumeNormalizationSubtitle": "سطح صدای یکسانی را در همه آهنگ‌ها حفظ می‌کند",
+  "spBassBoost": "تقویت باس",
+  "spBassBoostSubtitle": "فرکانس‌های پایین را برای صدایی عمیق‌تر تقویت کنید",
+  "spPremiumSound": "صدای پرمیوم",
+  "spPremiumSoundSubtitle": "صدای خواننده شفاف، باس عمیق‌تر و صدای پرمیوم فراگیر را باز کنید",
+  "spPremiumSoundPartialSupport": "برخی افکت‌ها روی این دستگاه پشتیبانی نمی‌شوند — وضوح و باس همچنان فعال هستند",
+  "spSleepTimerActive": "تایمر خواب فعال",
+  "spSleepTimerTitle": "تایمر خواب",
+  "spSleepTimerStopsIn": "توقف در {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "تایمری برای توقف پخش تنظیم کنید",
+  "spCancel": "لغو",
+  "spAutoSleepGuard": "محافظ خواب خودکار",
+  "asgTileTitle": "محافظ خواب خودکار",
+  "asgTileSubtitleOn": "بعد از {hours} ساعت عدم فعالیت توقف می‌کند",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "برای استفاده از محافظ خواب خودکار وارد شوید",
+  "asgTileSubtitleOff": "خاموش",
+  "asgTileAutomaticBadge": "خودکار",
+  "asgTileOffBadge": "خاموش",
+  "asgSheetTitle": "محافظ خواب خودکار",
+  "asgSheetBody": "Astra پس از یک دوره عدم فعالیت، پخش را به صورت خودکار متوقف می‌کند تا در باتری صرفه‌جویی شود. مدت زمان انتظار را انتخاب کنید.",
+  "asgSheetModeLabel": "حالت",
+  "asgSheetModeAutomatic": "خودکار",
+  "asgSheetModeAutomaticDesc": "عدم فعالیت را زیر نظر می‌گیرد و برای صرفه‌جویی باتری توقف می‌کند",
+  "asgSheetModeOff": "خاموش",
+  "asgSheetModeOffDesc": "هرگز به صورت خودکار توقف نمی‌کند",
+  "asgSheetPremiumHint": "به آرامی در پس‌زمینه اجرا می‌شود — طوری تنظیم شده که هرگز مزاحم نشود",
+  "asgSheetDurationLabel": "توقف بعد از",
+  "asgSheetHours": "{count} ساعت",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "ذخیره شد",
+  "asgSheetDone": "انجام شد",
+  "asgResumePromptTitle": "متوقف شده به دلیل عدم فعالیت",
+  "asgResumePromptSubtitle": "متوقف شده در {time} — ادامه دهم؟",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "ادامه",
+  "asgResumePromptDismiss": "رد کردن",
+  "bsmTileTitle": "حالت صرفه‌جویی باتری",
+  "bsmTileSubtitleActive": "فعال — باتری در {level}٪",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "به صورت خودکار زیر {threshold}٪ فعال می‌شود",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "خاموش",
+  "bsmTileAutomaticBadge": "خودکار",
+  "bsmTileOffBadge": "خاموش",
+  "bsmSheetTitle": "حالت صرفه‌جویی باتری",
+  "bsmSheetBody": "وقتی باتری شما کم می‌شود، Astra به صورت خودکار انیمیشن‌های پس‌زمینه، تاری و سایر جلوه‌های تصویری را خاموش می‌کند — پخش دقیقاً مانند حالت عادی ادامه می‌یابد.",
+  "bsmSheetPremiumHint": "به آرامی در پس‌زمینه اجرا می‌شود — پخش هرگز تحت تأثیر قرار نمی‌گیرد، فقط جلوه‌های تصویری",
+  "bsmSheetModeLabel": "حالت",
+  "bsmSheetModeAutomatic": "خودکار",
+  "bsmSheetModeAutomaticDesc": "سطح باتری را زیر نظر می‌گیرد و در صورت کم بودن، برق را ذخیره می‌کند",
+  "bsmSheetModeOff": "خاموش",
+  "bsmSheetModeOffDesc": "هرگز به صورت خودکار فعال نمی‌شود",
+  "bsmSheetThresholdLabel": "فعال‌سازی در پایین‌تر از",
+  "bsmSheetPercent": "{value}٪",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "ذخیره شد",
+  "bsmSheetDone": "انجام شد",
+  "spEqualizerTitle": "اکولایزر",
+  "spEqualizerSubtitle": "اکولایزر ۱۰ باندی با پیش‌تنظیم‌ها",
+  "spKeepQueue": "حفظ صف پخش هنگام باز کردن مجدد",
+  "spKeepQueueSubtitle": "بازیابی صف پس از بستن برنامه",
+  "spStopOnSwipe": "توقف هنگام پاک کردن از اخیرها",
+  "spStopOnSwipeSubtitle": "توقف پخش هنگام پاک کردن برنامه",
+  "spPauseOnCall": "توقف موقت هنگام تماس ورودی",
+  "spPauseOnCallSubtitle": "با زنگ خوردن تلفن به صورت خودکار توقف می‌کند",
+  "spDuckNotifications": "کاهش صدا برای اعلان‌ها",
+  "spDuckNotificationsSubtitle": "خاموش = اعلان‌ها هرگز صدای آهنگ شما را کم یا متوقف نمی‌کنند",
+  "spShakeToSkip": "تکان دادن برای رد کردن آهنگ",
+  "spShakeToSkipSubtitle": "تلفن را تکان دهید تا به آهنگ بعدی بروید",
+  "spSwipeToChange": "کشیدن برای تغییر آهنگ",
+  "spSwipeToChangeSubtitle": "روی تصویر جلد پخش‌کننده بکشید تا رد شود",
+  "spHapticIntensity": "شدت لرزش",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "میزان قدرت لمس‌ها و لرزش‌ها در سراسر برنامه",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "خاموش",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "ملایم",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "قوی",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "مدت زمان تاریخچه",
+  "spHistorySongsCount": "{count} آهنگ",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "تایمر خواب",
+  "spSleepTimerSheetSubtitle": "پخش پس از زمان انتخاب شده متوقف می‌شود",
+  "spFinishCurrentSong": "پایان آهنگ فعلی",
+  "spFinishCurrentSongSubtitle": "اجازه دهید آهنگ فعلی قبل از توقف به پایان برسد",
+  "spStartTimer": "شروع تایمر · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "لغو تایمر فعال",
+  "spSleepTimerCustom": "سفارشی",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "تنظیم",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "دقیقه",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "مدت زمان را به دقیقه وارد کنید",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "حداکثر {max} دقیقه",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "محو تدریجی",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "موسیقی به آرامی کاهش می‌یابد به جای توقف ناگهانی",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "نرخ بیت بالا (۳۲۰kbps)",
+  "spPremiumHighBitrateDesc": "پخش با کیفیت استودیویی ۳۲۰kbps را با Astra Plus باز کنید.",
+  "spEqReset": "بازنشانی",
+  "spEqPresets": "پیش‌تنظیم‌ها",
+  "spEq10Band": "اکولایزر ۱۰ باندی",
+  "saTheme": "تم",
+  "saFontStyle": "سبک فونت",
+  "saNowPlayingCard": "کارت در حال پخش",
+  "saArtworkShape": "شکل تصویر جلد",
+  "saPlayer": "پخش‌کننده",
+  "saLyrics": "متن ترانه",
+  "saAnimations": "انیمیشن‌ها",
+  "saThemeDark": "تیره",
+  "saThemeDarkDesc": "ملایم برای چشم‌ها",
+  "saThemeAmoled": "سیاه AMOLED",
+  "saThemeAmoledDesc": "سیاه خالص، در باتری صرفه‌جویی می‌کند",
+  "saThemeLight": "روشن",
+  "saThemeLightDesc": "تمیز و مینیمال",
+  "saThemeSystem": "پیش‌فرض سیستم",
+  "saThemeSystemDesc": "پیروی از تم تلفن شما",
+  "saDynamicThemeColor": "رنگ تم پویا",
+  "saDynamicThemeColorSubtitle": "استخراج رنگ از تصویر جلد آهنگ",
+  "saHighRefreshRate": "نرخ نوسازی بالا (۱۲۰هرتز)",
+  "saHighRefreshRateSubtitle": "رابط کاربری روان‌تر روی دستگاه‌های پشتیبانی‌شده",
+  "saAccentColor": "رنگ تأکیدی",
+  "saExtraColorsSignIn": "رنگ‌های اضافی = ورود",
+  "saCustomAccentColorsFeature": "رنگ‌های تأکیدی سفارشی",
+  "saCustomAccentColorsDesc": "برای باز کردن رنگ‌های تأکیدی بیشتر با Google وارد شوید.",
+  "saAppFont": "فونت برنامه",
+  "saRoundedMonoSignIn": "فونت‌های پرمیوم = ورود",
+  "saApplyingFont": "در حال اعمال فونت…",
+  "saFontUnlockFeature": "فونت {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "برای باز کردن این فونت با Google وارد شوید.",
+  "saCardStyleCompactDesc": "تصویر جلد کوچک، متن در کنار آن",
+  "saCardStyleCardDesc": "تصویر جلد و اطلاعات متعادل",
+  "saCardStyleImmersiveDesc": "تصویر جلد در تمام عرض، رابط کاربری حداقلی",
+  "saPremiumBadge": "پرمیوم",
+  "saPlayerStyleUnlockFeature": "سبک پخش‌کننده {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "برای باز کردن سبک {style} با Google وارد شوید.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "سبک پس‌زمینه پخش‌کننده",
+  "saPlayerBgStyleSubtitle": "ظاهر پس‌زمینه پخش‌کننده",
+  "saDynamicPlayerColor": "رنگ پویای پخش‌کننده",
+  "saDynamicPlayerColorSubtitle": "تغییر رنگ پخش‌کننده بر اساس تصویر جلد",
+  "saPlayerButtonColors": "رنگ دکمه‌های پخش‌کننده",
+  "saPlayerButtonColorsSubtitle": "رنگ دکمه‌های پخش/رد کردن",
+  "saPlayerSliderStyle": "سبک اسلایدر پخش‌کننده",
+  "saPlayerSliderStyleSubtitle": "ظاهر نوار جستجو",
+  "saShowBlurredBg": "نمایش پس‌زمینه محو",
+  "saShowBlurredBgSubtitle": "تصویر جلد محو پشت پخش‌کننده",
+  "saNavBarBlur": "تاری نوار ناوبری",
+  "saNavBarBlurSubtitle": "برای گرمای کمتر GPU/مصرف باتری کاهش دهید",
+  "saMiniPlayerBlur": "تاری پخش‌کننده کوچک",
+  "saMiniPlayerBlurSubtitle": "برای گرمای کمتر GPU/مصرف باتری کاهش دهید",
+  "saLyricsTextPosition": "موقعیت متن ترانه",
+  "saLyricsTextPositionSubtitle": "تراز متن ترانه روی صفحه",
+  "saLyricsTextSize": "اندازه متن ترانه",
+  "saLyricsLineSpacing": "فاصله خطوط متن ترانه",
+  "saShowLyricsOnPlayer": "نمایش متن ترانه در پخش‌کننده",
+  "saShowLyricsOnPlayerSubtitle": "نمایش خط فعلی بالای نوار جستجو",
+  "saLyricsViewMode": "متن ترانه فراگیر",
+  "saLyricsViewModeSubtitle": "متن ترانه تمام‌صفحه با درخشش از پخش‌کننده",
+  "saLyricsViewModeInline": "درون‌خطی",
+  "saLyricsViewModeFullscreen": "تمام‌صفحه",
+  "saEnableAnimations": "فعال‌سازی انیمیشن‌ها",
+  "saEnableAnimationsSubtitle": "کلید اصلی برای همه انیمیشن‌ها",
+  "saBackAnimations": "انیمیشن‌های بازگشت",
+  "saBackAnimationsSubtitle": "متحرک‌سازی حرکت ناوبری بازگشت",
+  "saScrollAnimations": "انیمیشن‌های اسکرول",
+  "saScrollAnimationsSubtitle": "محو شدن موارد هنگام اسکرول",
+  "saBgGradientAnimation": "انیمیشن گرادیان پس‌زمینه",
+  "saBgGradientAnimationSubtitle": "تغییر رنگ متحرک در پخش‌کننده",
+  "saShapeSquare": "مربع",
+  "saShapeRounded": "گرد",
+  "saShapeCircle": "دایره",
+  "ssDownloads": "دانلودها",
+  "ssSongCache": "حافظه پنهان آهنگ",
+  "ssImageCache": "حافظه پنهان تصویر",
+  "ssDownloadedSongs": "آهنگ‌های دانلود شده",
+  "ssClearAllDownloads": "پاک کردن همه دانلودها",
+  "ssDownloadQuality": "کیفیت دانلود",
+  "ssDownloadQualitySubtitle": "کیفیت صدا برای آهنگ‌های دانلود شده",
+  "ssAutoDownloadLiked": "دانلود خودکار آهنگ‌های پسندیده",
+  "ssAutoDownloadLikedSubtitle": "دانلود خودکار آهنگ‌هایی که می‌پسندید",
+  "ssWifiOnly": "دانلود فقط با WiFi",
+  "ssWifiOnlySubtitle": "هرگز از داده موبایل برای دانلود استفاده نکنید",
+  "ssMaxSongCacheSize": "حداکثر حجم حافظه پنهان آهنگ",
+  "ssClearSongCache": "پاک کردن حافظه پنهان آهنگ",
+  "ssMaxImageCacheSize": "حداکثر حجم حافظه پنهان تصویر",
+  "ssClearImageCache": "پاک کردن حافظه پنهان تصویر",
+  "ssClearConfirmTitle": "{title} پاک شود؟",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "این عملیات قابل بازگشت نیست.",
+  "ssCancel": "لغو",
+  "ssClear": "پاک کردن",
+  "ssAllDownloadsTitle": "همه دانلودها",
+  "ssSongCacheTitle": "حافظه پنهان آهنگ",
+  "ssImageCacheTitle": "حافظه پنهان تصویر",
+  "ssUsedLabel": "استفاده شده: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "حداکثر: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "قفل برنامه",
+  "sprAppLockTitle": "قفل برنامه",
+  "sprAppLockSubtitleSet": "یک پین برای قفل کردن برنامه تنظیم کنید",
+  "sprAppLockSubtitleChange": "پین تنظیم شده — برای تغییر ضربه بزنید",
+  "sprSetPin": "تنظیم پین",
+  "sprChangePin": "تغییر پین",
+  "sprSetPinSubtitle": "برای فعال کردن قفل برنامه لازم است",
+  "sprChangePinSubtitle": "پین ۴ رقمی خود را تغییر دهید",
+  "sprBiometricUnlock": "باز کردن بیومتریک",
+  "sprBiometricUnlockSubtitle": "به جای پین از اثر انگشت استفاده کنید",
+  "sprAutoLockAfter": "قفل خودکار بعد از",
+  "sprAutoLockAfterSubtitle": "چقدر در پس‌زمینه قبل از قفل شدن",
+  "sprDelayImmediately": "فوراً",
+  "sprDelayAfter1Min": "بعد از ۱ دقیقه",
+  "sprDelayAfter5Min": "بعد از ۵ دقیقه",
+  "sprDelayAfter10Min": "بعد از ۱۰ دقیقه",
+  "sprDelayAfter30Min": "بعد از ۳۰ دقیقه",
+  "sprDontLockWhilePlaying": "هنگام پخش قفل نشود",
+  "sprDontLockWhilePlayingSubtitle": "تا زمانی که آهنگی در حال پخش است، برنامه قفل نمی‌شود",
+  "sprIncognito": "ناشناس",
+  "sprIncognitoMode": "حالت ناشناس",
+  "sprIncognitoModeSubtitle": "آهنگ‌ها در تاریخچه ظاهر نمی‌شوند یا روی پیشنهادها تأثیر نمی‌گذارند",
+  "sprIncognitoOnInfo": "حالت ناشناس روشن است — تاریخچه گوش دادن متوقف شده و پیشنهادها به‌روزرسانی نمی‌شوند.",
+  "sprHideListeningStats": "پنهان کردن آمار گوش دادن",
+  "sprHideListeningStatsSubtitle": "تعداد پخش یا زمان گوش دادن را ردیابی نکنید",
+  "sprClearData": "پاک کردن داده‌ها",
+  "sprClearHistory": "پاک کردن تاریخچه گوش دادن",
+  "sprClearHistorySubtitle": "حذف همه آهنگ‌های اخیراً پخش شده",
+  "sprResetRecommendations": "بازنشانی پیشنهادها",
+  "sprResetRecommendationsSubtitle": "پاک کردن امتیازات تطابق و شروع دوباره",
+  "sprClearAllData": "پاک کردن همه داده‌های برنامه",
+  "sprClearAllDataSubtitle": "بازنشانی همه چیز — پلی‌لیست‌ها، تنظیمات، تاریخچه",
+  "sprClearTitle": "{title} پاک شود؟",
+  "sprClearCannotUndo": "این عملیات قابل بازگشت نیست.",
+  "sprCancel": "لغو",
+  "sprClear": "پاک کردن",
+  "sprHistoryTitle": "تاریخچه گوش دادن",
+  "sprRecommendationsTitle": "پیشنهادها",
+  "sprAllAppDataTitle": "همه داده‌های برنامه",
+  "sprPinMustBe4Digits": "پین باید ۴ رقم باشد",
+  "sprPinsDontMatch": "پین‌ها مطابقت ندارند. دوباره تلاش کنید.",
+  "sprConfirmPin": "تأیید پین",
+  "sprSetPinSheetTitle": "تنظیم پین",
+  "sprChangePinSheetTitle": "تغییر پین",
+  "sprEnterPinAgain": "برای تأیید، پین را دوباره وارد کنید",
+  "sprChoose4DigitPin": "یک پین ۴ رقمی انتخاب کنید",
+  "sprRemovePin": "حذف پین",
+  "sprNext": "بعدی",
+  "sprConfirm": "تأیید",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "در حال حاضر امکان بارگذاری آهنگ‌ها وجود ندارد.\nپایین بکشید یا برای تلاش مجدد ضربه بزنید.",
+  "homeFailedToLoad": "بارگذاری ناموفق بود.",
+  "homeFailedToLoadCheckConnection": "در حال حاضر امکان بارگذاری وجود ندارد. برای تلاش مجدد پایین بکشید.",
+  "homeLoadingPlaylist": "در حال بارگذاری {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "برترین‌های آریجیت سینگ",
+  "homePlaylistChartbusters2025": "برترین‌های ۲۰۲۵",
+  "homePlaylistFreshBollywood": "بالیوود تازه",
+  "homePlaylistMovieBlockbusters": "پرفروش‌های فیلم",
+  "homePlaylistNewReleases": "انتشارات جدید",
+  "homePlaylistPartyAnthems": "سرودهای مهمانی",
+  "homePlaylistRomanticThisWeek": "عاشقانه این هفته",
+  "homePlaylistTrendingNow": "پرطرفدار اکنون",
+  "loginSyncSubtitle": "برای همگام‌سازی کتابخانه خود\nدر هر دستگاهی وارد شوید",
+  "loginMaybeLater": "شاید بعداً",
+  "loginBenefitSyncDevices": "همگام‌سازی پلی‌لیست‌ها و موارد پسندیده در هر دستگاهی",
+  "loginBenefitResumeWhereLeft": "دقیقاً از جایی که رها کرده‌اید ادامه دهید",
+  "loginBenefitLibrarySafe": "کتابخانه شما حتی با تعویض تلفن ایمن است",
+  "loginBenefitPersonalizedProfile": "یک پروفایل شخصی‌سازی شده با نام و عکس Google شما",
+  "loginContinueWithGoogle": "ادامه با Google",
+  "commonClear": "پاک کردن",
+  "commonCreate": "ایجاد",
+  "commonImport": "وارد کردن",
+  "libraryActionCannotBeUndone": "این عملیات قابل بازگشت نیست.",
+  "libraryAddToPlaylist": "افزودن به پلی‌لیست",
+  "libraryAddedToPlaylist": "به \"{name}\" اضافه شد",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{۱ آهنگ به \"{name}\" اضافه شد} other{{count} آهنگ به \"{name}\" اضافه شد}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{۱ انتخاب شد} other{{count} انتخاب شد}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "انتخاب",
+  "librarySelectAll": "انتخاب همه",
+  "libraryDeselectAll": "لغو انتخاب همه",
+  "libraryRemoveSelectedFromPlaylist": "حذف از پلی‌لیست",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{این آهنگ از پلی‌لیست حذف شود؟} other{این {count} آهنگ از پلی‌لیست حذف شود؟}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{۱ آهنگ حذف شد} other{{count} آهنگ حذف شد}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "پخش روی",
+  "castingToDevice": "در حال کست به {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "دستگاه",
+  "castSessionDisconnect": "قطع اتصال",
+  "castSessionStopCasting": "توقف کست",
+  "castDeviceFallbackTitle": "دستگاه کست",
+  "castToDeviceLabel": "کست به دستگاه",
+  "castPickerTitle": "کست به",
+  "castPickerScanning": "در حال جستجوی دستگاه‌ها…",
+  "castPickerNoDevices": "هیچ دستگاهی یافت نشد. مطمئن شوید Chromecast یا تلویزیون شما در همان شبکه Wi-Fi است.",
+  "castPickerConnectFailed": "اتصال ناموفق بود. دوباره تلاش کنید.",
+  "audioOutputAutoRoutingNotice": "در این نسخه از اندروید، خروجی به صورت خودکار به آخرین دستگاه متصل شده تغییر می‌کند.",
+  "audioOutputSwitchFailed": "تغییر دستگاه خروجی ناموفق بود. دوباره تلاش کنید.",
+  "libraryAlbumTag": "آلبوم",
+  "libraryAlbumsYouSaveAppearHere": "آلبوم‌هایی که ذخیره می‌کنید اینجا ظاهر می‌شوند.",
+  "libraryAlreadyInPlaylist": "قبلاً در \"{name}\" وجود دارد",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{۱ هنرمند} other{{count} هنرمند}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "هنرمند",
+  "libraryArtistsYouFollowAppearHere": "هنرمندانی که دنبال می‌کنید اینجا ظاهر می‌شوند.",
+  "libraryClearHistoryConfirm": "{count, plural, =1{۱ آهنگ حذف خواهد شد.} other{همه {count} آهنگ حذف خواهد شد.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "تاریخچه پاک شود؟",
+  "libraryCollection": "مجموعه",
+  "libraryComingSoon": "به‌زودی",
+  "libraryCreateFirstPlaylistDesc": "اولین پلی‌لیست خود را ایجاد کنید و\nشروع به گردآوری موسیقی خود کنید.",
+  "libraryCreatePlaylist": "ایجاد پلی‌لیست",
+  "libraryImportFromYoutube": "وارد کردن از پلی‌لیست یوتیوب",
+  "libraryImportFromYoutubeDesc": "لینک پلی‌لیست یوتیوب را جای‌گذاری کنید و Astra همه آهنگ‌ها را برای پخش آماده می‌کند.",
+  "libraryYoutubePlaylistLinkLabel": "لینک پلی‌لیست",
+  "libraryYoutubeLinkEmptyError": "برای ادامه، لینک پلی‌لیست را جای‌گذاری کنید.",
+  "libraryYoutubeImportFailedError": "امکان وارد کردن آن پلی‌لیست وجود نداشت. لینک را بررسی کرده و دوباره تلاش کنید.",
+  "libraryYoutubeImportInvalidLinkError": "این شبیه لینک پلی‌لیست به نظر نمی‌رسد. لینک را از منوی اشتراک‌گذاری پلی‌لیست کپی کرده و دوباره تلاش کنید.",
+  "libraryYoutubeImportMixError": "میکس‌ها و ایستگاه‌های رادیویی قابل وارد کردن نیستند — فقط پلی‌لیست‌های معمولی لیست ثابتی از آهنگ‌ها دارند. یک پلی‌لیست ذخیره شده را امتحان کنید.",
+  "libraryYoutubeImportNetworkError": "دسترسی به یوتیوب ممکن نشد. اتصال خود را بررسی کرده و دوباره تلاش کنید.",
+  "libraryDefaultPlaylistName": "پلی‌لیست من",
+  "libraryDeletePlaylist": "حذف پلی‌لیست",
+  "libraryDeletePlaylistConfirm": "\"{name}\" حذف شود؟",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "توضیحات (اختیاری)",
+  "libraryDownloadPlaylist": "دانلود پلی‌لیست",
+  "libraryDownloadingPlaylist": "در حال دانلود پلی‌لیست…",
+  "libraryDownloadPlaylistProgress": "در حال دانلود {done} از {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "ناموفق بود — برای تلاش مجدد ضربه بزنید",
+  "libraryDownloadFromPlayerDesc": "برای گوش دادن آفلاین، یک آهنگ را از پخش‌کننده دانلود کنید.",
+  "libraryDownloadedCountHeader": "{count, plural, =1{۱ دانلود شده} other{{count} دانلود شده}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{۱ آهنگ} other{{count} آهنگ}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "دانلود شده",
+  "libraryDownloadsTabInProgress": "در حال انجام",
+  "libraryDownloadPaused": "متوقف شده",
+  "libraryDownloadResume": "ادامه",
+  "libraryDownloadPause": "توقف موقت",
+  "libraryDownloadCancel": "لغو",
+  "libraryDownloadingHeader": "در حال دانلود",
+  "libraryDownloadingPercent": "در حال دانلود • {percent}٪",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "ویرایش پلی‌لیست",
+  "libraryHistory": "تاریخچه",
+  "libraryHistoryEarlierToday": "زودتر امروز",
+  "libraryHistoryJustNow": "همین الان",
+  "libraryHistoryOlder": "قدیمی‌تر",
+  "libraryHistoryRecent": "اخیر",
+  "libraryHistoryYesterday": "دیروز",
+  "libraryLiked": "پسندیده",
+  "libraryLikedCount": "{count, plural, =0{۰ پسندیده} =1{۱ پسندیده} other{{count} پسندیده}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "فایل‌های محلی",
+  "libraryLoginToOrganizeDesc": "برای سازماندهی موسیقی خود در پلی‌لیست‌ها با Google وارد شوید.",
+  "libraryNeedsPermissionToReadMusic": "Astra برای خواندن موسیقی شما به مجوز نیاز دارد.",
+  "libraryNewPlaylist": "پلی‌لیست جدید",
+  "libraryNewPlaylistLower": "پلی‌لیست جدید",
+  "libraryNoAlbumsSavedYet": "هنوز آلبومی ذخیره نشده",
+  "libraryNoArtistsSavedYet": "هنوز هنرمندی ذخیره نشده",
+  "libraryNoDownloadsYet": "هنوز دانلودی وجود ندارد",
+  "libraryNoHistoryYet": "هنوز تاریخچه‌ای وجود ندارد",
+  "libraryNoLocalSongsFound": "هیچ آهنگ محلی یافت نشد",
+  "libraryLocalSearchHint": "جستجوی آهنگ‌های محلی",
+  "libraryLocalSearchNoResults": "هیچ آهنگ محلی با \"{query}\" مطابقت ندارد",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "هنوز پلی‌لیستی وجود ندارد",
+  "libraryNoSongsYetInPlaylist": "هنوز آهنگی وجود ندارد",
+  "libraryNothingHereYet": "هنوز چیزی اینجا نیست",
+  "libraryOnDeviceCount": "{count} روی دستگاه",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "مجوز لازم است",
+  "libraryPlaySomethingToSeeHistory": "برای دیدن تاریخچه چیزی پخش کنید",
+  "libraryPlaylistCount": "{count, plural, =1{۱ پلی‌لیست} other{{count} پلی‌لیست}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "نام پلی‌لیست",
+  "libraryPlaylistNotFound": "پلی‌لیست یافت نشد",
+  "libraryRecentlyPlayed": "اخیراً پخش شده",
+  "libraryRemoveDownload": "حذف دانلود",
+  "libraryRemoveFromPlaylist": "حذف از پلی‌لیست",
+  "libraryRemoveFromSavedAlbums": "حذف از آلبوم‌های ذخیره شده",
+  "libraryChooseFromGallery": "انتخاب از گالری",
+  "libraryRemoveCustomCover": "حذف تصویر جلد سفارشی",
+  "libraryRenamePlaylist": "تغییر نام پلی‌لیست",
+  "librarySearchAndAddSongsHere": "آهنگ‌ها را جستجو کرده و اینجا اضافه کنید",
+  "librarySeeAllSongs": "{count, plural, =1{مشاهده ۱ آهنگ} other{مشاهده همه {count} آهنگ}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "آهنگ‌هایی که پخش می‌کنید اینجا ظاهر می‌شوند",
+  "libraryUnfollowArtist": "لغو دنبال کردن هنرمند",
+  "libraryYourCollection": "مجموعه شما",
+  "alWrongPin": "پین اشتباه است. دوباره تلاش کنید.",
+  "alEnterPinToUnlock": "برای باز کردن قفل، پین را وارد کنید",
+  "alBiometricReason": "برای باز کردن قفل Astra Music از اثر انگشت استفاده کنید",
+  "asCouldntLoad": "امکان بارگذاری {name} وجود نداشت",
+  "asRetry": "تلاش مجدد",
+  "asVerifiedArtist": "هنرمند تأیید شده",
+  "asMonthlyListeners": "{count} شنونده ماهانه",
+  "asSaved": "ذخیره شد",
+  "asSave": "ذخیره",
+  "asPopular": "محبوب",
+  "asAlbums": "آلبوم‌ها",
+  "asSingles": "تک‌آهنگ‌ها",
+  "asAbout": "درباره",
+  "asFansAlsoLike": "طرفداران این‌ها را هم دوست دارند",
+  "asShowAll": "نمایش همه",
+  "asShowLess": "نمایش کمتر",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "درباره",
+  "abPrivacyPolicyTitle": "سیاست حریم خصوصی",
+  "abUpdate": "به‌روزرسانی",
+  "abCheckForUpdate": "بررسی به‌روزرسانی",
+  "abCheckForUpdateSubtitle": "ببینید نسخه جدیدی موجود است یا نه",
+  "abChangelog": "گزارش تغییرات",
+  "abChangelogSubtitle": "چه چیزی در نسخه‌های اخیر تغییر کرده",
+  "abLegal": "قانونی",
+  "abPrivacyPolicy": "سیاست حریم خصوصی",
+  "abPrivacyPolicySubtitle": "چگونگی مدیریت داده‌های شما",
+  "abTermsOfUse": "شرایط استفاده",
+  "abTermsOfUseSubtitle": "توافق‌نامه بین شما و Astra",
+  "abCommunity": "جامعه",
+  "abSendFeedback": "ارسال بازخورد",
+  "abSendFeedbackSubtitle": "هر زمان نظر خود را به ما بگویید",
+  "abShareApp": "اشتراک‌گذاری Astra",
+  "abShareAppSubtitle": "درباره این برنامه به دوستان خود بگویید",
+  "abDeveloper": "توسعه‌دهنده",
+  "abInstagram": "اینستاگرام",
+  "abTelegram": "تلگرام",
+  "abLoading": "در حال بارگذاری...",
+  "abVersionBuild": "نسخه {version} (بیلد {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "پخش در پس‌زمینه",
+  "snPlayerNotification": "اعلان پخش‌کننده",
+  "snNotificationStyle": "سبک اعلان",
+  "snBgPlaybackEnabled": "پخش در پس‌زمینه فعال شد",
+  "snAllowBgPlayback": "اجازه پخش در پس‌زمینه",
+  "snBgPlaybackEnabledDesc": "موسیقی با خاموش بودن صفحه یا بسته شدن برنامه همچنان پخش می‌شود",
+  "snAllowBgPlaybackDesc": "برای اجازه دادن به ادامه پخش موسیقی در پس‌زمینه ضربه بزنید — برخی تلفن‌ها بدون این پخش را متوقف می‌کنند",
+  "snShowMediaNotif": "نمایش اعلان رسانه",
+  "snShowMediaNotifSubtitle": "نمایش پخش‌کننده در نوار اعلان",
+  "snShowArtwork": "نمایش تصویر جلد آهنگ",
+  "snShowArtworkSubtitle": "نمایش تصویر جلد آلبوم در اعلان",
+  "snShowPrevButton": "نمایش دکمه آهنگ قبلی",
+  "snShowPrevButtonSubtitle": "افزودن دکمه قبلی در اعلان رسانه",
+  "snStyleCompact": "فشرده",
+  "snStyleCompactDesc": "کنترل‌های کوچک و حداقلی",
+  "snStyleExpanded": "گسترده",
+  "snStyleExpandedDesc": "کنترل‌های کامل با تصویر جلد",
+  "prProfile": "پروفایل",
+  "prAurumListener": "شنونده Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "همگام‌سازی کتابخانه",
+  "prBenefitSyncSub": "موسیقی شما در همه دستگاه‌ها همگام‌سازی شد",
+  "prBenefitLifetimeTitle": "دسترسی مادام‌العمر",
+  "prBenefitLifetimeSub": "بدون اشتراک، برای همیشه مال شما",
+  "prBenefitAdFreeTitle": "بدون تبلیغات",
+  "prBenefitAdFreeSub": "بدون وقفه، موسیقی خالص",
+  "prBenefitQualityTitle": "صدای با کیفیت بالا",
+  "prBenefitQualitySub": "بهترین کیفیت پخش موجود",
+  "prBenefitOfflineTitle": "آماده برای آفلاین",
+  "prBenefitOfflineSub": "دانلود کنید و در هر جا پخش کنید",
+  "prBenefitRecsTitle": "پیشنهادهای هوشمند",
+  "prBenefitRecsSub": "صف پخش و کشف بر اساس حال و هوا",
+  "prAllFeaturesUnlocked": "همه ویژگی‌ها باز شد",
+  "prUpgradeToUnlock": "برای باز کردن همه چیز ارتقا دهید",
+  "prActive": "فعال",
+  "prFree": "رایگان",
+  "prSyncingLibrary": "در حال همگام‌سازی کتابخانه شما…",
+  "prSignedIn": "وارد شده",
+  "prSyncLibraryTitle": "کتابخانه خود را همگام‌سازی کنید",
+  "prSyncLibrarySubtitle": "برای دسترسی در همه دستگاه‌ها وارد شوید",
+  "prSignIn": "ورود",
+  "prSignedInSynced": "وارد شده — کتابخانه شما همگام‌سازی شد",
+  "prSignedInUpgradePrompt": "وارد شدید! برای فعال‌سازی همگام‌سازی ابری به پرمیوم ارتقا دهید.",
+  "prSignOutTitle": "خارج شوید؟",
+  "prSignOutBody": "آهنگ‌های پسندیده، پلی‌لیست‌ها، هنرمندان دنبال شده و تاریخچه شما از این دستگاه پاک خواهد شد. هر زمان دوباره وارد شوید تا آن‌ها را پس بگیرید.",
+  "prCancel": "لغو",
+  "prSignOut": "خروج",
+  "prSignedOutCleared": "خارج شدید — داده‌های شما از این دستگاه پاک شده است",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "موسیقی، همان‌طور که باید شنیده شود.",
+  "psRating": "امتیاز ۴.۹★",
+  "psSecure": "امن",
+  "psRefund": "بازپرداخت ۷ روزه",
+  "psChoosePlan": "طرح خود را انتخاب کنید",
+  "psBadgeTryIt": "امتحان کنید",
+  "psBadgeSave58": "۵۸٪ صرفه‌جویی",
+  "psBadgeBestDeal": "بهترین پیشنهاد",
+  "psEverythingIncluded": "همه چیز شامل می‌شود",
+  "psFeatHdAudioTitle": "صدای HD • ۳۲۰kbps",
+  "psFeatHdAudioSub": "کیفیت بدون افت و شفاف",
+  "psFeatSkipsTitle": "رد کردن نامحدود",
+  "psFeatSkipsSub": "هر تعداد آهنگ که می‌خواهید رد کنید",
+  "psFeatAdsTitle": "بدون تبلیغات",
+  "psFeatAdsSub": "تجربه‌ای کاملاً بدون تبلیغات",
+  "psFeatAiTitle": "پیشنهادهای هوش مصنوعی",
+  "psFeatAiSub": "آهنگ‌های انتخاب شده مخصوص شما",
+  "psFeatOfflineTitle": "دانلودهای آفلاین",
+  "psFeatOfflineSub": "بدون اینترنت گوش دهید",
+  "psFeatSyncTitle": "همگام‌سازی ابری",
+  "psFeatSyncSub": "کتابخانه شما روی هر دستگاهی",
+  "psFeatFollowTitle": "پسندیدن و دنبال کردن هنرمندان",
+  "psFeatFollowSub": "مجموعه شخصی خود را بسازید",
+  "psFeatPlaylistsTitle": "پلی‌لیست‌های نامحدود",
+  "psFeatPlaylistsSub": "پلی‌لیست‌ها را ایجاد و به اشتراک بگذارید",
+  "psFeatThemesTitle": "تم‌های اختصاصی",
+  "psFeatThemesSub": "رنگ‌ها و سبک‌های پخش‌کننده پرمیوم",
+  "psGetPlusPrice": "دریافت Plus — {price}",
+  "psSignInGetPlus": "ورود و دریافت Plus",
+  "psPerMonth": "{price}/ماه",
+  "psPerYear": "{price}/سال",
+  "psOneTime": "{price} یکباره",
+  "psSecurePayments": "🔒  پرداخت‌های امن از طریق Razorpay  •  هر زمان لغو کنید",
+  "psMoneyBack": "ضمانت بازگشت وجه ۷ روزه",
+  "psPlanMonthly": "۱ ماه",
+  "psPlanYearly": "۱ سال",
+  "psPlanLifetime": "مادام‌العمر",
+  "psSubPerMonth": "در ماه",
+  "psSubPerYear": "در سال",
+  "psSubPayOnce": "یک بار پرداخت کنید، برای همیشه مالک باشید",
+  "psSuccessTitle": "اکنون شما Plus هستید ✦",
+  "psSuccessBody": "همه ویژگی‌ها باز شده‌اند.\nاز تجربه کامل Astra لذت ببرید.",
+  "psStartListening": "شروع گوش دادن",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "پیش‌فرض سیستم",
+  "fpLikeSongsFeature": "پسندیدن آهنگ‌ها",
+  "fpLikeSongsSignIn": "برای ذخیره آهنگ‌ها در کتابخانه خود با Google وارد شوید.",
+  "fpClosePlayer": "بستن پخش‌کننده",
+  "fpNowPlaying": "در حال پخش",
+  "fpMoreOptions": "گزینه‌های بیشتر",
+  "fpUnlimitedSkipsFeature": "رد کردن نامحدود",
+  "fpUnlimitedSkipsSignIn": "برای رد کردن به هر تعداد که می‌خواهید با Google وارد شوید.",
+  "fpShuffle": "پخش تصادفی",
+  "fpPrevious": "قبلی",
+  "fpNext": "بعدی",
+  "fpRepeat": "تکرار",
+  "fpLocalBadge": "محلی",
+  "fpQueueLyricsInfo": "صف · متن ترانه · اطلاعات",
+  "fpPause": "توقف موقت",
+  "fpPlay": "پخش",
+  "fpShareText": "{artist} — {title}\n\nاشتراک‌گذاری شده از Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "عنوان",
+  "fpSongInfoArtist": "هنرمند",
+  "fpSongInfoAlbum": "آلبوم",
+  "fpSongInfoDuration": "مدت زمان",
+  "fpSongInfoYear": "سال",
+  "fpSongInfoLanguage": "زبان",
+  "fpSongInfo": "اطلاعات آهنگ",
+  "fpAlreadyDownloaded": "قبلاً دانلود شده",
+  "fpAlreadyDownloading": "در حال دانلود است",
+  "fpAlreadyOnDevice": "قبلاً روی این دستگاه است",
+  "fpDownloadingSong": "در حال دانلود {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "پخش بعدی",
+  "fpAddToQueue": "افزودن به صف",
+  "fpAddedToQueue": "به صف اضافه شد",
+  "fpLiked": "پسندیده",
+  "fpLikeAction": "پسندیدن",
+  "fpLikeSignInBuildLibrary": "برای ساختن کتابخانه شخصی خود با Google وارد شوید.",
+  "fpAddedToLiked": "به پسندیده‌ها اضافه شد",
+  "fpRemovedFromLiked": "از پسندیده‌ها حذف شد",
+  "fpShare": "اشتراک‌گذاری",
+  "fpSaveToPlaylist": "ذخیره در پلی‌لیست",
+  "fpAudioEffects": "جلوه‌های صوتی",
+  "fpSleepRemaining": "خواب • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "تایمر خواب",
+  "fpDownloaded": "دانلود شد",
+  "fpDownloading": "در حال دانلود…",
+  "fpDownload": "دانلود",
+  "fpDownloadingPercent": "در حال دانلود {percent}٪",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "صف",
+  "fpLyrics": "متن ترانه",
+  "fpInfo": "اطلاعات",
+  "fpQueueEmpty": "صف خالی است",
+  "fpUpNext": "بعدی",
+  "fpFindingSongs": "در حال یافتن آهنگ برای شما…",
+  "fpMoveToTop": "انتقال به بالا",
+  "fpRemoveFromQueue": "حذف از صف",
+  "fpNoLyricsFound": "متن ترانه‌ای یافت نشد",
+  "fpLyricsNotAvailable": "متن ترانه برای این آهنگ در دسترس نیست",
+  "fpSourceLabel": "منبع",
+  "fpLocalLibrary": "کتابخانه محلی",
+  "fpOnlineStream": "پخش آنلاین",
+  "fpDownloadFailed": "امکان دانلود \"{title}\" وجود نداشت — پخش جریانی در دسترس نیست",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

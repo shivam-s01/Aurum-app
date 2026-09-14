@@ -1,0 +1,1179 @@
+{
+  "@@locale": "pa",
+  "navHome": "ਹੋਮ",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "ਖੋਜ",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "ਲਾਇਬ੍ਰੇਰੀ",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "ਰੱਦ ਕਰੋ",
+  "commonSave": "ਸੰਭਾਲੋ",
+  "commonDone": "ਹੋ ਗਿਆ",
+  "commonRetry": "ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
+  "commonSeeAll": "ਸਭ ਦੇਖੋ",
+  "commonPlay": "ਚਲਾਓ",
+  "commonPause": "ਰੋਕੋ",
+  "commonShuffle": "ਸ਼ਫਲ",
+  "commonDelete": "ਮਿਟਾਓ",
+  "commonEdit": "ਸੋਧੋ",
+  "commonShare": "ਸਾਂਝਾ ਕਰੋ",
+  "commonAdd": "ਸ਼ਾਮਲ ਕਰੋ",
+  "commonRemove": "ਹਟਾਓ",
+  "commonSearch": "ਖੋਜ",
+  "commonSettings": "ਸੈਟਿੰਗਾਂ",
+  "commonOk": "ਠੀਕ ਹੈ",
+  "commonYes": "ਹਾਂ",
+  "commonNo": "ਨਹੀਂ",
+  "settingsTitle": "ਸੈਟਿੰਗਾਂ",
+  "settingsAccount": "ਖਾਤਾ",
+  "settingsSectionGeneral": "ਆਮ",
+  "settingsSectionPlayback": "ਪਲੇਬੈਕ",
+  "settingsSectionSystem": "ਸਿਸਟਮ",
+  "settingsPlayerAudio": "ਪਲੇਅਰ ਅਤੇ ਆਡੀਓ",
+  "settingsAppearance": "ਦਿੱਖ",
+  "settingsDownloads": "ਡਾਊਨਲੋਡਸ",
+  "settingsStorage": "ਸਟੋਰੇਜ",
+  "settingsAbout": "ਬਾਰੇ",
+  "settingsLanguage": "ਭਾਸ਼ਾ",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "ਐਪ ਲਈ ਆਪਣੀ ਪਸੰਦੀਦਾ ਭਾਸ਼ਾ ਚੁਣੋ",
+  "playerNowPlaying": "ਹੁਣ ਚੱਲ ਰਿਹਾ ਹੈ",
+  "playerUpNext": "ਅੱਗੇ",
+  "playerLyrics": "ਬੋਲ",
+  "playerQueue": "ਕਤਾਰ",
+  "playerInfo": "ਜਾਣਕਾਰੀ",
+  "librarySongs": "ਗੀਤ",
+  "libraryPlaylists": "ਪਲੇਲਿਸਟਾਂ",
+  "libraryArtists": "ਕਲਾਕਾਰ",
+  "libraryAlbums": "ਐਲਬਮਾਂ",
+  "libraryLikedSongs": "ਪਸੰਦੀਦਾ ਗੀਤ",
+  "libraryDownloaded": "ਡਾਊਨਲੋਡ ਕੀਤੇ",
+  "libraryEmptyState": "ਇੱਥੇ ਅਜੇ ਕੁਝ ਨਹੀਂ ਹੈ",
+  "homeTrendingPlaylists": "ਟਰੈਂਡਿੰਗ ਪਲੇਲਿਸਟਾਂ",
+  "mixPullForMore": "ਹੋਰ ਗੀਤਾਂ ਲਈ ਹੇਠਾਂ ਖਿੱਚੋ",
+  "homeMoodAll": "ਸਾਰੇ",
+  "homePlaylistsForYou": "ਤੁਹਾਡੇ ਲਈ ਪਲੇਲਿਸਟਾਂ",
+  "homeAlbumsForYou": "ਤੁਹਾਡੇ ਲਈ ਐਲਬਮਾਂ",
+  "homeAfternoonPicks": "ਦੁਪਹਿਰ ਦੀਆਂ ਚੋਣਾਂ",
+  "homeBollywoodMix": "ਬਾਲੀਵੁੱਡ ਮਿਕਸ",
+  "homeDevotional": "ਭਗਤੀ",
+  "homeTrendingNow": "ਹੁਣ ਟਰੈਂਡਿੰਗ",
+  "homeNewReleases": "ਨਵੀਆਂ ਰਿਲੀਜ਼ਾਂ",
+  "feedbackTitle": "ਕੀ ਤੁਹਾਨੂੰ Astra ਪਸੰਦ ਹੈ?",
+  "feedbackSubtitle": "ਤੁਹਾਡਾ ਫੀਡਬੈਕ ਸਾਨੂੰ ਇਸ ਨੂੰ ਹੋਰ ਬਿਹਤਰ ਬਣਾਉਣ ਵਿੱਚ ਮਦਦ ਕਰਦਾ ਹੈ।",
+  "feedbackHint": "ਸਾਨੂੰ ਦੱਸੋ ਤੁਸੀਂ ਕੀ ਸੋਚਦੇ ਹੋ (ਵਿਕਲਪਿਕ)",
+  "feedbackSend": "ਫੀਡਬੈਕ ਭੇਜੋ",
+  "feedbackNotNow": "ਹੁਣੇ ਨਹੀਂ",
+  "feedbackThankYouTitle": "ਧੰਨਵਾਦ!",
+  "premiumSoundTitle": "ਪ੍ਰੀਮੀਅਮ ਸਾਊਂਡ",
+  "premiumSoundSubtitle": "ਹਰ ਟਰੈਕ 'ਤੇ ਅਮੀਰ, ਪੂਰੀ ਆਵਾਜ਼ — ਕਿਸੇ ਵੀ ਸੋਰਸ ਕੁਆਲਿਟੀ ਨਾਲ ਕੰਮ ਕਰਦਾ ਹੈ",
+  "bassBoostTitle": "ਬਾਸ ਬੂਸਟ",
+  "bassBoostSubtitle": "ਡੂੰਘੀ ਆਵਾਜ਼ ਲਈ ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਵਧਾਓ",
+  "homePickSomething": "ਚਲਾਉਣ ਲਈ ਕੁਝ ਚੁਣੋ",
+  "homePopularArtists": "ਮਸ਼ਹੂਰ ਕਲਾਕਾਰ",
+  "homeOnline": "ਆਨਲਾਈਨ",
+  "homeOffline": "ਆਫਲਾਈਨ",
+  "homeCheckYourInternet": "ਆਪਣਾ ਇੰਟਰਨੈੱਟ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ",
+  "homePlaybackSource": "ਪਲੇਬੈਕ ਸਰੋਤ",
+  "homePlaybackSourceSubtitle": "ਚੁਣੋ ਕਿ Astra ਕਿੱਥੋਂ ਸੰਗੀਤ ਚਲਾਏ",
+  "homeOnlineStreaming": "ਆਨਲਾਈਨ ਸਟ੍ਰੀਮਿੰਗ",
+  "homeStreamOnlineDesc": "ਆਨਲਾਈਨ ਸੰਗੀਤ ਸਟ੍ਰੀਮ ਕਰੋ",
+  "homeOfflineLibrary": "ਆਫਲਾਈਨ ਲਾਇਬ੍ਰੇਰੀ",
+  "homeOfflineLibraryDesc": "ਸਿਰਫ਼ ਡਾਊਨਲੋਡ ਕੀਤੇ ਗੀਤ ਚਲਾਓ",
+  "homeGrantPermission": "ਇਜਾਜ਼ਤ ਦਿਓ",
+  "homeStoragePermissionNeeded": "ਸਟੋਰੇਜ ਇਜਾਜ਼ਤ ਲੋੜੀਂਦੀ ਹੈ",
+  "homeNoLocalSongs": "ਕੋਈ ਲੋਕਲ ਗੀਤ ਨਹੀਂ ਮਿਲਿਆ",
+  "homeScanAgain": "ਦੁਬਾਰਾ ਸਕੈਨ ਕਰੋ",
+  "homeLocalSongs": "ਲੋਕਲ ਗੀਤ",
+  "homePlaybackDiagnostics": "ਪਲੇਬੈਕ ਡਾਇਗਨੌਸਟਿਕਸ",
+  "commonClose": "ਬੰਦ ਕਰੋ",
+  "commonPlayAll": "ਸਭ ਚਲਾਓ",
+  "likedNoSongsYet": "ਅਜੇ ਕੋਈ ਪਸੰਦੀਦਾ ਗੀਤ ਨਹੀਂ",
+  "likedTapToSave": "ਇੱਥੇ ਸੰਭਾਲਣ ਲਈ ਕਿਸੇ ਵੀ ਗੀਤ 'ਤੇ ♥ ਦਬਾਓ",
+  "librarySongsCount": "{count, plural, =0{ਕੋਈ ਗੀਤ ਨਹੀਂ} =1{1 ਗੀਤ} other{{count} ਗੀਤ}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "ਕਤਾਰ",
+  "queueEmpty": "ਕਤਾਰ ਖਾਲੀ ਹੈ",
+  "queueEmptySubtitle": "ਗੀਤ ਜੋ ਤੁਸੀਂ ਅੱਗੇ ਚਲਾਓਗੇ ਇੱਥੇ ਦਿਖਣਗੇ",
+  "albumNoSongsFound": "ਕੋਈ ਗੀਤ ਨਹੀਂ ਮਿਲਿਆ",
+  "searchHint": "ਗੀਤ, ਕਲਾਕਾਰ, ਐਲਬਮਾਂ...",
+  "searchRecent": "ਹਾਲੀਆ",
+  "searchClearAll": "ਸਭ ਸਾਫ਼ ਕਰੋ",
+  "searchNoResultsFor": "\"{query}\" ਲਈ ਕੋਈ ਨਤੀਜਾ ਨਹੀਂ",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "ਹਰ ਜਗ੍ਹਾ ਖੋਜੋ",
+  "searchYouMightAlsoLike": "ਤੁਹਾਨੂੰ ਇਹ ਵੀ ਪਸੰਦ ਆ ਸਕਦਾ ਹੈ",
+  "searchSeeAllResultsFor": "\"{query}\" ਲਈ ਸਾਰੇ ਨਤੀਜੇ ਦੇਖੋ",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "ਆਪਣੇ ਪਸੰਦੀਦਾ ਗੀਤ ਖੋਜੋ",
+  "searchAllInOnePlace": "ਗੀਤ, ਕਲਾਕਾਰ, ਐਲਬਮਾਂ — ਸਭ ਇੱਕ ਥਾਂ 'ਤੇ",
+  "searchTabSearch": "ਖੋਜ",
+  "searchTabBrowse": "ਬ੍ਰਾਊਜ਼ ਕਰੋ",
+  "browseTypeToExplore": "ਕਲਾਕਾਰਾਂ ਅਤੇ ਐਲਬਮਾਂ ਦੀ ਖੋਜ ਕਰਨ ਲਈ ਟਾਈਪ ਕਰੋ",
+  "browseNoResults": "ਕੋਈ ਨਤੀਜਾ ਨਹੀਂ",
+  "browseAlbumFallbackTitle": "ਐਲਬਮ",
+  "settingsPlayerAudioSubtitle": "ਪਲੇਬੈਕ, ਇਕੁਲਾਈਜ਼ਰ, ਕਰਾਸਫੇਡ ਅਤੇ ਵਿਵਹਾਰ",
+  "settingsAppearanceSubtitle": "ਥੀਮ, ਰੰਗ, ਪਲੇਅਰ ਸਟਾਈਲ ਅਤੇ ਐਨੀਮੇਸ਼ਨ",
+  "settingsStorageSubtitle": "ਡਾਊਨਲੋਡਸ, ਗੀਤ ਕੈਸ਼ ਅਤੇ ਚਿੱਤਰ ਕੈਸ਼",
+  "settingsNotifications": "ਸੂਚਨਾਵਾਂ",
+  "settingsNotificationsSubtitle": "ਮੀਡੀਆ ਸੂਚਨਾ ਸਟਾਈਲ ਅਤੇ ਆਰਟਵਰਕ",
+  "settingsPrivacy": "ਗੋਪਨੀਯਤਾ",
+  "settingsPrivacySubtitle": "ਐਪ ਲੌਕ, ਗੁਪਤ ਮੋਡ ਅਤੇ ਡਾਟਾ",
+  "settingsAboutSubtitle": "ਵਰਜਨ, ਅੱਪਡੇਟ, ਗੋਪਨੀਯਤਾ ਅਤੇ ਡਿਵੈਲਪਰ",
+  "premiumFeature320kbps": "320kbps ਸਟ੍ਰੀਮਿੰਗ",
+  "premiumFeatureUnlimitedSkips": "ਬੇਅੰਤ ਸਕਿੱਪ",
+  "premiumFeatureLikeFollow": "ਪਸੰਦ ਅਤੇ ਫਾਲੋ",
+  "premiumFeatureCreatePlaylists": "ਪਲੇਲਿਸਟਾਂ ਬਣਾਓ",
+  "premiumFeatureCloudSync": "ਕਲਾਊਡ ਸਿੰਕ",
+  "premiumFeatureExclusiveThemes": "ਵਿਸ਼ੇਸ਼ ਥੀਮਾਂ",
+  "premiumAllFeaturesUnlocked": "ਸਾਰੀਆਂ ਵਿਸ਼ੇਸ਼ਤਾਵਾਂ ਅਨਲੌਕ",
+  "premiumActive": "ਸਰਗਰਮ",
+  "premiumUpgradeTitle": "ਪ੍ਰੀਮੀਅਮ ਵਿੱਚ ਅੱਪਗ੍ਰੇਡ ਕਰੋ",
+  "premiumUnlockEverything": "Astra ਵਿੱਚ ਸਭ ਕੁਝ ਅਨਲੌਕ ਕਰੋ",
+  "premiumGetButton": "✦  Astra Premium ਲਓ",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "ਪਲੇਬੈਕ",
+  "spSleepTimer": "ਸਲੀਪ ਟਾਈਮਰ",
+  "spEqualizer": "ਇਕੁਲਾਈਜ਼ਰ",
+  "spBehavior": "ਵਿਵਹਾਰ",
+  "spStreamQuality": "ਸਟ੍ਰੀਮ ਕੁਆਲਿਟੀ",
+  "spStreamQualitySubtitle": "ਆਨਲਾਈਨ ਸਟ੍ਰੀਮਿੰਗ ਲਈ ਆਡੀਓ ਬਿੱਟਰੇਟ",
+  "spQualityAuto": "ਆਟੋ",
+  "spQualityAutoDesc": "ਹਰ ਗੀਤ ਲਈ ਸਭ ਤੋਂ ਵਧੀਆ ਉਪਲਬਧ",
+  "spQualityLow": "ਘੱਟ",
+  "spQualityLowDesc": "48–96kbps · ਡਾਟਾ ਬਚਾਉਂਦਾ ਹੈ",
+  "spQualityMedium": "ਮੱਧਮ",
+  "spQualityMediumDesc": "160kbps ਤੱਕ",
+  "spQualityHigh": "ਉੱਚ",
+  "spQualityHighDesc": "320kbps · ਸਟੂਡੀਓ ਕੁਆਲਿਟੀ",
+  "spQualityDataSaver": "ਸਮਾਰਟ ਸੇਵਰ",
+  "spQualityDataSaverDesc": "2G 'ਤੇ ਵੀ ਵਧੀਆ ਲੱਗਦਾ ਹੈ",
+  "spQualityDataSaverDescExpanded": "ਸਭ ਤੋਂ ਛੋਟੀ ਫਾਈਲ ਸਟ੍ਰੀਮ ਕਰਦਾ ਹੈ ਜੋ ਤੁਹਾਡਾ ਕਨੈਕਸ਼ਨ ਸੰਭਾਲ ਸਕਦਾ ਹੈ, ਫਿਰ ਗੀਤ ਨੂੰ ਥਾਂ ਮਿਲਦੇ ਹੀ ਚੁੱਪਚਾਪ 320kbps ਤੱਕ ਵਧਾਉਂਦਾ ਹੈ।",
+  "spPlusBadge": "ਪਲੱਸ",
+  "spDataSaver": "ਡਾਟਾ ਸੇਵਰ",
+  "spDataSaverSubtitle": "ਮੋਬਾਈਲ ਡਾਟਾ 'ਤੇ ਘੱਟ ਕੁਆਲਿਟੀ ਲਾਗੂ ਕਰੋ",
+  "spGaplessPlayback": "ਗੈਪਲੈੱਸ ਪਲੇਬੈਕ",
+  "spGaplessPlaybackSubtitle": "ਟਰੈਕਾਂ ਵਿਚਕਾਰ ਕੋਈ ਚੁੱਪ ਨਹੀਂ",
+  "spShowCastIcon": "ਕ੍ਰੋਮਕਾਸਟ ਆਈਕਨ ਦਿਖਾਓ",
+  "spShowCastIconSubtitle": "ਕੰਟਰੋਲ ਕਰੋ ਕਿ ਪੂਰੀ ਸਕ੍ਰੀਨ ਪਲੇਅਰ ਵਿੱਚ ਕਾਸਟ ਆਈਕਨ ਕਦੋਂ ਦਿਖੇ",
+  "spCastIconAuto": "ਆਟੋ",
+  "spCastIconAlways": "ਹਮੇਸ਼ਾ ਦਿਖਾਓ",
+  "spCastIconHidden": "ਲੁਕਿਆ",
+  "spPlaybackSpeed": "ਪਲੇਬੈਕ ਸਪੀਡ",
+  "spPlaybackSpeedSubtitle": "ਲੋਕਲ ਅਤੇ ਆਨਲਾਈਨ ਦੋਵਾਂ ਗੀਤਾਂ 'ਤੇ ਲਾਗੂ ਹੁੰਦਾ ਹੈ",
+  "spNormal": "ਸਾਧਾਰਨ",
+  "spCrossfade": "ਕਰਾਸਫੇਡ",
+  "spCrossfadeSubtitle": "ਟਰੈਕਾਂ ਵਿਚਕਾਰ ਸੁਚਾਰੂ ਬਦਲਾਅ",
+  "spOff": "ਬੰਦ",
+  "spVolumeNormalization": "ਵਾਲੀਅਮ ਨਾਰਮਲਾਈਜ਼ੇਸ਼ਨ",
+  "spVolumeNormalizationSubtitle": "ਸਾਰੇ ਗੀਤਾਂ ਨੂੰ ਇੱਕੋ ਜਿਹੇ ਵਾਲੀਅਮ ਪੱਧਰ 'ਤੇ ਰੱਖਦਾ ਹੈ",
+  "spBassBoost": "ਬਾਸ ਬੂਸਟ",
+  "spBassBoostSubtitle": "ਡੂੰਘੀ ਆਵਾਜ਼ ਲਈ ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਵਧਾਓ",
+  "spPremiumSound": "ਪ੍ਰੀਮੀਅਮ ਸਾਊਂਡ",
+  "spPremiumSoundSubtitle": "ਕ੍ਰਿਸਟਲ-ਸਾਫ਼ ਆਵਾਜ਼, ਡੂੰਘਾ ਬਾਸ, ਅਤੇ ਇਮਰਸਿਵ ਪ੍ਰੀਮੀਅਮ ਆਡੀਓ ਅਨਲੌਕ ਕਰੋ",
+  "spPremiumSoundPartialSupport": "ਇਸ ਡਿਵਾਈਸ 'ਤੇ ਕੁਝ ਪ੍ਰਭਾਵ ਸਮਰਥਿਤ ਨਹੀਂ ਹਨ — ਸਪਸ਼ਟਤਾ ਅਤੇ ਬਾਸ ਅਜੇ ਵੀ ਸਰਗਰਮ ਹਨ",
+  "spSleepTimerActive": "ਸਲੀਪ ਟਾਈਮਰ ਸਰਗਰਮ",
+  "spSleepTimerTitle": "ਸਲੀਪ ਟਾਈਮਰ",
+  "spSleepTimerStopsIn": "{time} ਵਿੱਚ ਰੁਕ ਜਾਵੇਗਾ",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "ਪਲੇਬੈਕ ਰੋਕਣ ਲਈ ਟਾਈਮਰ ਸੈੱਟ ਕਰੋ",
+  "spCancel": "ਰੱਦ ਕਰੋ",
+  "spAutoSleepGuard": "ਆਟੋ ਸਲੀਪ ਗਾਰਡ",
+  "asgTileTitle": "ਆਟੋ ਸਲੀਪ ਗਾਰਡ",
+  "asgTileSubtitleOn": "{hours} ਘੰਟੇ ਦੀ ਨਿਸ਼ਕਿਰਿਆਤਾ ਬਾਅਦ ਰੁਕਦਾ ਹੈ",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "ਆਟੋ ਸਲੀਪ ਗਾਰਡ ਵਰਤਣ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ",
+  "asgTileSubtitleOff": "ਬੰਦ",
+  "asgTileAutomaticBadge": "ਆਟੋਮੈਟਿਕ",
+  "asgTileOffBadge": "ਬੰਦ",
+  "asgSheetTitle": "ਆਟੋ ਸਲੀਪ ਗਾਰਡ",
+  "asgSheetBody": "ਬੈਟਰੀ ਬਚਾਉਣ ਲਈ Astra ਨਿਸ਼ਕਿਰਿਆਤਾ ਦੇ ਸਮੇਂ ਬਾਅਦ ਆਪਣੇ ਆਪ ਪਲੇਬੈਕ ਰੋਕ ਦਿੰਦਾ ਹੈ। ਚੁਣੋ ਕਿ ਇਹ ਕਿੰਨਾ ਸਮਾਂ ਇੰਤਜ਼ਾਰ ਕਰੇ।",
+  "asgSheetModeLabel": "ਮੋਡ",
+  "asgSheetModeAutomatic": "ਆਟੋਮੈਟਿਕ",
+  "asgSheetModeAutomaticDesc": "ਨਿਸ਼ਕਿਰਿਆਤਾ 'ਤੇ ਨਜ਼ਰ ਰੱਖਦਾ ਹੈ ਅਤੇ ਬੈਟਰੀ ਬਚਾਉਣ ਲਈ ਰੁਕਦਾ ਹੈ",
+  "asgSheetModeOff": "ਬੰਦ",
+  "asgSheetModeOffDesc": "ਕਦੇ ਵੀ ਆਪਣੇ ਆਪ ਨਹੀਂ ਰੁਕਦਾ",
+  "asgSheetPremiumHint": "ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਚੁੱਪਚਾਪ ਚੱਲਦਾ ਹੈ — ਕਦੇ ਵੀ ਵਿਘਨ ਨਾ ਪਾਉਣ ਲਈ ਸੈੱਟ ਕੀਤਾ ਗਿਆ",
+  "asgSheetDurationLabel": "ਬਾਅਦ ਵਿੱਚ ਰੋਕੋ",
+  "asgSheetHours": "{count} ਘੰਟੇ",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "ਸੰਭਾਲਿਆ ਗਿਆ",
+  "asgSheetDone": "ਹੋ ਗਿਆ",
+  "asgResumePromptTitle": "ਨਿਸ਼ਕਿਰਿਆਤਾ ਬਾਅਦ ਰੋਕਿਆ ਗਿਆ",
+  "asgResumePromptSubtitle": "{time} 'ਤੇ ਰੋਕਿਆ ਗਿਆ — ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੀਏ?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ",
+  "asgResumePromptDismiss": "ਖਾਰਜ ਕਰੋ",
+  "bsmTileTitle": "ਬੈਟਰੀ ਸੇਵਰ ਮੋਡ",
+  "bsmTileSubtitleActive": "ਸਰਗਰਮ — ਬੈਟਰੀ {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "{threshold}% ਤੋਂ ਹੇਠਾਂ ਆਪਣੇ ਆਪ ਸਰਗਰਮ ਹੁੰਦਾ ਹੈ",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "ਬੰਦ",
+  "bsmTileAutomaticBadge": "ਆਟੋਮੈਟਿਕ",
+  "bsmTileOffBadge": "ਬੰਦ",
+  "bsmSheetTitle": "ਬੈਟਰੀ ਸੇਵਰ ਮੋਡ",
+  "bsmSheetBody": "ਜਦੋਂ ਤੁਹਾਡੀ ਬੈਟਰੀ ਘੱਟ ਹੁੰਦੀ ਹੈ, Astra ਆਪਣੇ ਆਪ ਬੈਕਗ੍ਰਾਊਂਡ ਐਨੀਮੇਸ਼ਨ, ਧੁੰਦਲਾਪਣ ਅਤੇ ਹੋਰ ਵਿਜ਼ੁਅਲ ਪ੍ਰਭਾਵ ਬੰਦ ਕਰ ਦਿੰਦਾ ਹੈ — ਪਲੇਬੈਕ ਬਿਲਕੁਲ ਸਾਧਾਰਨ ਤਰੀਕੇ ਨਾਲ ਜਾਰੀ ਰਹਿੰਦਾ ਹੈ।",
+  "bsmSheetPremiumHint": "ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਚੁੱਪਚਾਪ ਚੱਲਦਾ ਹੈ — ਪਲੇਬੈਕ ਕਦੇ ਪ੍ਰਭਾਵਿਤ ਨਹੀਂ ਹੁੰਦਾ, ਸਿਰਫ਼ ਵਿਜ਼ੁਅਲਸ",
+  "bsmSheetModeLabel": "ਮੋਡ",
+  "bsmSheetModeAutomatic": "ਆਟੋਮੈਟਿਕ",
+  "bsmSheetModeAutomaticDesc": "ਬੈਟਰੀ ਪੱਧਰ 'ਤੇ ਨਜ਼ਰ ਰੱਖਦਾ ਹੈ ਅਤੇ ਘੱਟ ਹੋਣ 'ਤੇ ਬਿਜਲੀ ਬਚਾਉਂਦਾ ਹੈ",
+  "bsmSheetModeOff": "ਬੰਦ",
+  "bsmSheetModeOffDesc": "ਕਦੇ ਵੀ ਆਪਣੇ ਆਪ ਸਰਗਰਮ ਨਹੀਂ ਹੁੰਦਾ",
+  "bsmSheetThresholdLabel": "ਇਸ ਤੋਂ ਹੇਠਾਂ ਸਰਗਰਮ ਕਰੋ",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "ਸੰਭਾਲਿਆ ਗਿਆ",
+  "bsmSheetDone": "ਹੋ ਗਿਆ",
+  "spEqualizerTitle": "ਇਕੁਲਾਈਜ਼ਰ",
+  "spEqualizerSubtitle": "ਪ੍ਰੀਸੈੱਟਾਂ ਨਾਲ 10-ਬੈਂਡ ਈਕਿਊ",
+  "spKeepQueue": "ਦੁਬਾਰਾ ਖੋਲ੍ਹਣ 'ਤੇ ਕਤਾਰ ਰੱਖੋ",
+  "spKeepQueueSubtitle": "ਐਪ ਬੰਦ ਕਰਨ ਤੋਂ ਬਾਅਦ ਕਤਾਰ ਬਹਾਲ ਕਰੋ",
+  "spStopOnSwipe": "ਹਾਲੀਆ ਵਿੱਚੋਂ ਸਵਾਈਪ ਕਰਨ 'ਤੇ ਰੋਕੋ",
+  "spStopOnSwipeSubtitle": "ਐਪ ਸਵਾਈਪ ਕਰਨ 'ਤੇ ਪਲੇਬੈਕ ਰੋਕੋ",
+  "spPauseOnCall": "ਆਉਣ ਵਾਲੀ ਕਾਲ 'ਤੇ ਰੋਕੋ",
+  "spPauseOnCallSubtitle": "ਫੋਨ ਵੱਜਣ 'ਤੇ ਆਪਣੇ ਆਪ ਰੁਕ ਜਾਂਦਾ ਹੈ",
+  "spDuckNotifications": "ਸੂਚਨਾਵਾਂ ਲਈ ਵਾਲੀਅਮ ਘਟਾਓ",
+  "spDuckNotificationsSubtitle": "ਬੰਦ = ਸੂਚਨਾਵਾਂ ਤੁਹਾਡੇ ਗੀਤ ਦਾ ਵਾਲੀਅਮ ਕਦੇ ਨਹੀਂ ਘਟਾਉਂਦੀਆਂ ਜਾਂ ਰੋਕਦੀਆਂ",
+  "spShakeToSkip": "ਗੀਤ ਸਕਿੱਪ ਕਰਨ ਲਈ ਹਿਲਾਓ",
+  "spShakeToSkipSubtitle": "ਅਗਲੇ ਟਰੈਕ 'ਤੇ ਜਾਣ ਲਈ ਫੋਨ ਹਿਲਾਓ",
+  "spSwipeToChange": "ਗੀਤ ਬਦਲਣ ਲਈ ਸਵਾਈਪ ਕਰੋ",
+  "spSwipeToChangeSubtitle": "ਸਕਿੱਪ ਕਰਨ ਲਈ ਪਲੇਅਰ ਆਰਟਵਰਕ 'ਤੇ ਸਵਾਈਪ ਕਰੋ",
+  "spHapticIntensity": "ਹੈਪਟਿਕ ਤੀਬਰਤਾ",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "ਪੂਰੀ ਐਪ ਵਿੱਚ ਟੈਪ ਅਤੇ ਵਾਈਬ੍ਰੇਸ਼ਨ ਕਿੰਨੇ ਮਜ਼ਬੂਤ ਮਹਿਸੂਸ ਹੁੰਦੇ ਹਨ",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "ਬੰਦ",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "ਹਲਕਾ",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "ਮਜ਼ਬੂਤ",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "ਇਤਿਹਾਸ ਦੀ ਮਿਆਦ",
+  "spHistorySongsCount": "{count} ਗੀਤ",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "ਸਲੀਪ ਟਾਈਮਰ",
+  "spSleepTimerSheetSubtitle": "ਚੁਣੇ ਗਏ ਸਮੇਂ ਬਾਅਦ ਪਲੇਬੈਕ ਰੁਕ ਜਾਵੇਗਾ",
+  "spFinishCurrentSong": "ਮੌਜੂਦਾ ਗੀਤ ਖਤਮ ਕਰੋ",
+  "spFinishCurrentSongSubtitle": "ਰੋਕਣ ਤੋਂ ਪਹਿਲਾਂ ਮੌਜੂਦਾ ਗੀਤ ਖਤਮ ਹੋਣ ਦਿਓ",
+  "spStartTimer": "ਟਾਈਮਰ ਸ਼ੁਰੂ ਕਰੋ · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "ਸਰਗਰਮ ਟਾਈਮਰ ਰੱਦ ਕਰੋ",
+  "spSleepTimerCustom": "ਕਸਟਮ",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "ਸੈੱਟ ਕਰੋ",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "ਮਿੰਟ",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "ਮਿੰਟਾਂ ਵਿੱਚ ਸਮਾਂ ਦਰਜ ਕਰੋ",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "ਵੱਧ ਤੋਂ ਵੱਧ {max} ਮਿੰਟ",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "ਫੇਡ ਆਊਟ",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "ਅਚਾਨਕ ਰੁਕਣ ਦੀ ਬਜਾਏ ਸੰਗੀਤ ਹੌਲੀ-ਹੌਲੀ ਮੱਧਮ ਹੁੰਦਾ ਹੈ",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "ਉੱਚ ਬਿੱਟਰੇਟ (320kbps)",
+  "spPremiumHighBitrateDesc": "Astra Plus ਨਾਲ ਸਟੂਡੀਓ-ਕੁਆਲਿਟੀ 320kbps ਸਟ੍ਰੀਮਿੰਗ ਅਨਲੌਕ ਕਰੋ।",
+  "spEqReset": "ਰੀਸੈੱਟ",
+  "spEqPresets": "ਪ੍ਰੀਸੈੱਟ",
+  "spEq10Band": "10-ਬੈਂਡ ਈਕਿਊ",
+  "saTheme": "ਥੀਮ",
+  "saFontStyle": "ਫੌਂਟ ਸਟਾਈਲ",
+  "saNowPlayingCard": "ਹੁਣ ਚੱਲ ਰਿਹਾ ਕਾਰਡ",
+  "saArtworkShape": "ਆਰਟਵਰਕ ਆਕਾਰ",
+  "saPlayer": "ਪਲੇਅਰ",
+  "saLyrics": "ਬੋਲ",
+  "saAnimations": "ਐਨੀਮੇਸ਼ਨ",
+  "saThemeDark": "ਗੂੜ੍ਹਾ",
+  "saThemeDarkDesc": "ਅੱਖਾਂ ਲਈ ਆਰਾਮਦਾਇਕ",
+  "saThemeAmoled": "AMOLED ਕਾਲਾ",
+  "saThemeAmoledDesc": "ਸ਼ੁੱਧ ਕਾਲਾ, ਬੈਟਰੀ ਬਚਾਉਂਦਾ ਹੈ",
+  "saThemeLight": "ਹਲਕਾ",
+  "saThemeLightDesc": "ਸਾਫ਼ ਅਤੇ ਸਧਾਰਨ",
+  "saThemeSystem": "ਸਿਸਟਮ ਡਿਫਾਲਟ",
+  "saThemeSystemDesc": "ਤੁਹਾਡੇ ਫੋਨ ਦੇ ਥੀਮ ਦੀ ਪਾਲਣਾ ਕਰੋ",
+  "saDynamicThemeColor": "ਡਾਇਨਾਮਿਕ ਥੀਮ ਰੰਗ",
+  "saDynamicThemeColorSubtitle": "ਗੀਤ ਦੇ ਆਰਟਵਰਕ ਤੋਂ ਰੰਗ ਕੱਢੋ",
+  "saHighRefreshRate": "ਉੱਚ ਰਿਫ੍ਰੈਸ਼ ਰੇਟ (120Hz)",
+  "saHighRefreshRateSubtitle": "ਸਮਰਥਿਤ ਡਿਵਾਈਸਾਂ 'ਤੇ ਸੁਚਾਰੂ ਇੰਟਰਫੇਸ",
+  "saAccentColor": "ਐਕਸੈਂਟ ਰੰਗ",
+  "saExtraColorsSignIn": "ਵਾਧੂ ਰੰਗ = ਸਾਈਨ ਇਨ ਕਰੋ",
+  "saCustomAccentColorsFeature": "ਕਸਟਮ ਐਕਸੈਂਟ ਰੰਗ",
+  "saCustomAccentColorsDesc": "ਹੋਰ ਐਕਸੈਂਟ ਰੰਗ ਅਨਲੌਕ ਕਰਨ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "saAppFont": "ਐਪ ਫੌਂਟ",
+  "saRoundedMonoSignIn": "ਪ੍ਰੀਮੀਅਮ ਫੌਂਟ = ਸਾਈਨ ਇਨ ਕਰੋ",
+  "saApplyingFont": "ਫੌਂਟ ਲਾਗੂ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ…",
+  "saFontUnlockFeature": "{font} ਫੌਂਟ",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "ਇਹ ਫੌਂਟ ਅਨਲੌਕ ਕਰਨ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "saCardStyleCompactDesc": "ਛੋਟਾ ਆਰਟਵਰਕ, ਨਾਲ ਟੈਕਸਟ",
+  "saCardStyleCardDesc": "ਸੰਤੁਲਿਤ ਆਰਟਵਰਕ ਅਤੇ ਜਾਣਕਾਰੀ",
+  "saCardStyleImmersiveDesc": "ਪੂਰੀ ਚੌੜਾਈ ਆਰਟਵਰਕ, ਘੱਟੋ-ਘੱਟ ਇੰਟਰਫੇਸ",
+  "saPremiumBadge": "ਪ੍ਰੀਮੀਅਮ",
+  "saPlayerStyleUnlockFeature": "{style} ਪਲੇਅਰ ਸਟਾਈਲ",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "{style} ਸਟਾਈਲ ਅਨਲੌਕ ਕਰਨ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "ਪਲੇਅਰ ਬੈਕਗ੍ਰਾਊਂਡ ਸਟਾਈਲ",
+  "saPlayerBgStyleSubtitle": "ਪਲੇਅਰ ਬੈਕਗ੍ਰਾਊਂਡ ਕਿਵੇਂ ਦਿਖਦਾ ਹੈ",
+  "saDynamicPlayerColor": "ਡਾਇਨਾਮਿਕ ਪਲੇਅਰ ਰੰਗ",
+  "saDynamicPlayerColorSubtitle": "ਆਰਟਵਰਕ ਤੋਂ ਪਲੇਅਰ ਰੰਗ ਬਦਲੋ",
+  "saPlayerButtonColors": "ਪਲੇਅਰ ਬਟਨ ਰੰਗ",
+  "saPlayerButtonColorsSubtitle": "ਪਲੇ/ਸਕਿੱਪ ਬਟਨਾਂ ਦਾ ਰੰਗ",
+  "saPlayerSliderStyle": "ਪਲੇਅਰ ਸਲਾਈਡਰ ਸਟਾਈਲ",
+  "saPlayerSliderStyleSubtitle": "ਸੀਕ ਬਾਰ ਦੀ ਦਿੱਖ",
+  "saShowBlurredBg": "ਧੁੰਦਲਾ ਬੈਕਗ੍ਰਾਊਂਡ ਦਿਖਾਓ",
+  "saShowBlurredBgSubtitle": "ਪਲੇਅਰ ਦੇ ਪਿੱਛੇ ਧੁੰਦਲਾ ਆਰਟਵਰਕ",
+  "saNavBarBlur": "ਨੈਵ ਬਾਰ ਧੁੰਦਲਾਪਣ",
+  "saNavBarBlurSubtitle": "ਘੱਟ GPU ਗਰਮੀ/ਬੈਟਰੀ ਵਰਤੋਂ ਲਈ ਘਟਾਓ",
+  "saMiniPlayerBlur": "ਮਿੰਨੀ ਪਲੇਅਰ ਧੁੰਦਲਾਪਣ",
+  "saMiniPlayerBlurSubtitle": "ਘੱਟ GPU ਗਰਮੀ/ਬੈਟਰੀ ਵਰਤੋਂ ਲਈ ਘਟਾਓ",
+  "saLyricsTextPosition": "ਬੋਲਾਂ ਦੀ ਟੈਕਸਟ ਸਥਿਤੀ",
+  "saLyricsTextPositionSubtitle": "ਸਕ੍ਰੀਨ 'ਤੇ ਬੋਲਾਂ ਦੀ ਅਲਾਈਨਮੈਂਟ",
+  "saLyricsTextSize": "ਬੋਲਾਂ ਦੀ ਟੈਕਸਟ ਸਾਈਜ਼",
+  "saLyricsLineSpacing": "ਬੋਲਾਂ ਦੀ ਲਾਈਨ ਸਪੇਸਿੰਗ",
+  "saShowLyricsOnPlayer": "ਪਲੇਅਰ 'ਤੇ ਬੋਲ ਦਿਖਾਓ",
+  "saShowLyricsOnPlayerSubtitle": "ਸੀਕ ਬਾਰ ਦੇ ਉੱਪਰ ਮੌਜੂਦਾ ਲਾਈਨ ਦਿਖਾਓ",
+  "saLyricsViewMode": "ਇਮਰਸਿਵ ਬੋਲ",
+  "saLyricsViewModeSubtitle": "ਪਲੇਅਰ ਤੋਂ ਚਮਕ ਨਾਲ ਪੂਰੀ ਸਕ੍ਰੀਨ ਬੋਲ",
+  "saLyricsViewModeInline": "ਇਨਲਾਈਨ",
+  "saLyricsViewModeFullscreen": "ਪੂਰੀ ਸਕ੍ਰੀਨ",
+  "saEnableAnimations": "ਐਨੀਮੇਸ਼ਨ ਸਮਰੱਥ ਕਰੋ",
+  "saEnableAnimationsSubtitle": "ਸਾਰੀਆਂ ਐਨੀਮੇਸ਼ਨਾਂ ਲਈ ਮੁੱਖ ਸਵਿੱਚ",
+  "saBackAnimations": "ਬੈਕ ਐਨੀਮੇਸ਼ਨ",
+  "saBackAnimationsSubtitle": "ਬੈਕ ਨੈਵੀਗੇਸ਼ਨ ਇਸ਼ਾਰੇ ਨੂੰ ਐਨੀਮੇਟ ਕਰੋ",
+  "saScrollAnimations": "ਸਕ੍ਰੌਲ ਐਨੀਮੇਸ਼ਨ",
+  "saScrollAnimationsSubtitle": "ਸਕ੍ਰੌਲ ਕਰਦੇ ਸਮੇਂ ਆਈਟਮਾਂ ਹੌਲੀ-ਹੌਲੀ ਦਿਖਾਓ",
+  "saBgGradientAnimation": "ਬੈਕਗ੍ਰਾਊਂਡ ਗ੍ਰੇਡੀਐਂਟ ਐਨੀਮੇਸ਼ਨ",
+  "saBgGradientAnimationSubtitle": "ਪਲੇਅਰ ਵਿੱਚ ਐਨੀਮੇਟਿਡ ਰੰਗ ਬਦਲਾਅ",
+  "saShapeSquare": "ਵਰਗ",
+  "saShapeRounded": "ਗੋਲ",
+  "saShapeCircle": "ਚੱਕਰ",
+  "ssDownloads": "ਡਾਊਨਲੋਡਸ",
+  "ssSongCache": "ਗੀਤ ਕੈਸ਼",
+  "ssImageCache": "ਚਿੱਤਰ ਕੈਸ਼",
+  "ssDownloadedSongs": "ਡਾਊਨਲੋਡ ਕੀਤੇ ਗੀਤ",
+  "ssClearAllDownloads": "ਸਾਰੇ ਡਾਊਨਲੋਡ ਸਾਫ਼ ਕਰੋ",
+  "ssDownloadQuality": "ਡਾਊਨਲੋਡ ਕੁਆਲਿਟੀ",
+  "ssDownloadQualitySubtitle": "ਡਾਊਨਲੋਡ ਕੀਤੇ ਗੀਤਾਂ ਲਈ ਆਡੀਓ ਕੁਆਲਿਟੀ",
+  "ssAutoDownloadLiked": "ਪਸੰਦੀਦਾ ਗੀਤ ਆਪਣੇ ਆਪ ਡਾਊਨਲੋਡ ਕਰੋ",
+  "ssAutoDownloadLikedSubtitle": "ਜੋ ਗੀਤ ਤੁਸੀਂ ਪਸੰਦ ਕਰਦੇ ਹੋ ਉਹ ਆਪਣੇ ਆਪ ਡਾਊਨਲੋਡ ਕਰੋ",
+  "ssWifiOnly": "ਸਿਰਫ਼ WiFi 'ਤੇ ਡਾਊਨਲੋਡ ਕਰੋ",
+  "ssWifiOnlySubtitle": "ਡਾਊਨਲੋਡ ਲਈ ਕਦੇ ਵੀ ਮੋਬਾਈਲ ਡਾਟਾ ਨਾ ਵਰਤੋ",
+  "ssMaxSongCacheSize": "ਵੱਧ ਤੋਂ ਵੱਧ ਗੀਤ ਕੈਸ਼ ਸਾਈਜ਼",
+  "ssClearSongCache": "ਗੀਤ ਕੈਸ਼ ਸਾਫ਼ ਕਰੋ",
+  "ssMaxImageCacheSize": "ਵੱਧ ਤੋਂ ਵੱਧ ਚਿੱਤਰ ਕੈਸ਼ ਸਾਈਜ਼",
+  "ssClearImageCache": "ਚਿੱਤਰ ਕੈਸ਼ ਸਾਫ਼ ਕਰੋ",
+  "ssClearConfirmTitle": "{title} ਸਾਫ਼ ਕਰੀਏ?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ।",
+  "ssCancel": "ਰੱਦ ਕਰੋ",
+  "ssClear": "ਸਾਫ਼ ਕਰੋ",
+  "ssAllDownloadsTitle": "ਸਾਰੇ ਡਾਊਨਲੋਡ",
+  "ssSongCacheTitle": "ਗੀਤ ਕੈਸ਼",
+  "ssImageCacheTitle": "ਚਿੱਤਰ ਕੈਸ਼",
+  "ssUsedLabel": "ਵਰਤਿਆ: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "ਵੱਧ ਤੋਂ ਵੱਧ: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "ਐਪ ਲੌਕ",
+  "sprAppLockTitle": "ਐਪ ਲੌਕ",
+  "sprAppLockSubtitleSet": "ਐਪ ਲੌਕ ਕਰਨ ਲਈ ਪਿੰਨ ਸੈੱਟ ਕਰੋ",
+  "sprAppLockSubtitleChange": "ਪਿੰਨ ਸੈੱਟ ਕੀਤਾ ਗਿਆ — ਬਦਲਣ ਲਈ ਟੈਪ ਕਰੋ",
+  "sprSetPin": "ਪਿੰਨ ਸੈੱਟ ਕਰੋ",
+  "sprChangePin": "ਪਿੰਨ ਬਦਲੋ",
+  "sprSetPinSubtitle": "ਐਪ ਲੌਕ ਸਮਰੱਥ ਕਰਨ ਲਈ ਲੋੜੀਂਦਾ",
+  "sprChangePinSubtitle": "ਆਪਣਾ 4-ਅੰਕਾਂ ਦਾ ਪਿੰਨ ਬਦਲੋ",
+  "sprBiometricUnlock": "ਬਾਇਓਮੈਟ੍ਰਿਕ ਅਨਲੌਕ",
+  "sprBiometricUnlockSubtitle": "ਪਿੰਨ ਦੀ ਬਜਾਏ ਫਿੰਗਰਪ੍ਰਿੰਟ ਵਰਤੋ",
+  "sprAutoLockAfter": "ਇਸ ਬਾਅਦ ਆਪਣੇ ਆਪ ਲੌਕ",
+  "sprAutoLockAfterSubtitle": "ਲੌਕ ਹੋਣ ਤੋਂ ਪਹਿਲਾਂ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਕਿੰਨਾ ਸਮਾਂ",
+  "sprDelayImmediately": "ਤੁਰੰਤ",
+  "sprDelayAfter1Min": "1 ਮਿੰਟ ਬਾਅਦ",
+  "sprDelayAfter5Min": "5 ਮਿੰਟ ਬਾਅਦ",
+  "sprDelayAfter10Min": "10 ਮਿੰਟ ਬਾਅਦ",
+  "sprDelayAfter30Min": "30 ਮਿੰਟ ਬਾਅਦ",
+  "sprDontLockWhilePlaying": "ਚਲਾਉਂਦੇ ਸਮੇਂ ਲੌਕ ਨਾ ਕਰੋ",
+  "sprDontLockWhilePlayingSubtitle": "ਜਦੋਂ ਤੱਕ ਕੋਈ ਗੀਤ ਚੱਲ ਰਿਹਾ ਹੈ ਐਪ ਲੌਕ ਨਹੀਂ ਹੋਵੇਗੀ",
+  "sprIncognito": "ਗੁਪਤ",
+  "sprIncognitoMode": "ਗੁਪਤ ਮੋਡ",
+  "sprIncognitoModeSubtitle": "ਗੀਤ ਇਤਿਹਾਸ ਵਿੱਚ ਨਹੀਂ ਦਿਖਣਗੇ ਜਾਂ ਸਿਫ਼ਾਰਸ਼ਾਂ ਨੂੰ ਪ੍ਰਭਾਵਿਤ ਨਹੀਂ ਕਰਨਗੇ",
+  "sprIncognitoOnInfo": "ਗੁਪਤ ਮੋਡ ਚਾਲੂ ਹੈ — ਸੁਣਨ ਦਾ ਇਤਿਹਾਸ ਰੁਕਿਆ ਹੋਇਆ ਹੈ ਅਤੇ ਸਿਫ਼ਾਰਸ਼ਾਂ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋਣਗੀਆਂ।",
+  "sprHideListeningStats": "ਸੁਣਨ ਦੇ ਅੰਕੜੇ ਲੁਕਾਓ",
+  "sprHideListeningStatsSubtitle": "ਚਲਾਉਣ ਦੀ ਗਿਣਤੀ ਜਾਂ ਸੁਣਨ ਦਾ ਸਮਾਂ ਟਰੈਕ ਨਾ ਕਰੋ",
+  "sprClearData": "ਡਾਟਾ ਸਾਫ਼ ਕਰੋ",
+  "sprClearHistory": "ਸੁਣਨ ਦਾ ਇਤਿਹਾਸ ਸਾਫ਼ ਕਰੋ",
+  "sprClearHistorySubtitle": "ਹਾਲ ਹੀ ਵਿੱਚ ਚਲਾਏ ਸਾਰੇ ਗੀਤ ਹਟਾਓ",
+  "sprResetRecommendations": "ਸਿਫ਼ਾਰਸ਼ਾਂ ਰੀਸੈੱਟ ਕਰੋ",
+  "sprResetRecommendationsSubtitle": "ਸਬੰਧ ਸਕੋਰ ਸਾਫ਼ ਕਰੋ ਅਤੇ ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ",
+  "sprClearAllData": "ਸਾਰਾ ਐਪ ਡਾਟਾ ਸਾਫ਼ ਕਰੋ",
+  "sprClearAllDataSubtitle": "ਸਭ ਕੁਝ ਰੀਸੈੱਟ ਕਰੋ — ਪਲੇਲਿਸਟਾਂ, ਸੈਟਿੰਗਾਂ, ਇਤਿਹਾਸ",
+  "sprClearTitle": "{title} ਸਾਫ਼ ਕਰੀਏ?",
+  "sprClearCannotUndo": "ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ।",
+  "sprCancel": "ਰੱਦ ਕਰੋ",
+  "sprClear": "ਸਾਫ਼ ਕਰੋ",
+  "sprHistoryTitle": "ਸੁਣਨ ਦਾ ਇਤਿਹਾਸ",
+  "sprRecommendationsTitle": "ਸਿਫ਼ਾਰਸ਼ਾਂ",
+  "sprAllAppDataTitle": "ਸਾਰਾ ਐਪ ਡਾਟਾ",
+  "sprPinMustBe4Digits": "ਪਿੰਨ 4 ਅੰਕਾਂ ਦਾ ਹੋਣਾ ਚਾਹੀਦਾ ਹੈ",
+  "sprPinsDontMatch": "ਪਿੰਨ ਮੇਲ ਨਹੀਂ ਖਾਂਦੇ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "sprConfirmPin": "ਪਿੰਨ ਦੀ ਪੁਸ਼ਟੀ ਕਰੋ",
+  "sprSetPinSheetTitle": "ਪਿੰਨ ਸੈੱਟ ਕਰੋ",
+  "sprChangePinSheetTitle": "ਪਿੰਨ ਬਦਲੋ",
+  "sprEnterPinAgain": "ਪੁਸ਼ਟੀ ਲਈ ਪਿੰਨ ਦੁਬਾਰਾ ਦਰਜ ਕਰੋ",
+  "sprChoose4DigitPin": "4-ਅੰਕਾਂ ਦਾ ਪਿੰਨ ਚੁਣੋ",
+  "sprRemovePin": "ਪਿੰਨ ਹਟਾਓ",
+  "sprNext": "ਅੱਗੇ",
+  "sprConfirm": "ਪੁਸ਼ਟੀ ਕਰੋ",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "ਹੁਣੇ ਗੀਤ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ।\nਹੇਠਾਂ ਖਿੱਚੋ ਜਾਂ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ।",
+  "homeFailedToLoad": "ਲੋਡ ਕਰਨ ਵਿੱਚ ਅਸਫਲ।",
+  "homeFailedToLoadCheckConnection": "ਹੁਣੇ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਹੇਠਾਂ ਖਿੱਚੋ।",
+  "homeLoadingPlaylist": "{name} ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "ਅਰਿਜੀਤ ਸਿੰਘ ਹਿੱਟਸ",
+  "homePlaylistChartbusters2025": "2025 ਚਾਰਟਬਸਟਰਸ",
+  "homePlaylistFreshBollywood": "ਤਾਜ਼ਾ ਬਾਲੀਵੁੱਡ",
+  "homePlaylistMovieBlockbusters": "ਫਿਲਮ ਬਲੌਕਬਸਟਰਸ",
+  "homePlaylistNewReleases": "ਨਵੀਆਂ ਰਿਲੀਜ਼ਾਂ",
+  "homePlaylistPartyAnthems": "ਪਾਰਟੀ ਗੀਤ",
+  "homePlaylistRomanticThisWeek": "ਇਸ ਹਫ਼ਤੇ ਰੋਮਾਂਟਿਕ",
+  "homePlaylistTrendingNow": "ਹੁਣ ਟਰੈਂਡਿੰਗ",
+  "loginSyncSubtitle": "ਆਪਣੀ ਲਾਇਬ੍ਰੇਰੀ ਨੂੰ ਸਿੰਕ ਕਰਨ ਲਈ\nਹਰ ਡਿਵਾਈਸ 'ਤੇ ਸਾਈਨ ਇਨ ਕਰੋ",
+  "loginMaybeLater": "ਸ਼ਾਇਦ ਬਾਅਦ ਵਿੱਚ",
+  "loginBenefitSyncDevices": "ਹਰ ਡਿਵਾਈਸ 'ਤੇ ਪਲੇਲਿਸਟਾਂ ਅਤੇ ਪਸੰਦੀਦਾ ਸਿੰਕ ਕਰੋ",
+  "loginBenefitResumeWhereLeft": "ਬਿਲਕੁਲ ਉੱਥੋਂ ਜਾਰੀ ਰੱਖੋ ਜਿੱਥੇ ਤੁਸੀਂ ਛੱਡਿਆ ਸੀ",
+  "loginBenefitLibrarySafe": "ਫੋਨ ਬਦਲਣ 'ਤੇ ਵੀ ਤੁਹਾਡੀ ਲਾਇਬ੍ਰੇਰੀ ਸੁਰੱਖਿਅਤ ਰਹਿੰਦੀ ਹੈ",
+  "loginBenefitPersonalizedProfile": "ਤੁਹਾਡੇ Google ਨਾਮ ਅਤੇ ਫੋਟੋ ਨਾਲ ਇੱਕ ਵਿਅਕਤੀਗਤ ਪ੍ਰੋਫਾਈਲ",
+  "loginContinueWithGoogle": "Google ਨਾਲ ਜਾਰੀ ਰੱਖੋ",
+  "commonClear": "ਸਾਫ਼ ਕਰੋ",
+  "commonCreate": "ਬਣਾਓ",
+  "commonImport": "ਆਯਾਤ ਕਰੋ",
+  "libraryActionCannotBeUndone": "ਇਹ ਵਾਪਸ ਨਹੀਂ ਹੋ ਸਕਦਾ।",
+  "libraryAddToPlaylist": "ਪਲੇਲਿਸਟ ਵਿੱਚ ਸ਼ਾਮਲ ਕਰੋ",
+  "libraryAddedToPlaylist": "\"{name}\" ਵਿੱਚ ਸ਼ਾਮਲ ਕੀਤਾ ਗਿਆ",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 ਗੀਤ \"{name}\" ਵਿੱਚ ਸ਼ਾਮਲ ਕੀਤਾ ਗਿਆ} other{{count} ਗੀਤ \"{name}\" ਵਿੱਚ ਸ਼ਾਮਲ ਕੀਤੇ ਗਏ}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{1 ਚੁਣਿਆ ਗਿਆ} other{{count} ਚੁਣੇ ਗਏ}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "ਚੁਣੋ",
+  "librarySelectAll": "ਸਭ ਚੁਣੋ",
+  "libraryDeselectAll": "ਸਭ ਅਣਚੁਣੇ ਕਰੋ",
+  "libraryRemoveSelectedFromPlaylist": "ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਓ",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{ਇਹ ਗੀਤ ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਈਏ?} other{ਇਹ {count} ਗੀਤ ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਈਏ?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 ਗੀਤ ਹਟਾਇਆ ਗਿਆ} other{{count} ਗੀਤ ਹਟਾਏ ਗਏ}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "ਇਸ 'ਤੇ ਚਲਾਓ",
+  "castingToDevice": "{name} 'ਤੇ ਕਾਸਟ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "ਡਿਵਾਈਸ",
+  "castSessionDisconnect": "ਡਿਸਕਨੈਕਟ ਕਰੋ",
+  "castSessionStopCasting": "ਕਾਸਟਿੰਗ ਬੰਦ ਕਰੋ",
+  "castDeviceFallbackTitle": "ਕਾਸਟ ਡਿਵਾਈਸ",
+  "castToDeviceLabel": "ਡਿਵਾਈਸ 'ਤੇ ਕਾਸਟ ਕਰੋ",
+  "castPickerTitle": "ਇਸ 'ਤੇ ਕਾਸਟ ਕਰੋ",
+  "castPickerScanning": "ਡਿਵਾਈਸਾਂ ਖੋਜੀਆਂ ਜਾ ਰਹੀਆਂ ਹਨ…",
+  "castPickerNoDevices": "ਕੋਈ ਡਿਵਾਈਸ ਨਹੀਂ ਮਿਲੀ। ਯਕੀਨੀ ਬਣਾਓ ਕਿ ਤੁਹਾਡਾ Chromecast ਜਾਂ TV ਇੱਕੋ Wi-Fi ਨੈੱਟਵਰਕ 'ਤੇ ਹੈ।",
+  "castPickerConnectFailed": "ਕਨੈਕਟ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "audioOutputAutoRoutingNotice": "ਇਸ Android ਵਰਜਨ 'ਤੇ, ਆਉਟਪੁੱਟ ਆਪਣੇ ਆਪ ਸਭ ਤੋਂ ਹਾਲ ਹੀ ਵਿੱਚ ਕਨੈਕਟ ਕੀਤੀ ਡਿਵਾਈਸ 'ਤੇ ਬਦਲ ਜਾਂਦੀ ਹੈ।",
+  "audioOutputSwitchFailed": "ਆਉਟਪੁੱਟ ਡਿਵਾਈਸ ਨਹੀਂ ਬਦਲੀ ਜਾ ਸਕੀ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "libraryAlbumTag": "ਐਲਬਮ",
+  "libraryAlbumsYouSaveAppearHere": "ਜੋ ਐਲਬਮਾਂ ਤੁਸੀਂ ਸੰਭਾਲਦੇ ਹੋ ਉਹ ਇੱਥੇ ਦਿਖਣਗੀਆਂ।",
+  "libraryAlreadyInPlaylist": "ਪਹਿਲਾਂ ਹੀ \"{name}\" ਵਿੱਚ ਹੈ",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{1 ਕਲਾਕਾਰ} other{{count} ਕਲਾਕਾਰ}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "ਕਲਾਕਾਰ",
+  "libraryArtistsYouFollowAppearHere": "ਜਿਨ੍ਹਾਂ ਕਲਾਕਾਰਾਂ ਨੂੰ ਤੁਸੀਂ ਫਾਲੋ ਕਰਦੇ ਹੋ ਉਹ ਇੱਥੇ ਦਿਖਣਗੇ।",
+  "libraryClearHistoryConfirm": "{count, plural, =1{1 ਗੀਤ ਹਟਾਇਆ ਜਾਵੇਗਾ।} other{ਸਾਰੇ {count} ਗੀਤ ਹਟਾਏ ਜਾਣਗੇ।}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "ਇਤਿਹਾਸ ਸਾਫ਼ ਕਰੀਏ?",
+  "libraryCollection": "ਸੰਗ੍ਰਹਿ",
+  "libraryComingSoon": "ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ",
+  "libraryCreateFirstPlaylistDesc": "ਆਪਣੀ ਪਹਿਲੀ ਪਲੇਲਿਸਟ ਬਣਾਓ ਅਤੇ\nਆਪਣੇ ਸੰਗੀਤ ਨੂੰ ਸੰਗਠਿਤ ਕਰਨਾ ਸ਼ੁਰੂ ਕਰੋ।",
+  "libraryCreatePlaylist": "ਪਲੇਲਿਸਟ ਬਣਾਓ",
+  "libraryImportFromYoutube": "YouTube ਪਲੇਲਿਸਟ ਤੋਂ ਆਯਾਤ ਕਰੋ",
+  "libraryImportFromYoutubeDesc": "YouTube ਪਲੇਲਿਸਟ ਲਿੰਕ ਪੇਸਟ ਕਰੋ ਅਤੇ Astra ਸਾਰੇ ਗੀਤ ਲਿਆਵੇਗਾ, ਚਲਾਉਣ ਲਈ ਤਿਆਰ।",
+  "libraryYoutubePlaylistLinkLabel": "ਪਲੇਲਿਸਟ ਲਿੰਕ",
+  "libraryYoutubeLinkEmptyError": "ਜਾਰੀ ਰੱਖਣ ਲਈ ਪਲੇਲਿਸਟ ਲਿੰਕ ਪੇਸਟ ਕਰੋ।",
+  "libraryYoutubeImportFailedError": "ਉਹ ਪਲੇਲਿਸਟ ਆਯਾਤ ਨਹੀਂ ਹੋ ਸਕੀ। ਲਿੰਕ ਚੈੱਕ ਕਰੋ ਅਤੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "libraryYoutubeImportInvalidLinkError": "ਇਹ ਪਲੇਲਿਸਟ ਲਿੰਕ ਨਹੀਂ ਲੱਗਦਾ। ਪਲੇਲਿਸਟ ਦੇ ਸ਼ੇਅਰ ਮੀਨੂ ਤੋਂ ਲਿੰਕ ਕਾਪੀ ਕਰੋ ਅਤੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "libraryYoutubeImportMixError": "ਮਿਕਸ ਅਤੇ ਰੇਡੀਓ ਸਟੇਸ਼ਨ ਆਯਾਤ ਨਹੀਂ ਹੋ ਸਕਦੇ — ਸਿਰਫ਼ ਆਮ ਪਲੇਲਿਸਟਾਂ ਵਿੱਚ ਟਰੈਕਾਂ ਦੀ ਪੱਕੀ ਸੂਚੀ ਹੁੰਦੀ ਹੈ। ਇੱਕ ਸੰਭਾਲੀ ਹੋਈ ਪਲੇਲਿਸਟ ਅਜ਼ਮਾਓ।",
+  "libraryYoutubeImportNetworkError": "YouTube ਤੱਕ ਨਹੀਂ ਪਹੁੰਚ ਸਕੇ। ਆਪਣਾ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ ਅਤੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "libraryDefaultPlaylistName": "ਮੇਰੀ ਪਲੇਲਿਸਟ",
+  "libraryDeletePlaylist": "ਪਲੇਲਿਸਟ ਮਿਟਾਓ",
+  "libraryDeletePlaylistConfirm": "\"{name}\" ਮਿਟਾਈਏ?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "ਵੇਰਵਾ (ਵਿਕਲਪਿਕ)",
+  "libraryDownloadPlaylist": "ਪਲੇਲਿਸਟ ਡਾਊਨਲੋਡ ਕਰੋ",
+  "libraryDownloadingPlaylist": "ਪਲੇਲਿਸਟ ਡਾਊਨਲੋਡ ਹੋ ਰਹੀ ਹੈ…",
+  "libraryDownloadPlaylistProgress": "{total} ਵਿੱਚੋਂ {done} ਡਾਊਨਲੋਡ ਹੋ ਰਹੇ ਹਨ",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "ਅਸਫਲ — ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ",
+  "libraryDownloadFromPlayerDesc": "ਆਫਲਾਈਨ ਸੁਣਨ ਲਈ ਪਲੇਅਰ ਤੋਂ ਗੀਤ ਡਾਊਨਲੋਡ ਕਰੋ।",
+  "libraryDownloadedCountHeader": "{count, plural, =1{1 ਡਾਊਨਲੋਡ ਕੀਤਾ} other{{count} ਡਾਊਨਲੋਡ ਕੀਤੇ}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 ਗੀਤ} other{{count} ਗੀਤ}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "ਡਾਊਨਲੋਡ ਕੀਤੇ",
+  "libraryDownloadsTabInProgress": "ਪ੍ਰਗਤੀ ਵਿੱਚ",
+  "libraryDownloadPaused": "ਰੋਕਿਆ ਗਿਆ",
+  "libraryDownloadResume": "ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ",
+  "libraryDownloadPause": "ਰੋਕੋ",
+  "libraryDownloadCancel": "ਰੱਦ ਕਰੋ",
+  "libraryDownloadingHeader": "ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ",
+  "libraryDownloadingPercent": "ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "ਪਲੇਲਿਸਟ ਸੋਧੋ",
+  "libraryHistory": "ਇਤਿਹਾਸ",
+  "libraryHistoryEarlierToday": "ਅੱਜ ਪਹਿਲਾਂ",
+  "libraryHistoryJustNow": "ਹੁਣੇ",
+  "libraryHistoryOlder": "ਪੁਰਾਣੇ",
+  "libraryHistoryRecent": "ਹਾਲੀਆ",
+  "libraryHistoryYesterday": "ਕੱਲ੍ਹ",
+  "libraryLiked": "ਪਸੰਦੀਦਾ",
+  "libraryLikedCount": "{count, plural, =0{0 ਪਸੰਦੀਦਾ} =1{1 ਪਸੰਦੀਦਾ} other{{count} ਪਸੰਦੀਦਾ}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "ਲੋਕਲ ਫਾਈਲਾਂ",
+  "libraryLoginToOrganizeDesc": "ਆਪਣੇ ਸੰਗੀਤ ਨੂੰ ਪਲੇਲਿਸਟਾਂ ਵਿੱਚ ਸੰਗਠਿਤ ਕਰਨ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "libraryNeedsPermissionToReadMusic": "Astra ਨੂੰ ਤੁਹਾਡਾ ਸੰਗੀਤ ਪੜ੍ਹਨ ਲਈ ਇਜਾਜ਼ਤ ਦੀ ਲੋੜ ਹੈ।",
+  "libraryNewPlaylist": "ਨਵੀਂ ਪਲੇਲਿਸਟ",
+  "libraryNewPlaylistLower": "ਨਵੀਂ ਪਲੇਲਿਸਟ",
+  "libraryNoAlbumsSavedYet": "ਅਜੇ ਕੋਈ ਐਲਬਮ ਸੰਭਾਲੀ ਨਹੀਂ ਗਈ",
+  "libraryNoArtistsSavedYet": "ਅਜੇ ਕੋਈ ਕਲਾਕਾਰ ਸੰਭਾਲਿਆ ਨਹੀਂ ਗਿਆ",
+  "libraryNoDownloadsYet": "ਅਜੇ ਕੋਈ ਡਾਊਨਲੋਡ ਨਹੀਂ",
+  "libraryNoHistoryYet": "ਅਜੇ ਕੋਈ ਇਤਿਹਾਸ ਨਹੀਂ",
+  "libraryNoLocalSongsFound": "ਕੋਈ ਲੋਕਲ ਗੀਤ ਨਹੀਂ ਮਿਲਿਆ",
+  "libraryLocalSearchHint": "ਲੋਕਲ ਗੀਤ ਖੋਜੋ",
+  "libraryLocalSearchNoResults": "ਕੋਈ ਲੋਕਲ ਗੀਤ \"{query}\" ਨਾਲ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "ਅਜੇ ਕੋਈ ਪਲੇਲਿਸਟ ਨਹੀਂ",
+  "libraryNoSongsYetInPlaylist": "ਅਜੇ ਕੋਈ ਗੀਤ ਨਹੀਂ",
+  "libraryNothingHereYet": "ਇੱਥੇ ਅਜੇ ਕੁਝ ਨਹੀਂ ਹੈ",
+  "libraryOnDeviceCount": "ਡਿਵਾਈਸ 'ਤੇ {count}",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "ਇਜਾਜ਼ਤ ਲੋੜੀਂਦੀ ਹੈ",
+  "libraryPlaySomethingToSeeHistory": "ਇਤਿਹਾਸ ਦੇਖਣ ਲਈ ਕੁਝ ਚਲਾਓ",
+  "libraryPlaylistCount": "{count, plural, =1{1 ਪਲੇਲਿਸਟ} other{{count} ਪਲੇਲਿਸਟਾਂ}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "ਪਲੇਲਿਸਟ ਨਾਮ",
+  "libraryPlaylistNotFound": "ਪਲੇਲਿਸਟ ਨਹੀਂ ਮਿਲੀ",
+  "libraryRecentlyPlayed": "ਹਾਲ ਹੀ ਵਿੱਚ ਚਲਾਏ ਗਏ",
+  "libraryRemoveDownload": "ਡਾਊਨਲੋਡ ਹਟਾਓ",
+  "libraryRemoveFromPlaylist": "ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਓ",
+  "libraryRemoveFromSavedAlbums": "ਸੰਭਾਲੀਆਂ ਐਲਬਮਾਂ ਵਿੱਚੋਂ ਹਟਾਓ",
+  "libraryChooseFromGallery": "ਗੈਲਰੀ ਤੋਂ ਚੁਣੋ",
+  "libraryRemoveCustomCover": "ਕਸਟਮ ਕਵਰ ਹਟਾਓ",
+  "libraryRenamePlaylist": "ਪਲੇਲਿਸਟ ਦਾ ਨਾਮ ਬਦਲੋ",
+  "librarySearchAndAddSongsHere": "ਗੀਤ ਖੋਜੋ ਅਤੇ ਇੱਥੇ ਸ਼ਾਮਲ ਕਰੋ",
+  "librarySeeAllSongs": "{count, plural, =1{1 ਗੀਤ ਦੇਖੋ} other{ਸਾਰੇ {count} ਗੀਤ ਦੇਖੋ}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "ਜੋ ਗੀਤ ਤੁਸੀਂ ਚਲਾਉਂਦੇ ਹੋ ਉਹ ਇੱਥੇ ਦਿਖਣਗੇ",
+  "libraryUnfollowArtist": "ਕਲਾਕਾਰ ਨੂੰ ਅਨਫਾਲੋ ਕਰੋ",
+  "libraryYourCollection": "ਤੁਹਾਡਾ ਸੰਗ੍ਰਹਿ",
+  "alWrongPin": "ਗਲਤ ਪਿੰਨ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "alEnterPinToUnlock": "ਅਨਲੌਕ ਕਰਨ ਲਈ ਪਿੰਨ ਦਰਜ ਕਰੋ",
+  "alBiometricReason": "Astra Music ਅਨਲੌਕ ਕਰਨ ਲਈ ਫਿੰਗਰਪ੍ਰਿੰਟ ਵਰਤੋ",
+  "asCouldntLoad": "{name} ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ",
+  "asRetry": "ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
+  "asVerifiedArtist": "ਪ੍ਰਮਾਣਿਤ ਕਲਾਕਾਰ",
+  "asMonthlyListeners": "{count} ਮਾਸਿਕ ਸ੍ਰੋਤੇ",
+  "asSaved": "ਸੰਭਾਲਿਆ ਗਿਆ",
+  "asSave": "ਸੰਭਾਲੋ",
+  "asPopular": "ਮਸ਼ਹੂਰ",
+  "asAlbums": "ਐਲਬਮਾਂ",
+  "asSingles": "ਸਿੰਗਲਸ",
+  "asAbout": "ਬਾਰੇ",
+  "asFansAlsoLike": "ਪ੍ਰਸ਼ੰਸਕ ਇਹ ਵੀ ਪਸੰਦ ਕਰਦੇ ਹਨ",
+  "asShowAll": "ਸਭ ਦਿਖਾਓ",
+  "asShowLess": "ਘੱਟ ਦਿਖਾਓ",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "ਬਾਰੇ",
+  "abPrivacyPolicyTitle": "ਗੋਪਨੀਯਤਾ ਨੀਤੀ",
+  "abUpdate": "ਅੱਪਡੇਟ",
+  "abCheckForUpdate": "ਅੱਪਡੇਟ ਲਈ ਚੈੱਕ ਕਰੋ",
+  "abCheckForUpdateSubtitle": "ਦੇਖੋ ਕੀ ਨਵਾਂ ਵਰਜਨ ਉਪਲਬਧ ਹੈ",
+  "abChangelog": "ਬਦਲਾਅ ਲੌਗ",
+  "abChangelogSubtitle": "ਹਾਲੀਆ ਵਰਜਨਾਂ ਵਿੱਚ ਕੀ ਬਦਲਿਆ",
+  "abLegal": "ਕਾਨੂੰਨੀ",
+  "abPrivacyPolicy": "ਗੋਪਨੀਯਤਾ ਨੀਤੀ",
+  "abPrivacyPolicySubtitle": "ਤੁਹਾਡੇ ਡਾਟੇ ਨੂੰ ਕਿਵੇਂ ਹੈਂਡਲ ਕੀਤਾ ਜਾਂਦਾ ਹੈ",
+  "abTermsOfUse": "ਵਰਤੋਂ ਦੀਆਂ ਸ਼ਰਤਾਂ",
+  "abTermsOfUseSubtitle": "ਤੁਹਾਡੇ ਅਤੇ Astra ਵਿਚਕਾਰ ਸਮਝੌਤਾ",
+  "abCommunity": "ਭਾਈਚਾਰਾ",
+  "abSendFeedback": "ਫੀਡਬੈਕ ਭੇਜੋ",
+  "abSendFeedbackSubtitle": "ਕਿਸੇ ਵੀ ਸਮੇਂ ਸਾਨੂੰ ਦੱਸੋ ਤੁਸੀਂ ਕੀ ਸੋਚਦੇ ਹੋ",
+  "abShareApp": "Astra ਸਾਂਝਾ ਕਰੋ",
+  "abShareAppSubtitle": "ਆਪਣੇ ਦੋਸਤਾਂ ਨੂੰ ਇਸ ਐਪ ਬਾਰੇ ਦੱਸੋ",
+  "abDeveloper": "ਡਿਵੈਲਪਰ",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...",
+  "abVersionBuild": "v{version} (ਬਿਲਡ {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "ਬੈਕਗ੍ਰਾਊਂਡ ਪਲੇਬੈਕ",
+  "snPlayerNotification": "ਪਲੇਅਰ ਸੂਚਨਾ",
+  "snNotificationStyle": "ਸੂਚਨਾ ਸਟਾਈਲ",
+  "snBgPlaybackEnabled": "ਬੈਕਗ੍ਰਾਊਂਡ ਪਲੇਬੈਕ ਸਮਰੱਥ",
+  "snAllowBgPlayback": "ਬੈਕਗ੍ਰਾਊਂਡ ਪਲੇਬੈਕ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ",
+  "snBgPlaybackEnabledDesc": "ਸਕ੍ਰੀਨ ਬੰਦ ਜਾਂ ਐਪ ਬੰਦ ਹੋਣ 'ਤੇ ਵੀ ਸੰਗੀਤ ਚੱਲਦਾ ਰਹੇਗਾ",
+  "snAllowBgPlaybackDesc": "ਸੰਗੀਤ ਨੂੰ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਚੱਲਦੇ ਰਹਿਣ ਦੀ ਇਜਾਜ਼ਤ ਦੇਣ ਲਈ ਟੈਪ ਕਰੋ — ਕੁਝ ਫੋਨ ਇਸ ਤੋਂ ਬਿਨਾਂ ਪਲੇਬੈਕ ਰੋਕ ਦਿੰਦੇ ਹਨ",
+  "snShowMediaNotif": "ਮੀਡੀਆ ਸੂਚਨਾ ਦਿਖਾਓ",
+  "snShowMediaNotifSubtitle": "ਸੂਚਨਾ ਬਾਰ ਵਿੱਚ ਪਲੇਅਰ ਦਿਖਾਓ",
+  "snShowArtwork": "ਗੀਤ ਦਾ ਆਰਟਵਰਕ ਦਿਖਾਓ",
+  "snShowArtworkSubtitle": "ਸੂਚਨਾ ਵਿੱਚ ਐਲਬਮ ਆਰਟ ਦਿਖਾਓ",
+  "snShowPrevButton": "ਪਿਛਲਾ ਬਟਨ ਦਿਖਾਓ",
+  "snShowPrevButtonSubtitle": "ਮੀਡੀਆ ਸੂਚਨਾ ਵਿੱਚ ਪਿਛਲਾ ਬਟਨ ਸ਼ਾਮਲ ਕਰੋ",
+  "snStyleCompact": "ਕੰਪੈਕਟ",
+  "snStyleCompactDesc": "ਛੋਟੇ, ਘੱਟੋ-ਘੱਟ ਕੰਟਰੋਲ",
+  "snStyleExpanded": "ਵਿਸਤ੍ਰਿਤ",
+  "snStyleExpandedDesc": "ਆਰਟਵਰਕ ਨਾਲ ਪੂਰੇ ਕੰਟਰੋਲ",
+  "prProfile": "ਪ੍ਰੋਫਾਈਲ",
+  "prAurumListener": "Astra ਸ੍ਰੋਤਾ",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "ਲਾਇਬ੍ਰੇਰੀ ਸਿੰਕ ਕਰੋ",
+  "prBenefitSyncSub": "ਤੁਹਾਡਾ ਸੰਗੀਤ ਸਾਰੀਆਂ ਡਿਵਾਈਸਾਂ 'ਤੇ ਸਿੰਕ",
+  "prBenefitLifetimeTitle": "ਜੀਵਨ ਭਰ ਪਹੁੰਚ",
+  "prBenefitLifetimeSub": "ਕੋਈ ਸਬਸਕ੍ਰਿਪਸ਼ਨ ਨਹੀਂ, ਹਮੇਸ਼ਾ ਲਈ ਤੁਹਾਡਾ",
+  "prBenefitAdFreeTitle": "ਇਸ਼ਤਿਹਾਰ-ਮੁਕਤ",
+  "prBenefitAdFreeSub": "ਕੋਈ ਵਿਘਨ ਨਹੀਂ, ਸ਼ੁੱਧ ਸੰਗੀਤ",
+  "prBenefitQualityTitle": "ਉੱਚ ਕੁਆਲਿਟੀ ਆਡੀਓ",
+  "prBenefitQualitySub": "ਸਭ ਤੋਂ ਵਧੀਆ ਉਪਲਬਧ ਸਟ੍ਰੀਮਿੰਗ ਕੁਆਲਿਟੀ",
+  "prBenefitOfflineTitle": "ਆਫਲਾਈਨ ਲਈ ਤਿਆਰ",
+  "prBenefitOfflineSub": "ਡਾਊਨਲੋਡ ਕਰੋ ਅਤੇ ਕਿਤੇ ਵੀ ਚਲਾਓ",
+  "prBenefitRecsTitle": "ਸਮਾਰਟ ਸਿਫ਼ਾਰਸ਼ਾਂ",
+  "prBenefitRecsSub": "ਮੂਡ-ਅਧਾਰਿਤ ਕਤਾਰ ਅਤੇ ਖੋਜ",
+  "prAllFeaturesUnlocked": "ਸਾਰੀਆਂ ਵਿਸ਼ੇਸ਼ਤਾਵਾਂ ਅਨਲੌਕ",
+  "prUpgradeToUnlock": "ਸਭ ਕੁਝ ਅਨਲੌਕ ਕਰਨ ਲਈ ਅੱਪਗ੍ਰੇਡ ਕਰੋ",
+  "prActive": "ਸਰਗਰਮ",
+  "prFree": "ਮੁਫ਼ਤ",
+  "prSyncingLibrary": "ਤੁਹਾਡੀ ਲਾਇਬ੍ਰੇਰੀ ਸਿੰਕ ਹੋ ਰਹੀ ਹੈ…",
+  "prSignedIn": "ਸਾਈਨ ਇਨ ਕੀਤਾ ਗਿਆ",
+  "prSyncLibraryTitle": "ਆਪਣੀ ਲਾਇਬ੍ਰੇਰੀ ਸਿੰਕ ਕਰੋ",
+  "prSyncLibrarySubtitle": "ਸਾਰੀਆਂ ਡਿਵਾਈਸਾਂ 'ਤੇ ਪਹੁੰਚ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ",
+  "prSignIn": "ਸਾਈਨ ਇਨ ਕਰੋ",
+  "prSignedInSynced": "ਸਾਈਨ ਇਨ ਕੀਤਾ ਗਿਆ — ਤੁਹਾਡੀ ਲਾਇਬ੍ਰੇਰੀ ਸਿੰਕ ਹੋ ਗਈ ਹੈ",
+  "prSignedInUpgradePrompt": "ਸਾਈਨ ਇਨ ਹੋ ਗਿਆ! ਕਲਾਊਡ ਸਿੰਕ ਸਮਰੱਥ ਕਰਨ ਲਈ ਪ੍ਰੀਮੀਅਮ ਵਿੱਚ ਅੱਪਗ੍ਰੇਡ ਕਰੋ।",
+  "prSignOutTitle": "ਸਾਈਨ ਆਊਟ ਕਰੀਏ?",
+  "prSignOutBody": "ਤੁਹਾਡੇ ਪਸੰਦੀਦਾ ਗੀਤ, ਪਲੇਲਿਸਟਾਂ, ਫਾਲੋ ਕੀਤੇ ਕਲਾਕਾਰ ਅਤੇ ਇਤਿਹਾਸ ਇਸ ਡਿਵਾਈਸ ਤੋਂ ਸਾਫ਼ ਹੋ ਜਾਣਗੇ। ਉਹਨਾਂ ਨੂੰ ਵਾਪਸ ਲੈਣ ਲਈ ਕਿਸੇ ਵੀ ਸਮੇਂ ਦੁਬਾਰਾ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "prCancel": "ਰੱਦ ਕਰੋ",
+  "prSignOut": "ਸਾਈਨ ਆਊਟ ਕਰੋ",
+  "prSignedOutCleared": "ਸਾਈਨ ਆਊਟ ਕੀਤਾ ਗਿਆ — ਤੁਹਾਡਾ ਡਾਟਾ ਇਸ ਡਿਵਾਈਸ ਤੋਂ ਸਾਫ਼ ਕੀਤਾ ਗਿਆ",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "ਸੰਗੀਤ, ਜਿਵੇਂ ਇਸਨੂੰ ਸੁਣਿਆ ਜਾਣਾ ਚਾਹੀਦਾ ਹੈ।",
+  "psRating": "4.9★ ਰੇਟਿੰਗ",
+  "psSecure": "ਸੁਰੱਖਿਅਤ",
+  "psRefund": "7-ਦਿਨ ਦੀ ਵਾਪਸੀ",
+  "psChoosePlan": "ਆਪਣੀ ਯੋਜਨਾ ਚੁਣੋ",
+  "psBadgeTryIt": "ਇਸਨੂੰ ਅਜ਼ਮਾਓ",
+  "psBadgeSave58": "58% ਬਚਾਓ",
+  "psBadgeBestDeal": "ਸਭ ਤੋਂ ਵਧੀਆ ਸੌਦਾ",
+  "psEverythingIncluded": "ਸਭ ਕੁਝ ਸ਼ਾਮਲ",
+  "psFeatHdAudioTitle": "HD ਆਡੀਓ • 320kbps",
+  "psFeatHdAudioSub": "ਕ੍ਰਿਸਟਲ-ਸਾਫ਼ ਲੌਸਲੈੱਸ ਕੁਆਲਿਟੀ",
+  "psFeatSkipsTitle": "ਬੇਅੰਤ ਸਕਿੱਪ",
+  "psFeatSkipsSub": "ਜਿੰਨੇ ਚਾਹੋ ਗੀਤ ਸਕਿੱਪ ਕਰੋ",
+  "psFeatAdsTitle": "ਜ਼ੀਰੋ ਇਸ਼ਤਿਹਾਰ",
+  "psFeatAdsSub": "ਪੂਰੀ ਤਰ੍ਹਾਂ ਇਸ਼ਤਿਹਾਰ-ਮੁਕਤ ਅਨੁਭਵ",
+  "psFeatAiTitle": "AI ਸਿਫ਼ਾਰਸ਼ਾਂ",
+  "psFeatAiSub": "ਸਿਰਫ਼ ਤੁਹਾਡੇ ਲਈ ਚੁਣੇ ਗੀਤ",
+  "psFeatOfflineTitle": "ਆਫਲਾਈਨ ਡਾਊਨਲੋਡਸ",
+  "psFeatOfflineSub": "ਇੰਟਰਨੈੱਟ ਤੋਂ ਬਿਨਾਂ ਸੁਣੋ",
+  "psFeatSyncTitle": "ਕਲਾਊਡ ਸਿੰਕ",
+  "psFeatSyncSub": "ਹਰ ਡਿਵਾਈਸ 'ਤੇ ਤੁਹਾਡੀ ਲਾਇਬ੍ਰੇਰੀ",
+  "psFeatFollowTitle": "ਕਲਾਕਾਰਾਂ ਨੂੰ ਪਸੰਦ ਅਤੇ ਫਾਲੋ ਕਰੋ",
+  "psFeatFollowSub": "ਆਪਣਾ ਨਿੱਜੀ ਸੰਗ੍ਰਹਿ ਬਣਾਓ",
+  "psFeatPlaylistsTitle": "ਬੇਅੰਤ ਪਲੇਲਿਸਟਾਂ",
+  "psFeatPlaylistsSub": "ਪਲੇਲਿਸਟਾਂ ਬਣਾਓ ਅਤੇ ਸਾਂਝੀਆਂ ਕਰੋ",
+  "psFeatThemesTitle": "ਵਿਸ਼ੇਸ਼ ਥੀਮਾਂ",
+  "psFeatThemesSub": "ਪ੍ਰੀਮੀਅਮ ਰੰਗ ਅਤੇ ਪਲੇਅਰ ਸਟਾਈਲ",
+  "psGetPlusPrice": "Plus ਲਓ — {price}",
+  "psSignInGetPlus": "ਸਾਈਨ ਇਨ ਕਰੋ ਅਤੇ Plus ਲਓ",
+  "psPerMonth": "{price}/ਮਹੀਨਾ",
+  "psPerYear": "{price}/ਸਾਲ",
+  "psOneTime": "{price} ਇੱਕ ਵਾਰ",
+  "psSecurePayments": "🔒  Razorpay ਰਾਹੀਂ ਸੁਰੱਖਿਅਤ ਭੁਗਤਾਨ  •  ਕਿਸੇ ਵੀ ਸਮੇਂ ਰੱਦ ਕਰੋ",
+  "psMoneyBack": "7-ਦਿਨ ਦੀ ਪੈਸੇ ਵਾਪਸੀ ਦੀ ਗਾਰੰਟੀ",
+  "psPlanMonthly": "1 ਮਹੀਨਾ",
+  "psPlanYearly": "1 ਸਾਲ",
+  "psPlanLifetime": "ਜੀਵਨ ਭਰ",
+  "psSubPerMonth": "ਪ੍ਰਤੀ ਮਹੀਨਾ",
+  "psSubPerYear": "ਪ੍ਰਤੀ ਸਾਲ",
+  "psSubPayOnce": "ਇੱਕ ਵਾਰ ਭੁਗਤਾਨ ਕਰੋ, ਹਮੇਸ਼ਾ ਲਈ ਮਾਲਕ ਬਣੋ",
+  "psSuccessTitle": "ਹੁਣ ਤੁਸੀਂ Plus ਹੋ ✦",
+  "psSuccessBody": "ਸਾਰੀਆਂ ਵਿਸ਼ੇਸ਼ਤਾਵਾਂ ਅਨਲੌਕ ਹਨ।\nਪੂਰੇ Astra ਅਨੁਭਵ ਦਾ ਆਨੰਦ ਲਓ।",
+  "psStartListening": "ਸੁਣਨਾ ਸ਼ੁਰੂ ਕਰੋ",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "ਸਿਸਟਮ ਡਿਫਾਲਟ",
+  "fpLikeSongsFeature": "ਗੀਤ ਪਸੰਦ ਕਰੋ",
+  "fpLikeSongsSignIn": "ਆਪਣੀ ਲਾਇਬ੍ਰੇਰੀ ਵਿੱਚ ਗੀਤ ਸੰਭਾਲਣ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "fpClosePlayer": "ਪਲੇਅਰ ਬੰਦ ਕਰੋ",
+  "fpNowPlaying": "ਹੁਣ ਚੱਲ ਰਿਹਾ ਹੈ",
+  "fpMoreOptions": "ਹੋਰ ਵਿਕਲਪ",
+  "fpUnlimitedSkipsFeature": "ਬੇਅੰਤ ਸਕਿੱਪ",
+  "fpUnlimitedSkipsSignIn": "ਜਿੰਨੀ ਵਾਰ ਚਾਹੋ ਸਕਿੱਪ ਕਰਨ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "fpShuffle": "ਸ਼ਫਲ",
+  "fpPrevious": "ਪਿਛਲਾ",
+  "fpNext": "ਅਗਲਾ",
+  "fpRepeat": "ਦੁਹਰਾਓ",
+  "fpLocalBadge": "ਲੋਕਲ",
+  "fpQueueLyricsInfo": "ਕਤਾਰ · ਬੋਲ · ਜਾਣਕਾਰੀ",
+  "fpPause": "ਰੋਕੋ",
+  "fpPlay": "ਚਲਾਓ",
+  "fpShareText": "{artist} — {title}\n\nAstra ਤੋਂ ਸਾਂਝਾ ਕੀਤਾ ਗਿਆ 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "ਸਿਰਲੇਖ",
+  "fpSongInfoArtist": "ਕਲਾਕਾਰ",
+  "fpSongInfoAlbum": "ਐਲਬਮ",
+  "fpSongInfoDuration": "ਮਿਆਦ",
+  "fpSongInfoYear": "ਸਾਲ",
+  "fpSongInfoLanguage": "ਭਾਸ਼ਾ",
+  "fpSongInfo": "ਗੀਤ ਜਾਣਕਾਰੀ",
+  "fpAlreadyDownloaded": "ਪਹਿਲਾਂ ਹੀ ਡਾਊਨਲੋਡ ਕੀਤਾ",
+  "fpAlreadyDownloading": "ਪਹਿਲਾਂ ਹੀ ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ",
+  "fpAlreadyOnDevice": "ਪਹਿਲਾਂ ਹੀ ਇਸ ਡਿਵਾਈਸ 'ਤੇ ਹੈ",
+  "fpDownloadingSong": "{title} ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "ਅੱਗੇ ਚਲਾਓ",
+  "fpAddToQueue": "ਕਤਾਰ ਵਿੱਚ ਸ਼ਾਮਲ ਕਰੋ",
+  "fpAddedToQueue": "ਕਤਾਰ ਵਿੱਚ ਸ਼ਾਮਲ ਕੀਤਾ ਗਿਆ",
+  "fpLiked": "ਪਸੰਦ ਕੀਤਾ",
+  "fpLikeAction": "ਪਸੰਦ ਕਰੋ",
+  "fpLikeSignInBuildLibrary": "ਆਪਣੀ ਨਿੱਜੀ ਲਾਇਬ੍ਰੇਰੀ ਬਣਾਉਣ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।",
+  "fpAddedToLiked": "ਪਸੰਦੀਦਾ ਵਿੱਚ ਸ਼ਾਮਲ ਕੀਤਾ ਗਿਆ",
+  "fpRemovedFromLiked": "ਪਸੰਦੀਦਾ ਵਿੱਚੋਂ ਹਟਾਇਆ ਗਿਆ",
+  "fpShare": "ਸਾਂਝਾ ਕਰੋ",
+  "fpSaveToPlaylist": "ਪਲੇਲਿਸਟ ਵਿੱਚ ਸੰਭਾਲੋ",
+  "fpAudioEffects": "ਆਡੀਓ ਪ੍ਰਭਾਵ",
+  "fpSleepRemaining": "ਸਲੀਪ • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "ਸਲੀਪ ਟਾਈਮਰ",
+  "fpDownloaded": "ਡਾਊਨਲੋਡ ਕੀਤਾ",
+  "fpDownloading": "ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ…",
+  "fpDownload": "ਡਾਊਨਲੋਡ ਕਰੋ",
+  "fpDownloadingPercent": "{percent}% ਡਾਊਨਲੋਡ ਹੋ ਰਿਹਾ ਹੈ",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "ਕਤਾਰ",
+  "fpLyrics": "ਬੋਲ",
+  "fpInfo": "ਜਾਣਕਾਰੀ",
+  "fpQueueEmpty": "ਕਤਾਰ ਖਾਲੀ ਹੈ",
+  "fpUpNext": "ਅੱਗੇ",
+  "fpFindingSongs": "ਤੁਹਾਡੇ ਲਈ ਗੀਤ ਲੱਭ ਰਹੇ ਹਾਂ…",
+  "fpMoveToTop": "ਸਿਖਰ 'ਤੇ ਲੈ ਜਾਓ",
+  "fpRemoveFromQueue": "ਕਤਾਰ ਵਿੱਚੋਂ ਹਟਾਓ",
+  "fpNoLyricsFound": "ਕੋਈ ਬੋਲ ਨਹੀਂ ਮਿਲੇ",
+  "fpLyricsNotAvailable": "ਇਸ ਗੀਤ ਲਈ ਬੋਲ ਉਪਲਬਧ ਨਹੀਂ ਹਨ",
+  "fpSourceLabel": "ਸਰੋਤ",
+  "fpLocalLibrary": "ਲੋਕਲ ਲਾਇਬ੍ਰੇਰੀ",
+  "fpOnlineStream": "ਆਨਲਾਈਨ ਸਟ੍ਰੀਮ",
+  "fpDownloadFailed": "\"{title}\" ਡਾਊਨਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ — ਸਟ੍ਰੀਮ ਉਪਲਬਧ ਨਹੀਂ",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

@@ -1,0 +1,1179 @@
+{
+  "@@locale": "uk",
+  "navHome": "Головна",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Пошук",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Бібліотека",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Скасувати",
+  "commonSave": "Зберегти",
+  "commonDone": "Готово",
+  "commonRetry": "Повторити",
+  "commonSeeAll": "Переглянути все",
+  "commonPlay": "Відтворити",
+  "commonPause": "Пауза",
+  "commonShuffle": "Перемішати",
+  "commonDelete": "Видалити",
+  "commonEdit": "Редагувати",
+  "commonShare": "Поділитися",
+  "commonAdd": "Додати",
+  "commonRemove": "Видалити",
+  "commonSearch": "Пошук",
+  "commonSettings": "Налаштування",
+  "commonOk": "ОК",
+  "commonYes": "Так",
+  "commonNo": "Ні",
+  "settingsTitle": "Налаштування",
+  "settingsAccount": "ОБЛІКОВИЙ ЗАПИС",
+  "settingsSectionGeneral": "Загальні",
+  "settingsSectionPlayback": "Відтворення",
+  "settingsSectionSystem": "Система",
+  "settingsPlayerAudio": "Плеєр і звук",
+  "settingsAppearance": "Зовнішній вигляд",
+  "settingsDownloads": "Завантаження",
+  "settingsStorage": "Сховище",
+  "settingsAbout": "Про застосунок",
+  "settingsLanguage": "Мова",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Виберіть бажану мову застосунку",
+  "playerNowPlaying": "Зараз грає",
+  "playerUpNext": "Далі",
+  "playerLyrics": "Текст пісні",
+  "playerQueue": "Черга",
+  "playerInfo": "Інформація",
+  "librarySongs": "Пісні",
+  "libraryPlaylists": "Плейлисти",
+  "libraryArtists": "Виконавці",
+  "libraryAlbums": "Альбоми",
+  "libraryLikedSongs": "Улюблені пісні",
+  "libraryDownloaded": "Завантажені",
+  "libraryEmptyState": "Тут поки що нічого немає",
+  "homeTrendingPlaylists": "Популярні плейлисти",
+  "mixPullForMore": "Потягніть вниз, щоб побачити більше пісень",
+  "homeMoodAll": "Усі",
+  "homePlaylistsForYou": "Плейлисти для вас",
+  "homeAlbumsForYou": "Альбоми для вас",
+  "homeAfternoonPicks": "Добірка на день",
+  "homeBollywoodMix": "Мікс Болівуду",
+  "homeDevotional": "Духовна музика",
+  "homeTrendingNow": "У тренді зараз",
+  "homeNewReleases": "Нові релізи",
+  "feedbackTitle": "Подобається Astra?",
+  "feedbackSubtitle": "Ваш відгук допомагає нам зробити застосунок ще кращим.",
+  "feedbackHint": "Розкажіть, що ви думаєте (необов'язково)",
+  "feedbackSend": "Надіслати відгук",
+  "feedbackNotNow": "Не зараз",
+  "feedbackThankYouTitle": "Дякуємо!",
+  "premiumSoundTitle": "Преміум-звук",
+  "premiumSoundSubtitle": "Багатший, повніший звук у кожному треку — працює з будь-якою якістю джерела",
+  "bassBoostTitle": "Підсилення басів",
+  "bassBoostSubtitle": "Підсиліть низькі частоти для глибшого звучання",
+  "homePickSomething": "Виберіть щось для відтворення",
+  "homePopularArtists": "Популярні виконавці",
+  "homeOnline": "Онлайн",
+  "homeOffline": "Офлайн",
+  "homeCheckYourInternet": "Перевірте підключення до інтернету",
+  "homePlaybackSource": "Джерело відтворення",
+  "homePlaybackSourceSubtitle": "Виберіть, звідки Astra відтворюватиме музику",
+  "homeOnlineStreaming": "Онлайн-стрімінг",
+  "homeStreamOnlineDesc": "Транслювати музику онлайн",
+  "homeOfflineLibrary": "Офлайн-бібліотека",
+  "homeOfflineLibraryDesc": "Відтворювати лише завантажені пісні",
+  "homeGrantPermission": "Надати дозвіл",
+  "homeStoragePermissionNeeded": "Потрібен дозвіл на доступ до сховища",
+  "homeNoLocalSongs": "Локальних пісень не знайдено",
+  "homeScanAgain": "Сканувати знову",
+  "homeLocalSongs": "Локальні пісні",
+  "homePlaybackDiagnostics": "Діагностика відтворення",
+  "commonClose": "Закрити",
+  "commonPlayAll": "Відтворити все",
+  "likedNoSongsYet": "Поки що немає улюблених пісень",
+  "likedTapToSave": "Натисніть ♥ на будь-якій пісні, щоб зберегти її тут",
+  "librarySongsCount": "{count, plural, =0{Немає пісень} one{1 пісня} few{{count} пісні} many{{count} пісень} other{{count} пісні}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Черга",
+  "queueEmpty": "Черга порожня",
+  "queueEmptySubtitle": "Пісні, які ви відтворите далі, з'являться тут",
+  "albumNoSongsFound": "Пісень не знайдено",
+  "searchHint": "Пісні, виконавці, альбоми...",
+  "searchRecent": "Останні",
+  "searchClearAll": "Очистити все",
+  "searchNoResultsFor": "Немає результатів для \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Шукати всюди",
+  "searchYouMightAlsoLike": "Вам також може сподобатися",
+  "searchSeeAllResultsFor": "Переглянути всі результати для \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Знайдіть свої улюблені пісні",
+  "searchAllInOnePlace": "Пісні, виконавці, альбоми — все в одному місці",
+  "searchTabSearch": "Пошук",
+  "searchTabBrowse": "Огляд",
+  "browseTypeToExplore": "Введіть текст, щоб переглянути виконавців та альбоми",
+  "browseNoResults": "Немає результатів",
+  "browseAlbumFallbackTitle": "Альбом",
+  "settingsPlayerAudioSubtitle": "Відтворення, еквалайзер, кросфейд і поведінка",
+  "settingsAppearanceSubtitle": "Тема, кольори, стиль плеєра та анімація",
+  "settingsStorageSubtitle": "Завантаження, кеш пісень і кеш зображень",
+  "settingsNotifications": "Сповіщення",
+  "settingsNotificationsSubtitle": "Стиль медіасповіщень та обкладинка",
+  "settingsPrivacy": "Конфіденційність",
+  "settingsPrivacySubtitle": "Блокування застосунку, режим інкогніто та дані",
+  "settingsAboutSubtitle": "Версія, оновлення, конфіденційність та розробник",
+  "premiumFeature320kbps": "Стрімінг у 320kbps",
+  "premiumFeatureUnlimitedSkips": "Необмежені пропуски",
+  "premiumFeatureLikeFollow": "Вподобання та підписки",
+  "premiumFeatureCreatePlaylists": "Створення плейлистів",
+  "premiumFeatureCloudSync": "Синхронізація з хмарою",
+  "premiumFeatureExclusiveThemes": "Ексклюзивні теми",
+  "premiumAllFeaturesUnlocked": "Усі функції розблоковано",
+  "premiumActive": "Активно",
+  "premiumUpgradeTitle": "Оновити до Преміум",
+  "premiumUnlockEverything": "Розблокуйте все в Astra",
+  "premiumGetButton": "✦  Отримати Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "ВІДТВОРЕННЯ",
+  "spSleepTimer": "ТАЙМЕР СНУ",
+  "spEqualizer": "ЕКВАЛАЙЗЕР",
+  "spBehavior": "ПОВЕДІНКА",
+  "spStreamQuality": "Якість стрімінгу",
+  "spStreamQualitySubtitle": "Бітрейт звуку для онлайн-стрімінгу",
+  "spQualityAuto": "Автоматично",
+  "spQualityAutoDesc": "Найкраща доступна якість для кожної пісні",
+  "spQualityLow": "Низька",
+  "spQualityLowDesc": "48–96kbps · економить трафік",
+  "spQualityMedium": "Середня",
+  "spQualityMediumDesc": "До 160kbps",
+  "spQualityHigh": "Висока",
+  "spQualityHighDesc": "320kbps · студійна якість",
+  "spQualityDataSaver": "Розумна економія",
+  "spQualityDataSaverDesc": "Звучить чудово навіть на 2G",
+  "spQualityDataSaverDescExpanded": "Транслює найменший файл, який витримає ваше з'єднання, а потім непомітно підвищує якість до 320kbps, щойно для пісні з'явиться простір.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Економія трафіку",
+  "spDataSaverSubtitle": "Примусово низька якість на мобільному інтернеті",
+  "spGaplessPlayback": "Безперервне відтворення",
+  "spGaplessPlaybackSubtitle": "Без тиші між треками",
+  "spShowCastIcon": "Показувати значок Chromecast",
+  "spShowCastIconSubtitle": "Контролюйте, коли значок трансляції з'являється в повноекранному плеєрі",
+  "spCastIconAuto": "Автоматично",
+  "spCastIconAlways": "Завжди показувати",
+  "spCastIconHidden": "Приховано",
+  "spPlaybackSpeed": "Швидкість відтворення",
+  "spPlaybackSpeedSubtitle": "Застосовується як до локальних, так і до онлайн-пісень",
+  "spNormal": "Звичайна",
+  "spCrossfade": "Кросфейд",
+  "spCrossfadeSubtitle": "Плавний перехід між треками",
+  "spOff": "Вимкнено",
+  "spVolumeNormalization": "Нормалізація гучності",
+  "spVolumeNormalizationSubtitle": "Підтримує однаковий рівень гучності для всіх пісень",
+  "spBassBoost": "Підсилення басів",
+  "spBassBoostSubtitle": "Підсиліть низькі частоти для глибшого звучання",
+  "spPremiumSound": "Преміум-звук",
+  "spPremiumSoundSubtitle": "Розблокуйте кришталево чистий вокал, глибші баси та занурювальний преміум-звук",
+  "spPremiumSoundPartialSupport": "Деякі ефекти не підтримуються на цьому пристрої — чіткість і баси все ще активні",
+  "spSleepTimerActive": "Таймер сну активний",
+  "spSleepTimerTitle": "Таймер сну",
+  "spSleepTimerStopsIn": "Зупиниться через {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Встановіть таймер для зупинки відтворення",
+  "spCancel": "Скасувати",
+  "spAutoSleepGuard": "АВТОМАТИЧНИЙ ЗАХИСТ СНУ",
+  "asgTileTitle": "Автоматичний захист сну",
+  "asgTileSubtitleOn": "Призупиняє через {hours} год бездіяльності",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Увійдіть, щоб використовувати автоматичний захист сну",
+  "asgTileSubtitleOff": "Вимкнено",
+  "asgTileAutomaticBadge": "Автоматично",
+  "asgTileOffBadge": "Вимкнено",
+  "asgSheetTitle": "Автоматичний захист сну",
+  "asgSheetBody": "Astra автоматично призупиняє відтворення після періоду бездіяльності, щоб заощадити заряд батареї. Виберіть, скільки часу чекати.",
+  "asgSheetModeLabel": "Режим",
+  "asgSheetModeAutomatic": "Автоматичний",
+  "asgSheetModeAutomaticDesc": "Стежить за бездіяльністю та призупиняє для економії батареї",
+  "asgSheetModeOff": "Вимкнено",
+  "asgSheetModeOffDesc": "Ніколи не призупиняється автоматично",
+  "asgSheetPremiumHint": "Тихо працює у фоновому режимі — налаштовано так, щоб ніколи не заважати",
+  "asgSheetDurationLabel": "Призупинити через",
+  "asgSheetHours": "{count} год",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Збережено",
+  "asgSheetDone": "Готово",
+  "asgResumePromptTitle": "Призупинено через бездіяльність",
+  "asgResumePromptSubtitle": "Призупинено о {time} — Відновити?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Відновити",
+  "asgResumePromptDismiss": "Закрити",
+  "bsmTileTitle": "Режим економії батареї",
+  "bsmTileSubtitleActive": "Активно — заряд {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Автоматично активується нижче {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Вимкнено",
+  "bsmTileAutomaticBadge": "Автоматично",
+  "bsmTileOffBadge": "Вимкнено",
+  "bsmSheetTitle": "Режим економії батареї",
+  "bsmSheetBody": "Коли заряд батареї низький, Astra автоматично вимикає фонову анімацію, розмиття та інші візуальні ефекти — відтворення продовжується у звичайному режимі.",
+  "bsmSheetPremiumHint": "Тихо працює у фоновому режимі — відтворення ніколи не постраждає, лише візуальні елементи",
+  "bsmSheetModeLabel": "Режим",
+  "bsmSheetModeAutomatic": "Автоматичний",
+  "bsmSheetModeAutomaticDesc": "Стежить за рівнем заряду батареї та економить енергію, коли він низький",
+  "bsmSheetModeOff": "Вимкнено",
+  "bsmSheetModeOffDesc": "Ніколи не активується автоматично",
+  "bsmSheetThresholdLabel": "Активувати нижче",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Збережено",
+  "bsmSheetDone": "Готово",
+  "spEqualizerTitle": "Еквалайзер",
+  "spEqualizerSubtitle": "10-смуговий еквалайзер із пресетами",
+  "spKeepQueue": "Зберігати чергу при повторному відкритті",
+  "spKeepQueueSubtitle": "Відновлювати чергу після закриття застосунку",
+  "spStopOnSwipe": "Зупинити при видаленні з останніх",
+  "spStopOnSwipeSubtitle": "Зупиняти відтворення, коли застосунок видалено зі списку останніх",
+  "spPauseOnCall": "Пауза при вхідному дзвінку",
+  "spPauseOnCallSubtitle": "Автоматично призупиняється, коли дзвонить телефон",
+  "spDuckNotifications": "Зменшувати гучність для сповіщень",
+  "spDuckNotificationsSubtitle": "ВИМКНЕНО = сповіщення ніколи не зменшують гучність і не призупиняють вашу пісню",
+  "spShakeToSkip": "Струсіть, щоб пропустити пісню",
+  "spShakeToSkipSubtitle": "Струсіть телефон, щоб перейти до наступного треку",
+  "spSwipeToChange": "Проведіть пальцем, щоб змінити пісню",
+  "spSwipeToChangeSubtitle": "Проведіть пальцем по обкладинці плеєра, щоб пропустити",
+  "spHapticIntensity": "Інтенсивність вібрації",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Наскільки сильно відчуваються дотики та вібрації в усьому застосунку",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Вимкнено",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Легка",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Сильна",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Тривалість історії",
+  "spHistorySongsCount": "{count} пісень",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Таймер сну",
+  "spSleepTimerSheetSubtitle": "Відтворення зупиниться після обраного часу",
+  "spFinishCurrentSong": "Завершити поточну пісню",
+  "spFinishCurrentSongSubtitle": "Дозволити поточній пісні закінчитися перед зупинкою",
+  "spStartTimer": "Запустити таймер · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Скасувати активний таймер",
+  "spSleepTimerCustom": "Власний",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Встановити",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "хв",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Введіть тривалість у хвилинах",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Максимум {max} хвилин",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Плавне затухання",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Музика плавно затихає замість різкої зупинки",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Високий бітрейт (320kbps)",
+  "spPremiumHighBitrateDesc": "Розблокуйте стрімінг студійної якості 320kbps з Astra Plus.",
+  "spEqReset": "Скинути",
+  "spEqPresets": "ПРЕСЕТИ",
+  "spEq10Band": "10-СМУГОВИЙ ЕКВАЛАЙЗЕР",
+  "saTheme": "ТЕМА",
+  "saFontStyle": "СТИЛЬ ШРИФТУ",
+  "saNowPlayingCard": "КАРТКА \"ЗАРАЗ ГРАЄ\"",
+  "saArtworkShape": "ФОРМА ОБКЛАДИНКИ",
+  "saPlayer": "ПЛЕЄР",
+  "saLyrics": "ТЕКСТ ПІСНІ",
+  "saAnimations": "АНІМАЦІЯ",
+  "saThemeDark": "Темна",
+  "saThemeDarkDesc": "М'яка для очей",
+  "saThemeAmoled": "Чорний AMOLED",
+  "saThemeAmoledDesc": "Чистий чорний, економить батарею",
+  "saThemeLight": "Світла",
+  "saThemeLightDesc": "Чиста та мінімалістична",
+  "saThemeSystem": "Системна за замовчуванням",
+  "saThemeSystemDesc": "Слідувати темі вашого телефону",
+  "saDynamicThemeColor": "Динамічний колір теми",
+  "saDynamicThemeColorSubtitle": "Витягувати колір з обкладинки пісні",
+  "saHighRefreshRate": "Висока частота оновлення (120Гц)",
+  "saHighRefreshRateSubtitle": "Плавніший інтерфейс на підтримуваних пристроях",
+  "saAccentColor": "Акцентний колір",
+  "saExtraColorsSignIn": "Додаткові кольори = Увійти",
+  "saCustomAccentColorsFeature": "Власні акцентні кольори",
+  "saCustomAccentColorsDesc": "Увійдіть через Google, щоб розблокувати більше акцентних кольорів.",
+  "saAppFont": "Шрифт застосунку",
+  "saRoundedMonoSignIn": "Преміум-шрифти = Увійти",
+  "saApplyingFont": "Застосування шрифту…",
+  "saFontUnlockFeature": "Шрифт {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Увійдіть через Google, щоб розблокувати цей шрифт.",
+  "saCardStyleCompactDesc": "Маленька обкладинка, текст поруч",
+  "saCardStyleCardDesc": "Збалансована обкладинка та інформація",
+  "saCardStyleImmersiveDesc": "Обкладинка на всю ширину, мінімальний інтерфейс",
+  "saPremiumBadge": "Преміум",
+  "saPlayerStyleUnlockFeature": "Стиль плеєра {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Увійдіть через Google, щоб розблокувати стиль {style}.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Стиль фону плеєра",
+  "saPlayerBgStyleSubtitle": "Як виглядає фон плеєра",
+  "saDynamicPlayerColor": "Динамічний колір плеєра",
+  "saDynamicPlayerColorSubtitle": "Змінювати колір плеєра на основі обкладинки",
+  "saPlayerButtonColors": "Кольори кнопок плеєра",
+  "saPlayerButtonColorsSubtitle": "Колір кнопок відтворення/пропуску",
+  "saPlayerSliderStyle": "Стиль повзунка плеєра",
+  "saPlayerSliderStyleSubtitle": "Зовнішній вигляд смуги пошуку",
+  "saShowBlurredBg": "Показувати розмитий фон",
+  "saShowBlurredBgSubtitle": "Розмита обкладинка за плеєром",
+  "saNavBarBlur": "Розмиття панелі навігації",
+  "saNavBarBlurSubtitle": "Зменшіть для меншого нагріву GPU/споживання батареї",
+  "saMiniPlayerBlur": "Розмиття міні-плеєра",
+  "saMiniPlayerBlurSubtitle": "Зменшіть для меншого нагріву GPU/споживання батареї",
+  "saLyricsTextPosition": "Положення тексту пісні",
+  "saLyricsTextPositionSubtitle": "Вирівнювання тексту пісні на екрані",
+  "saLyricsTextSize": "Розмір тексту пісні",
+  "saLyricsLineSpacing": "Міжрядковий інтервал тексту пісні",
+  "saShowLyricsOnPlayer": "Показувати текст пісні на плеєрі",
+  "saShowLyricsOnPlayerSubtitle": "Відображати поточний рядок над смугою пошуку",
+  "saLyricsViewMode": "Занурювальний текст пісні",
+  "saLyricsViewModeSubtitle": "Повноекранний текст пісні із сяйвом від плеєра",
+  "saLyricsViewModeInline": "Вбудований",
+  "saLyricsViewModeFullscreen": "Повний екран",
+  "saEnableAnimations": "Увімкнути анімацію",
+  "saEnableAnimationsSubtitle": "Головний перемикач для всієї анімації",
+  "saBackAnimations": "Анімація повернення",
+  "saBackAnimationsSubtitle": "Анімувати жест навігації назад",
+  "saScrollAnimations": "Анімація прокрутки",
+  "saScrollAnimationsSubtitle": "Поступова поява елементів під час прокрутки",
+  "saBgGradientAnimation": "Анімація градієнта фону",
+  "saBgGradientAnimationSubtitle": "Анімована зміна кольору в плеєрі",
+  "saShapeSquare": "Квадрат",
+  "saShapeRounded": "Заокруглена",
+  "saShapeCircle": "Коло",
+  "ssDownloads": "ЗАВАНТАЖЕННЯ",
+  "ssSongCache": "КЕШ ПІСЕНЬ",
+  "ssImageCache": "КЕШ ЗОБРАЖЕНЬ",
+  "ssDownloadedSongs": "Завантажені пісні",
+  "ssClearAllDownloads": "Очистити всі завантаження",
+  "ssDownloadQuality": "Якість завантаження",
+  "ssDownloadQualitySubtitle": "Якість звуку для завантажених пісень",
+  "ssAutoDownloadLiked": "Автоматично завантажувати улюблені пісні",
+  "ssAutoDownloadLikedSubtitle": "Автоматично завантажувати пісні, які вам подобаються",
+  "ssWifiOnly": "Завантажувати лише через WiFi",
+  "ssWifiOnlySubtitle": "Ніколи не використовувати мобільний інтернет для завантажень",
+  "ssMaxSongCacheSize": "Максимальний розмір кешу пісень",
+  "ssClearSongCache": "Очистити кеш пісень",
+  "ssMaxImageCacheSize": "Максимальний розмір кешу зображень",
+  "ssClearImageCache": "Очистити кеш зображень",
+  "ssClearConfirmTitle": "Очистити {title}?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Цю дію неможливо скасувати.",
+  "ssCancel": "Скасувати",
+  "ssClear": "Очистити",
+  "ssAllDownloadsTitle": "Усі завантаження",
+  "ssSongCacheTitle": "Кеш пісень",
+  "ssImageCacheTitle": "Кеш зображень",
+  "ssUsedLabel": "Використано: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Максимум: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "БЛОКУВАННЯ ЗАСТОСУНКУ",
+  "sprAppLockTitle": "Блокування застосунку",
+  "sprAppLockSubtitleSet": "Встановіть PIN-код для блокування застосунку",
+  "sprAppLockSubtitleChange": "PIN-код встановлено — торкніться, щоб змінити",
+  "sprSetPin": "Встановити PIN-код",
+  "sprChangePin": "Змінити PIN-код",
+  "sprSetPinSubtitle": "Потрібно для увімкнення блокування застосунку",
+  "sprChangePinSubtitle": "Змініть свій 4-значний PIN-код",
+  "sprBiometricUnlock": "Біометричне розблокування",
+  "sprBiometricUnlockSubtitle": "Використовуйте відбиток пальця замість PIN-коду",
+  "sprAutoLockAfter": "Автоматичне блокування через",
+  "sprAutoLockAfterSubtitle": "Скільки часу у фоновому режимі перед блокуванням",
+  "sprDelayImmediately": "Негайно",
+  "sprDelayAfter1Min": "Через 1 хв",
+  "sprDelayAfter5Min": "Через 5 хв",
+  "sprDelayAfter10Min": "Через 10 хв",
+  "sprDelayAfter30Min": "Через 30 хв",
+  "sprDontLockWhilePlaying": "Не блокувати під час відтворення",
+  "sprDontLockWhilePlayingSubtitle": "Застосунок не блокуватиметься, поки грає пісня",
+  "sprIncognito": "ІНКОГНІТО",
+  "sprIncognitoMode": "Режим інкогніто",
+  "sprIncognitoModeSubtitle": "Пісні не з'являтимуться в історії та не впливатимуть на рекомендації",
+  "sprIncognitoOnInfo": "Режим інкогніто УВІМКНЕНО — історія прослуховування призупинена, а рекомендації не оновлюватимуться.",
+  "sprHideListeningStats": "Приховати статистику прослуховування",
+  "sprHideListeningStatsSubtitle": "Не відстежувати кількість відтворень або час прослуховування",
+  "sprClearData": "ОЧИСТИТИ ДАНІ",
+  "sprClearHistory": "Очистити історію прослуховування",
+  "sprClearHistorySubtitle": "Видалити всі нещодавно відтворені пісні",
+  "sprResetRecommendations": "Скинути рекомендації",
+  "sprResetRecommendationsSubtitle": "Очистити оцінки відповідності та почати заново",
+  "sprClearAllData": "Очистити всі дані застосунку",
+  "sprClearAllDataSubtitle": "Скинути все — плейлисти, налаштування, історію",
+  "sprClearTitle": "Очистити {title}?",
+  "sprClearCannotUndo": "Цю дію неможливо скасувати.",
+  "sprCancel": "Скасувати",
+  "sprClear": "Очистити",
+  "sprHistoryTitle": "Історія прослуховування",
+  "sprRecommendationsTitle": "Рекомендації",
+  "sprAllAppDataTitle": "Усі дані застосунку",
+  "sprPinMustBe4Digits": "PIN-код має складатися з 4 цифр",
+  "sprPinsDontMatch": "PIN-коди не збігаються. Спробуйте ще раз.",
+  "sprConfirmPin": "Підтвердіть PIN-код",
+  "sprSetPinSheetTitle": "Встановити PIN-код",
+  "sprChangePinSheetTitle": "Змінити PIN-код",
+  "sprEnterPinAgain": "Введіть PIN-код ще раз для підтвердження",
+  "sprChoose4DigitPin": "Виберіть 4-значний PIN-код",
+  "sprRemovePin": "Видалити PIN-код",
+  "sprNext": "Далі",
+  "sprConfirm": "Підтвердити",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Не вдалося завантажити пісні зараз.\nПотягніть вниз або торкніться, щоб повторити.",
+  "homeFailedToLoad": "Не вдалося завантажити.",
+  "homeFailedToLoadCheckConnection": "Не вдалося завантажити зараз. Потягніть вниз, щоб повторити.",
+  "homeLoadingPlaylist": "Завантаження {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Хіти Аріджита Сінгха",
+  "homePlaylistChartbusters2025": "Хіти 2025",
+  "homePlaylistFreshBollywood": "Свіжий Болівуд",
+  "homePlaylistMovieBlockbusters": "Кінохіти",
+  "homePlaylistNewReleases": "Нові релізи",
+  "homePlaylistPartyAnthems": "Вечіркові гімни",
+  "homePlaylistRomanticThisWeek": "Романтика цього тижня",
+  "homePlaylistTrendingNow": "У тренді зараз",
+  "loginSyncSubtitle": "Увійдіть, щоб синхронізувати бібліотеку\nна кожному пристрої",
+  "loginMaybeLater": "Можливо, пізніше",
+  "loginBenefitSyncDevices": "Синхронізуйте плейлисти та обране на кожному пристрої",
+  "loginBenefitResumeWhereLeft": "Продовжуйте точно з того місця, де зупинилися",
+  "loginBenefitLibrarySafe": "Ваша бібліотека в безпеці, навіть якщо ви зміните телефон",
+  "loginBenefitPersonalizedProfile": "Персоналізований профіль з вашим ім'ям та фото Google",
+  "loginContinueWithGoogle": "Продовжити з Google",
+  "commonClear": "Очистити",
+  "commonCreate": "Створити",
+  "commonImport": "Імпортувати",
+  "libraryActionCannotBeUndone": "Цю дію неможливо скасувати.",
+  "libraryAddToPlaylist": "Додати до плейлиста",
+  "libraryAddedToPlaylist": "Додано до \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, one{Додано 1 пісню до \"{name}\"} few{Додано {count} пісні до \"{name}\"} many{Додано {count} пісень до \"{name}\"} other{Додано {count} пісні до \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, one{Вибрано 1} few{Вибрано {count}} many{Вибрано {count}} other{Вибрано {count}}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Вибрати",
+  "librarySelectAll": "Вибрати все",
+  "libraryDeselectAll": "Скасувати вибір усього",
+  "libraryRemoveSelectedFromPlaylist": "Видалити з плейлиста",
+  "libraryRemoveSelectedConfirm": "{count, plural, one{Видалити цю пісню з плейлиста?} few{Видалити ці {count} пісні з плейлиста?} many{Видалити ці {count} пісень з плейлиста?} other{Видалити ці {count} пісні з плейлиста?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, one{Видалено 1 пісню} few{Видалено {count} пісні} many{Видалено {count} пісень} other{Видалено {count} пісні}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Відтворити на",
+  "castingToDevice": "Трансляція на {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "пристрій",
+  "castSessionDisconnect": "Відключити",
+  "castSessionStopCasting": "Зупинити трансляцію",
+  "castDeviceFallbackTitle": "Пристрій трансляції",
+  "castToDeviceLabel": "Транслювати на пристрій",
+  "castPickerTitle": "Транслювати на",
+  "castPickerScanning": "Пошук пристроїв…",
+  "castPickerNoDevices": "Пристроїв не знайдено. Переконайтеся, що ваш Chromecast або телевізор підключені до тієї самої Wi-Fi мережі.",
+  "castPickerConnectFailed": "Не вдалося підключитися. Спробуйте ще раз.",
+  "audioOutputAutoRoutingNotice": "У цій версії Android вихід автоматично перемикається на останній підключений пристрій.",
+  "audioOutputSwitchFailed": "Не вдалося змінити вихідний пристрій. Спробуйте ще раз.",
+  "libraryAlbumTag": "Альбом",
+  "libraryAlbumsYouSaveAppearHere": "Альбоми, які ви збережете, з'являться тут.",
+  "libraryAlreadyInPlaylist": "Вже є в \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, one{1 виконавець} few{{count} виконавці} many{{count} виконавців} other{{count} виконавця}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Виконавець",
+  "libraryArtistsYouFollowAppearHere": "Виконавці, на яких ви підписані, з'являться тут.",
+  "libraryClearHistoryConfirm": "{count, plural, one{1 пісню буде видалено.} few{Усі {count} пісні буде видалено.} many{Усі {count} пісень буде видалено.} other{Усі {count} пісні буде видалено.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Очистити історію?",
+  "libraryCollection": "Колекція",
+  "libraryComingSoon": "Незабаром",
+  "libraryCreateFirstPlaylistDesc": "Створіть свій перший плейлист і\nпочніть впорядковувати свою музику.",
+  "libraryCreatePlaylist": "Створити плейлист",
+  "libraryImportFromYoutube": "Імпортувати з плейлиста YouTube",
+  "libraryImportFromYoutubeDesc": "Вставте посилання на плейлист YouTube, і Astra завантажить усі пісні, готові до відтворення.",
+  "libraryYoutubePlaylistLinkLabel": "Посилання на плейлист",
+  "libraryYoutubeLinkEmptyError": "Вставте посилання на плейлист, щоб продовжити.",
+  "libraryYoutubeImportFailedError": "Не вдалося імпортувати цей плейлист. Перевірте посилання та спробуйте ще раз.",
+  "libraryYoutubeImportInvalidLinkError": "Схоже, це не посилання на плейлист. Скопіюйте посилання з меню поширення плейлиста та спробуйте ще раз.",
+  "libraryYoutubeImportMixError": "Мікси та радіостанції неможливо імпортувати — лише звичайні плейлисти мають фіксований список треків. Спробуйте збережений плейлист.",
+  "libraryYoutubeImportNetworkError": "Не вдалося отримати доступ до YouTube. Перевірте з'єднання та спробуйте ще раз.",
+  "libraryDefaultPlaylistName": "Мій плейлист",
+  "libraryDeletePlaylist": "Видалити плейлист",
+  "libraryDeletePlaylistConfirm": "Видалити \"{name}\"?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Опис (необов'язково)",
+  "libraryDownloadPlaylist": "Завантажити плейлист",
+  "libraryDownloadingPlaylist": "Завантаження плейлиста…",
+  "libraryDownloadPlaylistProgress": "Завантаження {done} з {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Помилка — торкніться, щоб повторити",
+  "libraryDownloadFromPlayerDesc": "Завантажте пісню з плеєра, щоб слухати офлайн.",
+  "libraryDownloadedCountHeader": "{count, plural, one{1 ЗАВАНТАЖЕНО} few{{count} ЗАВАНТАЖЕНО} many{{count} ЗАВАНТАЖЕНО} other{{count} ЗАВАНТАЖЕНО}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, one{1 пісня} few{{count} пісні} many{{count} пісень} other{{count} пісні}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Завантажені",
+  "libraryDownloadsTabInProgress": "У процесі",
+  "libraryDownloadPaused": "Призупинено",
+  "libraryDownloadResume": "Відновити",
+  "libraryDownloadPause": "Пауза",
+  "libraryDownloadCancel": "Скасувати",
+  "libraryDownloadingHeader": "ЗАВАНТАЖЕННЯ",
+  "libraryDownloadingPercent": "Завантаження • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Редагувати плейлист",
+  "libraryHistory": "Історія",
+  "libraryHistoryEarlierToday": "Раніше сьогодні",
+  "libraryHistoryJustNow": "Щойно",
+  "libraryHistoryOlder": "Раніше",
+  "libraryHistoryRecent": "Останні",
+  "libraryHistoryYesterday": "Учора",
+  "libraryLiked": "Улюблені",
+  "libraryLikedCount": "{count, plural, =0{0 улюблених} one{1 улюблена} few{{count} улюблені} many{{count} улюблених} other{{count} улюбленої}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Локальні файли",
+  "libraryLoginToOrganizeDesc": "Увійдіть через Google, щоб упорядкувати свою музику в плейлисти.",
+  "libraryNeedsPermissionToReadMusic": "Astra потрібен дозвіл на читання вашої музики.",
+  "libraryNewPlaylist": "Новий плейлист",
+  "libraryNewPlaylistLower": "новий плейлист",
+  "libraryNoAlbumsSavedYet": "Ще немає збережених альбомів",
+  "libraryNoArtistsSavedYet": "Ще немає збережених виконавців",
+  "libraryNoDownloadsYet": "Ще немає завантажень",
+  "libraryNoHistoryYet": "Ще немає історії",
+  "libraryNoLocalSongsFound": "Локальних пісень не знайдено",
+  "libraryLocalSearchHint": "Пошук локальних пісень",
+  "libraryLocalSearchNoResults": "Жодна локальна пісня не відповідає \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Ще немає плейлистів",
+  "libraryNoSongsYetInPlaylist": "Ще немає пісень",
+  "libraryNothingHereYet": "Тут поки що нічого немає",
+  "libraryOnDeviceCount": "{count} на пристрої",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Потрібен дозвіл",
+  "libraryPlaySomethingToSeeHistory": "Відтворіть щось, щоб побачити історію",
+  "libraryPlaylistCount": "{count, plural, one{1 плейлист} few{{count} плейлисти} many{{count} плейлистів} other{{count} плейлиста}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Назва плейлиста",
+  "libraryPlaylistNotFound": "Плейлист не знайдено",
+  "libraryRecentlyPlayed": "Нещодавно відтворені",
+  "libraryRemoveDownload": "Видалити завантаження",
+  "libraryRemoveFromPlaylist": "Видалити з плейлиста",
+  "libraryRemoveFromSavedAlbums": "Видалити зі збережених альбомів",
+  "libraryChooseFromGallery": "Вибрати з галереї",
+  "libraryRemoveCustomCover": "Видалити власну обкладинку",
+  "libraryRenamePlaylist": "Перейменувати плейлист",
+  "librarySearchAndAddSongsHere": "Знайдіть пісні та додайте їх сюди",
+  "librarySeeAllSongs": "{count, plural, one{Переглянути 1 пісню} few{Переглянути всі {count} пісні} many{Переглянути всі {count} пісень} other{Переглянути всі {count} пісні}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Пісні, які ви відтворюєте, з'являться тут",
+  "libraryUnfollowArtist": "Відписатися від виконавця",
+  "libraryYourCollection": "Ваша колекція",
+  "alWrongPin": "Неправильний PIN-код. Спробуйте ще раз.",
+  "alEnterPinToUnlock": "Введіть PIN-код, щоб розблокувати",
+  "alBiometricReason": "Використовуйте відбиток пальця, щоб розблокувати Astra Music",
+  "asCouldntLoad": "Не вдалося завантажити {name}",
+  "asRetry": "Повторити",
+  "asVerifiedArtist": "Перевірений виконавець",
+  "asMonthlyListeners": "{count} слухачів на місяць",
+  "asSaved": "Збережено",
+  "asSave": "Зберегти",
+  "asPopular": "Популярне",
+  "asAlbums": "Альбоми",
+  "asSingles": "Сингли",
+  "asAbout": "Про виконавця",
+  "asFansAlsoLike": "Фанатам також подобається",
+  "asShowAll": "Показати все",
+  "asShowLess": "Показати менше",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Про застосунок",
+  "abPrivacyPolicyTitle": "Політика конфіденційності",
+  "abUpdate": "ОНОВЛЕННЯ",
+  "abCheckForUpdate": "Перевірити оновлення",
+  "abCheckForUpdateSubtitle": "Перевірити наявність нової версії",
+  "abChangelog": "Журнал змін",
+  "abChangelogSubtitle": "Що змінилося в останніх версіях",
+  "abLegal": "ПРАВОВА ІНФОРМАЦІЯ",
+  "abPrivacyPolicy": "Політика конфіденційності",
+  "abPrivacyPolicySubtitle": "Як обробляються ваші дані",
+  "abTermsOfUse": "Умови використання",
+  "abTermsOfUseSubtitle": "Угода між вами та Astra",
+  "abCommunity": "СПІЛЬНОТА",
+  "abSendFeedback": "Надіслати відгук",
+  "abSendFeedbackSubtitle": "Розкажіть нам, що ви думаєте, будь-коли",
+  "abShareApp": "Поділитися Astra",
+  "abShareAppSubtitle": "Розкажіть друзям про цей застосунок",
+  "abDeveloper": "РОЗРОБНИК",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Завантаження...",
+  "abVersionBuild": "v{version} (збірка {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "ФОНОВЕ ВІДТВОРЕННЯ",
+  "snPlayerNotification": "СПОВІЩЕННЯ ПЛЕЄРА",
+  "snNotificationStyle": "СТИЛЬ СПОВІЩЕННЯ",
+  "snBgPlaybackEnabled": "Фонове відтворення увімкнено",
+  "snAllowBgPlayback": "Дозволити фонове відтворення",
+  "snBgPlaybackEnabledDesc": "Музика продовжуватиме грати при вимкненому екрані або закритому застосунку",
+  "snAllowBgPlaybackDesc": "Торкніться, щоб дозволити музиці продовжувати грати у фоновому режимі — деякі телефони зупиняють відтворення без цього",
+  "snShowMediaNotif": "Показувати медіасповіщення",
+  "snShowMediaNotifSubtitle": "Відображати плеєр у панелі сповіщень",
+  "snShowArtwork": "Показувати обкладинку пісні",
+  "snShowArtworkSubtitle": "Відображати обкладинку альбому в сповіщенні",
+  "snShowPrevButton": "Показувати кнопку попередньої пісні",
+  "snShowPrevButtonSubtitle": "Додати кнопку попередньої пісні до медіасповіщення",
+  "snStyleCompact": "Компактний",
+  "snStyleCompactDesc": "Маленькі, мінімальні елементи керування",
+  "snStyleExpanded": "Розширений",
+  "snStyleExpandedDesc": "Повні елементи керування з обкладинкою",
+  "prProfile": "Профіль",
+  "prAurumListener": "Слухач Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Синхронізувати бібліотеку",
+  "prBenefitSyncSub": "Ваша музика синхронізована на всіх пристроях",
+  "prBenefitLifetimeTitle": "Довічний доступ",
+  "prBenefitLifetimeSub": "Без підписок, назавжди ваш",
+  "prBenefitAdFreeTitle": "Без реклами",
+  "prBenefitAdFreeSub": "Жодних переривань, чиста музика",
+  "prBenefitQualityTitle": "Високоякісний звук",
+  "prBenefitQualitySub": "Найкраща доступна якість стрімінгу",
+  "prBenefitOfflineTitle": "Готовий до офлайну",
+  "prBenefitOfflineSub": "Завантажуйте та відтворюйте будь-де",
+  "prBenefitRecsTitle": "Розумні рекомендації",
+  "prBenefitRecsSub": "Черга та відкриття на основі настрою",
+  "prAllFeaturesUnlocked": "Усі функції розблоковано",
+  "prUpgradeToUnlock": "Оновіть, щоб розблокувати все",
+  "prActive": "Активно",
+  "prFree": "Безкоштовно",
+  "prSyncingLibrary": "Синхронізація бібліотеки…",
+  "prSignedIn": "Увійшли",
+  "prSyncLibraryTitle": "Синхронізуйте свою бібліотеку",
+  "prSyncLibrarySubtitle": "Увійдіть для доступу на всіх пристроях",
+  "prSignIn": "Увійти",
+  "prSignedInSynced": "Увійшли — ваша бібліотека синхронізована",
+  "prSignedInUpgradePrompt": "Увійшли! Оновіть до Преміум, щоб увімкнути хмарну синхронізацію.",
+  "prSignOutTitle": "Вийти?",
+  "prSignOutBody": "Ваші улюблені пісні, плейлисти, виконавці, на яких ви підписані, та історія буде видалено з цього пристрою. Увійдіть знову будь-коли, щоб їх повернути.",
+  "prCancel": "Скасувати",
+  "prSignOut": "Вийти",
+  "prSignedOutCleared": "Вийшли — ваші дані видалено з цього пристрою",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Музика, якою вона має бути почута.",
+  "psRating": "Рейтинг 4,9★",
+  "psSecure": "Безпечно",
+  "psRefund": "Повернення коштів протягом 7 днів",
+  "psChoosePlan": "Виберіть свій план",
+  "psBadgeTryIt": "СПРОБУЙТЕ",
+  "psBadgeSave58": "ЗАОЩАДЬТЕ 58%",
+  "psBadgeBestDeal": "НАЙКРАЩА ПРОПОЗИЦІЯ",
+  "psEverythingIncluded": "Усе включено",
+  "psFeatHdAudioTitle": "HD-звук • 320kbps",
+  "psFeatHdAudioSub": "Кришталево чиста якість без втрат",
+  "psFeatSkipsTitle": "Необмежені пропуски",
+  "psFeatSkipsSub": "Пропускайте стільки пісень, скільки хочете",
+  "psFeatAdsTitle": "Без реклами",
+  "psFeatAdsSub": "Повністю безрекламний досвід",
+  "psFeatAiTitle": "Рекомендації ШІ",
+  "psFeatAiSub": "Пісні, підібрані спеціально для вас",
+  "psFeatOfflineTitle": "Офлайн-завантаження",
+  "psFeatOfflineSub": "Слухайте без інтернету",
+  "psFeatSyncTitle": "Хмарна синхронізація",
+  "psFeatSyncSub": "Ваша бібліотека на будь-якому пристрої",
+  "psFeatFollowTitle": "Вподобайте та підписуйтеся на виконавців",
+  "psFeatFollowSub": "Створіть свою особисту колекцію",
+  "psFeatPlaylistsTitle": "Необмежені плейлисти",
+  "psFeatPlaylistsSub": "Створюйте та діліться плейлистами",
+  "psFeatThemesTitle": "Ексклюзивні теми",
+  "psFeatThemesSub": "Преміум-кольори та стилі плеєра",
+  "psGetPlusPrice": "Отримати Plus — {price}",
+  "psSignInGetPlus": "Увійти та отримати Plus",
+  "psPerMonth": "{price}/місяць",
+  "psPerYear": "{price}/рік",
+  "psOneTime": "{price} одноразово",
+  "psSecurePayments": "🔒  Безпечні платежі через Razorpay  •  Скасуйте будь-коли",
+  "psMoneyBack": "7-денна гарантія повернення коштів",
+  "psPlanMonthly": "1 місяць",
+  "psPlanYearly": "1 рік",
+  "psPlanLifetime": "Довічно",
+  "psSubPerMonth": "на місяць",
+  "psSubPerYear": "на рік",
+  "psSubPayOnce": "заплатіть один раз, володійте назавжди",
+  "psSuccessTitle": "Тепер ви Plus ✦",
+  "psSuccessBody": "Усі функції розблоковано.\nНасолоджуйтеся повним досвідом Astra.",
+  "psStartListening": "Почати слухати",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Системна за замовчуванням",
+  "fpLikeSongsFeature": "Вподобання пісень",
+  "fpLikeSongsSignIn": "Увійдіть через Google, щоб зберігати пісні у своїй бібліотеці.",
+  "fpClosePlayer": "Закрити плеєр",
+  "fpNowPlaying": "ЗАРАЗ ГРАЄ",
+  "fpMoreOptions": "Більше опцій",
+  "fpUnlimitedSkipsFeature": "Необмежені пропуски",
+  "fpUnlimitedSkipsSignIn": "Увійдіть через Google, щоб пропускати стільки разів, скільки хочете.",
+  "fpShuffle": "Перемішати",
+  "fpPrevious": "Попередня",
+  "fpNext": "Наступна",
+  "fpRepeat": "Повторити",
+  "fpLocalBadge": "ЛОКАЛЬНА",
+  "fpQueueLyricsInfo": "Черга · Текст · Інформація",
+  "fpPause": "Пауза",
+  "fpPlay": "Відтворити",
+  "fpShareText": "{artist} — {title}\n\nПоширено з Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Назва",
+  "fpSongInfoArtist": "Виконавець",
+  "fpSongInfoAlbum": "Альбом",
+  "fpSongInfoDuration": "Тривалість",
+  "fpSongInfoYear": "Рік",
+  "fpSongInfoLanguage": "Мова",
+  "fpSongInfo": "Інформація про пісню",
+  "fpAlreadyDownloaded": "Вже завантажено",
+  "fpAlreadyDownloading": "Вже завантажується",
+  "fpAlreadyOnDevice": "Вже на цьому пристрої",
+  "fpDownloadingSong": "Завантаження {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Відтворити далі",
+  "fpAddToQueue": "Додати до черги",
+  "fpAddedToQueue": "Додано до черги",
+  "fpLiked": "Вподобано",
+  "fpLikeAction": "Вподобати",
+  "fpLikeSignInBuildLibrary": "Увійдіть через Google, щоб створити свою особисту бібліотеку.",
+  "fpAddedToLiked": "Додано до улюблених",
+  "fpRemovedFromLiked": "Видалено з улюблених",
+  "fpShare": "Поділитися",
+  "fpSaveToPlaylist": "Зберегти до плейлиста",
+  "fpAudioEffects": "Аудіоефекти",
+  "fpSleepRemaining": "Сон • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Таймер сну",
+  "fpDownloaded": "Завантажено",
+  "fpDownloading": "Завантаження…",
+  "fpDownload": "Завантажити",
+  "fpDownloadingPercent": "Завантаження {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Черга",
+  "fpLyrics": "Текст пісні",
+  "fpInfo": "Інформація",
+  "fpQueueEmpty": "Черга порожня",
+  "fpUpNext": "ДАЛІ",
+  "fpFindingSongs": "Пошук пісень для вас…",
+  "fpMoveToTop": "Перемістити наверх",
+  "fpRemoveFromQueue": "Видалити з черги",
+  "fpNoLyricsFound": "Текст пісні не знайдено",
+  "fpLyricsNotAvailable": "Текст пісні недоступний для цієї композиції",
+  "fpSourceLabel": "Джерело",
+  "fpLocalLibrary": "Локальна бібліотека",
+  "fpOnlineStream": "Онлайн-трансляція",
+  "fpDownloadFailed": "Не вдалося завантажити \"{title}\" — трансляція недоступна",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}

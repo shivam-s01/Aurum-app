@@ -1,0 +1,1179 @@
+{
+  "@@locale": "ro",
+  "navHome": "Acasă",
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
+  "navSearch": "Căutare",
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
+  "navLibrary": "Bibliotecă",
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
+  "commonCancel": "Anulează",
+  "commonSave": "Salvează",
+  "commonDone": "Gata",
+  "commonRetry": "Reîncearcă",
+  "commonSeeAll": "Vezi tot",
+  "commonPlay": "Redă",
+  "commonPause": "Pauză",
+  "commonShuffle": "Amestecă",
+  "commonDelete": "Șterge",
+  "commonEdit": "Editează",
+  "commonShare": "Distribuie",
+  "commonAdd": "Adaugă",
+  "commonRemove": "Elimină",
+  "commonSearch": "Căutare",
+  "commonSettings": "Setări",
+  "commonOk": "OK",
+  "commonYes": "Da",
+  "commonNo": "Nu",
+  "settingsTitle": "Setări",
+  "settingsAccount": "CONT",
+  "settingsSectionGeneral": "General",
+  "settingsSectionPlayback": "Redare",
+  "settingsSectionSystem": "Sistem",
+  "settingsPlayerAudio": "Player și Audio",
+  "settingsAppearance": "Aspect",
+  "settingsDownloads": "Descărcări",
+  "settingsStorage": "Stocare",
+  "settingsAbout": "Despre",
+  "settingsLanguage": "Limbă",
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
+  "settingsLanguageSubtitle": "Alege limba preferată pentru aplicație",
+  "playerNowPlaying": "Se Redă Acum",
+  "playerUpNext": "Următoarea",
+  "playerLyrics": "Versuri",
+  "playerQueue": "Coadă",
+  "playerInfo": "Informații",
+  "librarySongs": "Melodii",
+  "libraryPlaylists": "Playlisturi",
+  "libraryArtists": "Artiști",
+  "libraryAlbums": "Albume",
+  "libraryLikedSongs": "Melodii Apreciate",
+  "libraryDownloaded": "Descărcate",
+  "libraryEmptyState": "Nimic aici încă",
+  "homeTrendingPlaylists": "Playlisturi Populare",
+  "mixPullForMore": "Trageți în jos pentru mai multe melodii",
+  "homeMoodAll": "Toate",
+  "homePlaylistsForYou": "Playlisturi pentru Tine",
+  "homeAlbumsForYou": "Albume pentru Tine",
+  "homeAfternoonPicks": "Alegeri de După-amiază",
+  "homeBollywoodMix": "Mix Bollywood",
+  "homeDevotional": "Muzică Religioasă",
+  "homeTrendingNow": "Popular Acum",
+  "homeNewReleases": "Lansări Noi",
+  "feedbackTitle": "Îți place Astra?",
+  "feedbackSubtitle": "Feedback-ul tău ne ajută să o facem și mai bună.",
+  "feedbackHint": "Spune-ne ce părere ai (opțional)",
+  "feedbackSend": "Trimite Feedback",
+  "feedbackNotNow": "Nu acum",
+  "feedbackThankYouTitle": "Mulțumim!",
+  "premiumSoundTitle": "Sunet Premium",
+  "premiumSoundSubtitle": "Sunet mai bogat și mai plin pentru fiecare piesă — funcționează cu orice calitate a sursei",
+  "bassBoostTitle": "Amplificare Bass",
+  "bassBoostSubtitle": "Amplifică frecvențele joase pentru un sunet mai profund",
+  "homePickSomething": "Alege ceva de redat",
+  "homePopularArtists": "Artiști Populari",
+  "homeOnline": "Online",
+  "homeOffline": "Offline",
+  "homeCheckYourInternet": "Verifică-ți conexiunea la internet",
+  "homePlaybackSource": "Sursă de Redare",
+  "homePlaybackSourceSubtitle": "Alege de unde redă Astra muzica",
+  "homeOnlineStreaming": "Streaming Online",
+  "homeStreamOnlineDesc": "Transmite muzică online",
+  "homeOfflineLibrary": "Bibliotecă Offline",
+  "homeOfflineLibraryDesc": "Redă doar melodiile descărcate",
+  "homeGrantPermission": "Acordă Permisiunea",
+  "homeStoragePermissionNeeded": "Este necesară permisiunea de stocare",
+  "homeNoLocalSongs": "Nu s-au găsit melodii locale",
+  "homeScanAgain": "Scanează din Nou",
+  "homeLocalSongs": "Melodii Locale",
+  "homePlaybackDiagnostics": "Diagnosticare Redare",
+  "commonClose": "Închide",
+  "commonPlayAll": "Redă Tot",
+  "likedNoSongsYet": "Nicio melodie apreciată încă",
+  "likedTapToSave": "Apasă ♥ pe orice melodie pentru a o salva aici",
+  "librarySongsCount": "{count, plural, =0{Nicio melodie} one{1 melodie} few{{count} melodii} other{{count} de melodii}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Coadă",
+  "queueEmpty": "Coada este goală",
+  "queueEmptySubtitle": "Melodiile pe care le vei reda în continuare vor apărea aici",
+  "albumNoSongsFound": "Nu s-au găsit melodii",
+  "searchHint": "Melodii, artiști, albume...",
+  "searchRecent": "Recente",
+  "searchClearAll": "Șterge tot",
+  "searchNoResultsFor": "Niciun rezultat pentru \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchEverywhere": "Caută peste tot",
+  "searchYouMightAlsoLike": "S-ar putea să-ți placă și",
+  "searchSeeAllResultsFor": "Vezi toate rezultatele pentru \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchFavouriteSongs": "Caută melodiile tale preferate",
+  "searchAllInOnePlace": "Melodii, artiști, albume — toate într-un singur loc",
+  "searchTabSearch": "Căutare",
+  "searchTabBrowse": "Răsfoiește",
+  "browseTypeToExplore": "Scrie pentru a explora artiști și albume",
+  "browseNoResults": "Niciun rezultat",
+  "browseAlbumFallbackTitle": "Album",
+  "settingsPlayerAudioSubtitle": "Redare, egalizator, crossfade și comportament",
+  "settingsAppearanceSubtitle": "Temă, culori, stil player și animații",
+  "settingsStorageSubtitle": "Descărcări, cache melodii și cache imagini",
+  "settingsNotifications": "Notificări",
+  "settingsNotificationsSubtitle": "Stil notificare media și copertă",
+  "settingsPrivacy": "Confidențialitate",
+  "settingsPrivacySubtitle": "Blocare aplicație, mod incognito și date",
+  "settingsAboutSubtitle": "Versiune, actualizări, confidențialitate și dezvoltator",
+  "premiumFeature320kbps": "Streaming la 320kbps",
+  "premiumFeatureUnlimitedSkips": "Salturi nelimitate",
+  "premiumFeatureLikeFollow": "Apreciază și urmărește",
+  "premiumFeatureCreatePlaylists": "Creează playlisturi",
+  "premiumFeatureCloudSync": "Sincronizare în cloud",
+  "premiumFeatureExclusiveThemes": "Teme exclusive",
+  "premiumAllFeaturesUnlocked": "Toate funcțiile deblocate",
+  "premiumActive": "Activ",
+  "premiumUpgradeTitle": "Actualizează la Premium",
+  "premiumUnlockEverything": "Deblochează tot în Astra",
+  "premiumGetButton": "✦  Obține Astra Premium",
+  "premiumBrandName": "Astra Premium",
+  "spPlayback": "REDARE",
+  "spSleepTimer": "TEMPORIZATOR DE SOMN",
+  "spEqualizer": "EGALIZATOR",
+  "spBehavior": "COMPORTAMENT",
+  "spStreamQuality": "Calitate Streaming",
+  "spStreamQualitySubtitle": "Rata de biți audio pentru streaming online",
+  "spQualityAuto": "Automat",
+  "spQualityAutoDesc": "Cea mai bună calitate disponibilă pentru fiecare melodie",
+  "spQualityLow": "Scăzută",
+  "spQualityLowDesc": "48–96kbps · economisește date",
+  "spQualityMedium": "Medie",
+  "spQualityMediumDesc": "Până la 160kbps",
+  "spQualityHigh": "Ridicată",
+  "spQualityHighDesc": "320kbps · calitate de studio",
+  "spQualityDataSaver": "Economisire Inteligentă",
+  "spQualityDataSaverDesc": "Sună excelent chiar și pe 2G",
+  "spQualityDataSaverDescExpanded": "Transmite cel mai mic fișier pe care conexiunea ta îl poate suporta, apoi crește discret spre 320kbps de îndată ce melodia are spațiu.",
+  "spPlusBadge": "PLUS",
+  "spDataSaver": "Economisire Date",
+  "spDataSaverSubtitle": "Forțează calitate scăzută pe date mobile",
+  "spGaplessPlayback": "Redare Fără Întreruperi",
+  "spGaplessPlaybackSubtitle": "Fără liniște între piese",
+  "spShowCastIcon": "Afișează Pictograma Chromecast",
+  "spShowCastIconSubtitle": "Controlează când apare pictograma de transmisie în playerul pe ecran complet",
+  "spCastIconAuto": "Automat",
+  "spCastIconAlways": "Afișează întotdeauna",
+  "spCastIconHidden": "Ascunsă",
+  "spPlaybackSpeed": "Viteză de Redare",
+  "spPlaybackSpeedSubtitle": "Se aplică atât melodiilor locale, cât și celor online",
+  "spNormal": "Normală",
+  "spCrossfade": "Crossfade",
+  "spCrossfadeSubtitle": "Tranziție lină între piese",
+  "spOff": "Dezactivat",
+  "spVolumeNormalization": "Normalizarea Volumului",
+  "spVolumeNormalizationSubtitle": "Menține toate melodiile la un nivel de volum constant",
+  "spBassBoost": "Amplificare Bass",
+  "spBassBoostSubtitle": "Amplifică frecvențele joase pentru un sunet mai profund",
+  "spPremiumSound": "Sunet Premium",
+  "spPremiumSoundSubtitle": "Deblochează voci cristaline, bass mai profund și audio premium captivant",
+  "spPremiumSoundPartialSupport": "Unele efecte nu sunt acceptate pe acest dispozitiv — claritatea și bass-ul rămân active",
+  "spSleepTimerActive": "Temporizator de Somn Activ",
+  "spSleepTimerTitle": "Temporizator de Somn",
+  "spSleepTimerStopsIn": "Se oprește în {time}",
+  "@spSleepTimerStopsIn": {
+    "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "spSleepTimerSetSubtitle": "Setează un temporizator pentru a opri redarea",
+  "spCancel": "Anulează",
+  "spAutoSleepGuard": "PROTECȚIE AUTOMATĂ DE SOMN",
+  "asgTileTitle": "Protecție Automată de Somn",
+  "asgTileSubtitleOn": "Pune pauză după {hours}h de inactivitate",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Conectează-te pentru a folosi Protecția Automată de Somn",
+  "asgTileSubtitleOff": "Dezactivat",
+  "asgTileAutomaticBadge": "Automat",
+  "asgTileOffBadge": "Dezactivat",
+  "asgSheetTitle": "Protecție Automată de Somn",
+  "asgSheetBody": "Astra pune automat pauză redării după o perioadă de inactivitate pentru a economisi bateria. Alege cât timp să aștepte.",
+  "asgSheetModeLabel": "Mod",
+  "asgSheetModeAutomatic": "Automat",
+  "asgSheetModeAutomaticDesc": "Monitorizează inactivitatea și pune pauză pentru a economisi bateria",
+  "asgSheetModeOff": "Dezactivat",
+  "asgSheetModeOffDesc": "Nu pune niciodată pauză automat",
+  "asgSheetPremiumHint": "Funcționează discret în fundal — reglat să nu deranjeze niciodată",
+  "asgSheetDurationLabel": "Pune pauză după",
+  "asgSheetHours": "{count}h",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Salvat",
+  "asgSheetDone": "Gata",
+  "asgResumePromptTitle": "Pus în pauză din cauza inactivității",
+  "asgResumePromptSubtitle": "Pus în pauză la {time} — Reia?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Reia",
+  "asgResumePromptDismiss": "Închide",
+  "bsmTileTitle": "Mod Economisire Baterie",
+  "bsmTileSubtitleActive": "Activ — baterie la {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Se activează automat sub {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Dezactivat",
+  "bsmTileAutomaticBadge": "Automat",
+  "bsmTileOffBadge": "Dezactivat",
+  "bsmSheetTitle": "Mod Economisire Baterie",
+  "bsmSheetBody": "Când bateria ta este scăzută, Astra dezactivează automat animațiile de fundal, blurul și alte efecte vizuale — redarea continuă exact normal.",
+  "bsmSheetPremiumHint": "Funcționează discret în fundal — redarea nu este niciodată afectată, doar elementele vizuale",
+  "bsmSheetModeLabel": "Mod",
+  "bsmSheetModeAutomatic": "Automat",
+  "bsmSheetModeAutomaticDesc": "Monitorizează nivelul bateriei și economisește energie când este scăzut",
+  "bsmSheetModeOff": "Dezactivat",
+  "bsmSheetModeOffDesc": "Nu se activează niciodată automat",
+  "bsmSheetThresholdLabel": "Activează sub",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Salvat",
+  "bsmSheetDone": "Gata",
+  "spEqualizerTitle": "Egalizator",
+  "spEqualizerSubtitle": "Egalizator cu 10 benzi cu presetări",
+  "spKeepQueue": "Păstrează Coada la Redeschidere",
+  "spKeepQueueSubtitle": "Restaurează coada după închiderea aplicației",
+  "spStopOnSwipe": "Oprește la Ștergere din Recente",
+  "spStopOnSwipeSubtitle": "Oprește redarea când aplicația este ștearsă din recente",
+  "spPauseOnCall": "Pauză la Apel Primit",
+  "spPauseOnCallSubtitle": "Pune automat pauză când sună telefonul",
+  "spDuckNotifications": "Reduce Volumul pentru Notificări",
+  "spDuckNotificationsSubtitle": "DEZACTIVAT = notificările nu reduc niciodată volumul și nu pun pauză melodiei tale",
+  "spShakeToSkip": "Scutură pentru a Sări Melodia",
+  "spShakeToSkipSubtitle": "Scutură telefonul pentru a trece la piesa următoare",
+  "spSwipeToChange": "Glisează pentru a Schimba Melodia",
+  "spSwipeToChangeSubtitle": "Glisează pe coperta playerului pentru a sări",
+  "spHapticIntensity": "Intensitate Haptică",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Cât de puternic se simt atingerile și vibrațiile în întreaga aplicație",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Dezactivat",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Ușoară",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Puternică",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
+  "spHistoryDuration": "Durata Istoricului",
+  "spHistorySongsCount": "{count} melodii",
+  "@spHistorySongsCount": {
+    "description": "History duration slider label",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerSheetTitle": "Temporizator de Somn",
+  "spSleepTimerSheetSubtitle": "Redarea se va opri după timpul selectat",
+  "spFinishCurrentSong": "Termină Melodia Curentă",
+  "spFinishCurrentSongSubtitle": "Lasă melodia curentă să se termine înainte de a se opri",
+  "spStartTimer": "Pornește Temporizatorul · {duration}",
+  "@spStartTimer": {
+    "description": "Start timer button, e.g. 'Start Timer · 30m'",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "spCancelActiveTimer": "Anulează Temporizatorul Activ",
+  "spSleepTimerCustom": "Personalizat",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Setează",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Introdu o durată în minute",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Maximum {max} minute",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Estompare",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Muzica scade lin în loc să se oprească brusc",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
+  "spPremiumHighBitrateFeature": "Rată de Biți Ridicată (320kbps)",
+  "spPremiumHighBitrateDesc": "Deblochează streaming la calitate de studio 320kbps cu Astra Plus.",
+  "spEqReset": "Resetează",
+  "spEqPresets": "PRESETĂRI",
+  "spEq10Band": "EGALIZATOR CU 10 BENZI",
+  "saTheme": "TEMĂ",
+  "saFontStyle": "STIL FONT",
+  "saNowPlayingCard": "CARD SE REDĂ ACUM",
+  "saArtworkShape": "FORMĂ COPERTĂ",
+  "saPlayer": "PLAYER",
+  "saLyrics": "VERSURI",
+  "saAnimations": "ANIMAȚII",
+  "saThemeDark": "Întunecată",
+  "saThemeDarkDesc": "Blândă cu ochii",
+  "saThemeAmoled": "Negru AMOLED",
+  "saThemeAmoledDesc": "Negru pur, economisește bateria",
+  "saThemeLight": "Deschisă",
+  "saThemeLightDesc": "Curată și minimalistă",
+  "saThemeSystem": "Implicit Sistem",
+  "saThemeSystemDesc": "Urmează tema telefonului tău",
+  "saDynamicThemeColor": "Culoare Dinamică a Temei",
+  "saDynamicThemeColorSubtitle": "Extrage culoarea din coperta melodiei",
+  "saHighRefreshRate": "Rată Mare de Reîmprospătare (120Hz)",
+  "saHighRefreshRateSubtitle": "Interfață mai fluidă pe dispozitivele compatibile",
+  "saAccentColor": "Culoare de Accent",
+  "saExtraColorsSignIn": "Culori suplimentare = Conectare",
+  "saCustomAccentColorsFeature": "Culori de Accent Personalizate",
+  "saCustomAccentColorsDesc": "Conectează-te cu Google pentru a debloca mai multe culori de accent.",
+  "saAppFont": "Font Aplicație",
+  "saRoundedMonoSignIn": "Fonturi premium = Conectare",
+  "saApplyingFont": "Se aplică fontul…",
+  "saFontUnlockFeature": "Font {font}",
+  "@saFontUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Rounded Font'",
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
+  },
+  "saFontUnlockDesc": "Conectează-te cu Google pentru a debloca acest font.",
+  "saCardStyleCompactDesc": "Copertă mică, text alături",
+  "saCardStyleCardDesc": "Copertă și informații echilibrate",
+  "saCardStyleImmersiveDesc": "Copertă pe lățime completă, interfață minimă",
+  "saPremiumBadge": "Premium",
+  "saPlayerStyleUnlockFeature": "Stil Player {style}",
+  "@saPlayerStyleUnlockFeature": {
+    "description": "Feature name for premium gate, e.g. 'Card Player Style'",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerStyleUnlockDesc": "Conectează-te cu Google pentru a debloca stilul {style}.",
+  "@saPlayerStyleUnlockDesc": {
+    "description": "Description for player style premium gate",
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
+  },
+  "saPlayerBgStyle": "Stil Fundal Player",
+  "saPlayerBgStyleSubtitle": "Cum arată fundalul playerului",
+  "saDynamicPlayerColor": "Culoare Dinamică a Playerului",
+  "saDynamicPlayerColorSubtitle": "Schimbă culoarea playerului în funcție de copertă",
+  "saPlayerButtonColors": "Culorile Butoanelor Playerului",
+  "saPlayerButtonColorsSubtitle": "Culoarea butoanelor de redare/salt",
+  "saPlayerSliderStyle": "Stil Cursor Player",
+  "saPlayerSliderStyleSubtitle": "Aspectul barei de căutare",
+  "saShowBlurredBg": "Afișează Fundal Blurat",
+  "saShowBlurredBgSubtitle": "Copertă blurată în spatele playerului",
+  "saNavBarBlur": "Blur Bară de Navigare",
+  "saNavBarBlurSubtitle": "Redu pentru mai puțină încălzire GPU/consum baterie",
+  "saMiniPlayerBlur": "Blur Mini Player",
+  "saMiniPlayerBlurSubtitle": "Redu pentru mai puțină încălzire GPU/consum baterie",
+  "saLyricsTextPosition": "Poziție Text Versuri",
+  "saLyricsTextPositionSubtitle": "Alinierea versurilor pe ecran",
+  "saLyricsTextSize": "Dimensiune Text Versuri",
+  "saLyricsLineSpacing": "Spațiere între Rânduri Versuri",
+  "saShowLyricsOnPlayer": "Afișează Versurile pe Player",
+  "saShowLyricsOnPlayerSubtitle": "Afișează linia curentă deasupra barei de căutare",
+  "saLyricsViewMode": "Versuri Captivante",
+  "saLyricsViewModeSubtitle": "Versuri pe ecran complet cu strălucire din player",
+  "saLyricsViewModeInline": "Inline",
+  "saLyricsViewModeFullscreen": "Ecran Complet",
+  "saEnableAnimations": "Activează Animațiile",
+  "saEnableAnimationsSubtitle": "Comutator principal pentru toate animațiile",
+  "saBackAnimations": "Animații la Înapoi",
+  "saBackAnimationsSubtitle": "Animă gestul de navigare înapoi",
+  "saScrollAnimations": "Animații la Derulare",
+  "saScrollAnimationsSubtitle": "Elementele apar treptat în timpul derulării",
+  "saBgGradientAnimation": "Animație Gradient Fundal",
+  "saBgGradientAnimationSubtitle": "Schimbare animată a culorii în player",
+  "saShapeSquare": "Pătrat",
+  "saShapeRounded": "Rotunjit",
+  "saShapeCircle": "Cerc",
+  "ssDownloads": "DESCĂRCĂRI",
+  "ssSongCache": "CACHE MELODII",
+  "ssImageCache": "CACHE IMAGINI",
+  "ssDownloadedSongs": "Melodii Descărcate",
+  "ssClearAllDownloads": "Șterge Toate Descărcările",
+  "ssDownloadQuality": "Calitate Descărcare",
+  "ssDownloadQualitySubtitle": "Calitatea audio pentru melodiile descărcate",
+  "ssAutoDownloadLiked": "Descarcă Automat Melodiile Apreciate",
+  "ssAutoDownloadLikedSubtitle": "Descarcă automat melodiile pe care le apreciezi",
+  "ssWifiOnly": "Descarcă Doar prin WiFi",
+  "ssWifiOnlySubtitle": "Nu folosi niciodată date mobile pentru descărcări",
+  "ssMaxSongCacheSize": "Dimensiune Maximă Cache Melodii",
+  "ssClearSongCache": "Șterge Cache Melodii",
+  "ssMaxImageCacheSize": "Dimensiune Maximă Cache Imagini",
+  "ssClearImageCache": "Șterge Cache Imagini",
+  "ssClearConfirmTitle": "Ștergi {title}?",
+  "@ssClearConfirmTitle": {
+    "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "ssClearConfirmBody": "Aceasta nu poate fi anulată.",
+  "ssCancel": "Anulează",
+  "ssClear": "Șterge",
+  "ssAllDownloadsTitle": "Toate Descărcările",
+  "ssSongCacheTitle": "Cache Melodii",
+  "ssImageCacheTitle": "Cache Imagini",
+  "ssUsedLabel": "Folosit: {size}",
+  "@ssUsedLabel": {
+    "description": "Storage used label, e.g. 'Used: 45.2MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "ssMaxLabel": "Maxim: {size}",
+  "@ssMaxLabel": {
+    "description": "Storage max label, e.g. 'Max: 500MB'",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "BLOCARE APLICAȚIE",
+  "sprAppLockTitle": "Blocare Aplicație",
+  "sprAppLockSubtitleSet": "Setează un PIN pentru a bloca aplicația",
+  "sprAppLockSubtitleChange": "PIN setat — apasă pentru a schimba",
+  "sprSetPin": "Setează PIN",
+  "sprChangePin": "Schimbă PIN",
+  "sprSetPinSubtitle": "Necesar pentru a activa Blocarea Aplicației",
+  "sprChangePinSubtitle": "Schimbă-ți PIN-ul din 4 cifre",
+  "sprBiometricUnlock": "Deblocare Biometrică",
+  "sprBiometricUnlockSubtitle": "Folosește amprenta în loc de PIN",
+  "sprAutoLockAfter": "Blocare Automată După",
+  "sprAutoLockAfterSubtitle": "Cât timp în fundal înainte de blocare",
+  "sprDelayImmediately": "Imediat",
+  "sprDelayAfter1Min": "După 1 min",
+  "sprDelayAfter5Min": "După 5 min",
+  "sprDelayAfter10Min": "După 10 min",
+  "sprDelayAfter30Min": "După 30 min",
+  "sprDontLockWhilePlaying": "Nu Bloca În Timpul Redării",
+  "sprDontLockWhilePlayingSubtitle": "Aplicația nu se va bloca cât timp o melodie este redată",
+  "sprIncognito": "INCOGNITO",
+  "sprIncognitoMode": "Mod Incognito",
+  "sprIncognitoModeSubtitle": "Melodiile nu vor apărea în istoric și nu vor afecta recomandările",
+  "sprIncognitoOnInfo": "Modul incognito este ACTIVAT — istoricul de ascultare este întrerupt, iar recomandările nu se vor actualiza.",
+  "sprHideListeningStats": "Ascunde Statisticile de Ascultare",
+  "sprHideListeningStatsSubtitle": "Nu urmări numărul de redări sau timpul de ascultare",
+  "sprClearData": "ȘTERGE DATELE",
+  "sprClearHistory": "Șterge Istoricul de Ascultare",
+  "sprClearHistorySubtitle": "Elimină toate melodiile redate recent",
+  "sprResetRecommendations": "Resetează Recomandările",
+  "sprResetRecommendationsSubtitle": "Șterge scorurile de afinitate și începe din nou",
+  "sprClearAllData": "Șterge Toate Datele Aplicației",
+  "sprClearAllDataSubtitle": "Resetează tot — playlisturi, setări, istoric",
+  "sprClearTitle": "Ștergi {title}?",
+  "sprClearCannotUndo": "Aceasta nu poate fi anulată.",
+  "sprCancel": "Anulează",
+  "sprClear": "Șterge",
+  "sprHistoryTitle": "Istoric de Ascultare",
+  "sprRecommendationsTitle": "Recomandări",
+  "sprAllAppDataTitle": "Toate Datele Aplicației",
+  "sprPinMustBe4Digits": "PIN-ul trebuie să aibă 4 cifre",
+  "sprPinsDontMatch": "PIN-urile nu se potrivesc. Încearcă din nou.",
+  "sprConfirmPin": "Confirmă PIN-ul",
+  "sprSetPinSheetTitle": "Setează PIN",
+  "sprChangePinSheetTitle": "Schimbă PIN",
+  "sprEnterPinAgain": "Introdu din nou PIN-ul pentru confirmare",
+  "sprChoose4DigitPin": "Alege un PIN din 4 cifre",
+  "sprRemovePin": "Elimină PIN",
+  "sprNext": "Următorul",
+  "sprConfirm": "Confirmă",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCouldntLoadSongsRetry": "Nu s-au putut încărca melodiile acum.\nTrage în jos sau apasă pentru a reîncerca.",
+  "homeFailedToLoad": "Încărcare eșuată.",
+  "homeFailedToLoadCheckConnection": "Nu s-a putut încărca acum. Trage în jos pentru a reîncerca.",
+  "homeLoadingPlaylist": "Se încarcă {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Hiturile lui Arijit Singh",
+  "homePlaylistChartbusters2025": "Hiturile 2025",
+  "homePlaylistFreshBollywood": "Bollywood Proaspăt",
+  "homePlaylistMovieBlockbusters": "Hiturile de Film",
+  "homePlaylistNewReleases": "Lansări Noi",
+  "homePlaylistPartyAnthems": "Imnuri de Petrecere",
+  "homePlaylistRomanticThisWeek": "Romantic Săptămâna Aceasta",
+  "homePlaylistTrendingNow": "Popular Acum",
+  "loginSyncSubtitle": "Conectează-te pentru a-ți sincroniza biblioteca\npe orice dispozitiv",
+  "loginMaybeLater": "Poate mai târziu",
+  "loginBenefitSyncDevices": "Sincronizează playlisturi și favorite pe orice dispozitiv",
+  "loginBenefitResumeWhereLeft": "Continuă exact de unde ai rămas",
+  "loginBenefitLibrarySafe": "Biblioteca ta rămâne în siguranță chiar dacă schimbi telefonul",
+  "loginBenefitPersonalizedProfile": "Un profil personalizat cu numele și fotografia ta Google",
+  "loginContinueWithGoogle": "Continuă cu Google",
+  "commonClear": "Șterge",
+  "commonCreate": "Creează",
+  "commonImport": "Importă",
+  "libraryActionCannotBeUndone": "Aceasta nu poate fi anulată.",
+  "libraryAddToPlaylist": "Adaugă la playlist",
+  "libraryAddedToPlaylist": "Adăugat la \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, one{1 melodie adăugată la \"{name}\"} few{{count} melodii adăugate la \"{name}\"} other{{count} de melodii adăugate la \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, one{1 selectată} few{{count} selectate} other{{count} de selectate}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Selectează",
+  "librarySelectAll": "Selectează tot",
+  "libraryDeselectAll": "Deselectează tot",
+  "libraryRemoveSelectedFromPlaylist": "Elimină din playlist",
+  "libraryRemoveSelectedConfirm": "{count, plural, one{Elimini această melodie din playlist?} few{Elimini aceste {count} melodii din playlist?} other{Elimini aceste {count} de melodii din playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, one{1 melodie eliminată} few{{count} melodii eliminate} other{{count} de melodii eliminate}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Redă pe",
+  "castingToDevice": "Se transmite la {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "dispozitiv",
+  "castSessionDisconnect": "Deconectează",
+  "castSessionStopCasting": "Oprește transmisia",
+  "castDeviceFallbackTitle": "Dispozitiv de transmisie",
+  "castToDeviceLabel": "Transmite la dispozitiv",
+  "castPickerTitle": "Transmite la",
+  "castPickerScanning": "Se caută dispozitive…",
+  "castPickerNoDevices": "Nu s-au găsit dispozitive. Asigură-te că Chromecast-ul sau televizorul tău este în aceeași rețea Wi-Fi.",
+  "castPickerConnectFailed": "Nu s-a putut conecta. Încearcă din nou.",
+  "audioOutputAutoRoutingNotice": "Pe această versiune de Android, ieșirea trece automat la cel mai recent dispozitiv conectat.",
+  "audioOutputSwitchFailed": "Nu s-a putut schimba dispozitivul de ieșire. Încearcă din nou.",
+  "libraryAlbumTag": "Album",
+  "libraryAlbumsYouSaveAppearHere": "Albumele pe care le salvezi vor apărea aici.",
+  "libraryAlreadyInPlaylist": "Deja în \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, one{1 artist} few{{count} artiști} other{{count} de artiști}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Artist",
+  "libraryArtistsYouFollowAppearHere": "Artiștii pe care îi urmărești vor apărea aici.",
+  "libraryClearHistoryConfirm": "{count, plural, one{1 melodie va fi eliminată.} few{Toate cele {count} melodii vor fi eliminate.} other{Toate cele {count} de melodii vor fi eliminate.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Ștergi Istoricul?",
+  "libraryCollection": "Colecție",
+  "libraryComingSoon": "În Curând",
+  "libraryCreateFirstPlaylistDesc": "Creează-ți primul playlist și\nîncepe să-ți organizezi muzica.",
+  "libraryCreatePlaylist": "Creează Playlist",
+  "libraryImportFromYoutube": "Importă din Playlist YouTube",
+  "libraryImportFromYoutubeDesc": "Lipește un link de playlist YouTube, iar Astra va aduce toate melodiile, gata de redare.",
+  "libraryYoutubePlaylistLinkLabel": "Link playlist",
+  "libraryYoutubeLinkEmptyError": "Lipește un link de playlist pentru a continua.",
+  "libraryYoutubeImportFailedError": "Nu s-a putut importa acel playlist. Verifică link-ul și încearcă din nou.",
+  "libraryYoutubeImportInvalidLinkError": "Acesta nu pare a fi un link de playlist. Copiază link-ul din meniul de distribuire al playlistului și încearcă din nou.",
+  "libraryYoutubeImportMixError": "Mixurile și posturile radio nu pot fi importate — doar playlisturile obișnuite au o listă fixă de piese. Încearcă un playlist salvat.",
+  "libraryYoutubeImportNetworkError": "Nu s-a putut accesa YouTube. Verifică-ți conexiunea și încearcă din nou.",
+  "libraryDefaultPlaylistName": "Playlistul Meu",
+  "libraryDeletePlaylist": "Șterge playlistul",
+  "libraryDeletePlaylistConfirm": "Ștergi \"{name}\"?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Descriere (opțional)",
+  "libraryDownloadPlaylist": "Descarcă playlist",
+  "libraryDownloadingPlaylist": "Se descarcă playlistul…",
+  "libraryDownloadPlaylistProgress": "Se descarcă {done} din {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadFailedTapRetry": "Eșuat — apasă pentru a reîncerca",
+  "libraryDownloadFromPlayerDesc": "Descarcă o melodie din player pentru a asculta offline.",
+  "libraryDownloadedCountHeader": "{count, plural, one{1 DESCĂRCATĂ} few{{count} DESCĂRCATE} other{{count} DE DESCĂRCATE}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadsStorageSummary": "{count, plural, one{1 melodie} few{{count} melodii} other{{count} de melodii}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDownloadsTabDownloaded": "Descărcate",
+  "libraryDownloadsTabInProgress": "În Progres",
+  "libraryDownloadPaused": "Pauzat",
+  "libraryDownloadResume": "Reia",
+  "libraryDownloadPause": "Pauză",
+  "libraryDownloadCancel": "Anulează",
+  "libraryDownloadingHeader": "SE DESCARCĂ",
+  "libraryDownloadingPercent": "Se descarcă • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Editează Playlist",
+  "libraryHistory": "Istoric",
+  "libraryHistoryEarlierToday": "Mai devreme azi",
+  "libraryHistoryJustNow": "Chiar acum",
+  "libraryHistoryOlder": "Mai vechi",
+  "libraryHistoryRecent": "Recente",
+  "libraryHistoryYesterday": "Ieri",
+  "libraryLiked": "Apreciate",
+  "libraryLikedCount": "{count, plural, =0{0 apreciate} one{1 apreciată} few{{count} apreciate} other{{count} de apreciate}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Fișiere Locale",
+  "libraryLoginToOrganizeDesc": "Conectează-te cu Google pentru a-ți organiza muzica în playlisturi.",
+  "libraryNeedsPermissionToReadMusic": "Astra are nevoie de permisiune pentru a citi muzica ta.",
+  "libraryNewPlaylist": "Playlist Nou",
+  "libraryNewPlaylistLower": "playlist nou",
+  "libraryNoAlbumsSavedYet": "Niciun album salvat încă",
+  "libraryNoArtistsSavedYet": "Niciun artist salvat încă",
+  "libraryNoDownloadsYet": "Nicio descărcare încă",
+  "libraryNoHistoryYet": "Niciun istoric încă",
+  "libraryNoLocalSongsFound": "Nu s-au găsit melodii locale",
+  "libraryLocalSearchHint": "Caută melodii locale",
+  "libraryLocalSearchNoResults": "Nicio melodie locală nu se potrivește cu \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryNoPlaylistsYet": "Niciun playlist încă",
+  "libraryNoSongsYetInPlaylist": "Nicio melodie încă",
+  "libraryNothingHereYet": "Nimic aici încă",
+  "libraryOnDeviceCount": "{count} pe dispozitiv",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Este Necesară Permisiunea",
+  "libraryPlaySomethingToSeeHistory": "Redă ceva pentru a vedea istoricul",
+  "libraryPlaylistCount": "{count, plural, one{1 playlist} few{{count} playlisturi} other{{count} de playlisturi}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Nume playlist",
+  "libraryPlaylistNotFound": "Playlist negăsit",
+  "libraryRecentlyPlayed": "Redate Recent",
+  "libraryRemoveDownload": "Elimină descărcarea",
+  "libraryRemoveFromPlaylist": "Elimină din playlist",
+  "libraryRemoveFromSavedAlbums": "Elimină din albumele salvate",
+  "libraryChooseFromGallery": "Alege din galerie",
+  "libraryRemoveCustomCover": "Elimină coperta personalizată",
+  "libraryRenamePlaylist": "Redenumește playlistul",
+  "librarySearchAndAddSongsHere": "Caută melodii și adaugă-le aici",
+  "librarySeeAllSongs": "{count, plural, one{Vezi 1 melodie} few{Vezi toate cele {count} melodii} other{Vezi toate cele {count} de melodii}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Melodiile pe care le redai vor apărea aici",
+  "libraryUnfollowArtist": "Nu mai urmări artistul",
+  "libraryYourCollection": "Colecția ta",
+  "alWrongPin": "PIN greșit. Încearcă din nou.",
+  "alEnterPinToUnlock": "Introdu PIN-ul pentru a debloca",
+  "alBiometricReason": "Folosește amprenta pentru a debloca Astra Music",
+  "asCouldntLoad": "Nu s-a putut încărca {name}",
+  "asRetry": "Reîncearcă",
+  "asVerifiedArtist": "Artist Verificat",
+  "asMonthlyListeners": "{count} ascultători lunari",
+  "asSaved": "Salvat",
+  "asSave": "Salvează",
+  "asPopular": "Popular",
+  "asAlbums": "Albume",
+  "asSingles": "Single-uri",
+  "asAbout": "Despre",
+  "asFansAlsoLike": "Fanilor le mai place și",
+  "asShowAll": "Arată tot",
+  "asShowLess": "Arată mai puțin",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "abAppTitle": "Despre",
+  "abPrivacyPolicyTitle": "Politica de Confidențialitate",
+  "abUpdate": "ACTUALIZARE",
+  "abCheckForUpdate": "Verifică Actualizări",
+  "abCheckForUpdateSubtitle": "Vezi dacă este disponibilă o versiune nouă",
+  "abChangelog": "Jurnal de Modificări",
+  "abChangelogSubtitle": "Ce s-a schimbat în versiunile recente",
+  "abLegal": "LEGAL",
+  "abPrivacyPolicy": "Politica de Confidențialitate",
+  "abPrivacyPolicySubtitle": "Cum sunt gestionate datele tale",
+  "abTermsOfUse": "Termeni de Utilizare",
+  "abTermsOfUseSubtitle": "Acordul dintre tine și Astra",
+  "abCommunity": "COMUNITATE",
+  "abSendFeedback": "Trimite Feedback",
+  "abSendFeedbackSubtitle": "Spune-ne ce părere ai, oricând",
+  "abShareApp": "Distribuie Astra",
+  "abShareAppSubtitle": "Spune-le prietenilor despre această aplicație",
+  "abDeveloper": "DEZVOLTATOR",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Se încarcă...",
+  "abVersionBuild": "v{version} (build {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "snBackgroundPlayback": "REDARE ÎN FUNDAL",
+  "snPlayerNotification": "NOTIFICARE PLAYER",
+  "snNotificationStyle": "STIL NOTIFICARE",
+  "snBgPlaybackEnabled": "Redare în Fundal Activată",
+  "snAllowBgPlayback": "Permite Redarea în Fundal",
+  "snBgPlaybackEnabledDesc": "Muzica va continua să se redea cu ecranul stins sau aplicația închisă",
+  "snAllowBgPlaybackDesc": "Apasă pentru a permite muzicii să continue să se redea în fundal — unele telefoane opresc redarea fără aceasta",
+  "snShowMediaNotif": "Afișează Notificarea Media",
+  "snShowMediaNotifSubtitle": "Afișează playerul în bara de notificări",
+  "snShowArtwork": "Afișează Coperta Melodiei",
+  "snShowArtworkSubtitle": "Afișează coperta albumului în notificare",
+  "snShowPrevButton": "Afișează Butonul de Melodie Anterioară",
+  "snShowPrevButtonSubtitle": "Adaugă butonul anterior în notificarea media",
+  "snStyleCompact": "Compact",
+  "snStyleCompactDesc": "Controale mici și minime",
+  "snStyleExpanded": "Extins",
+  "snStyleExpandedDesc": "Controale complete cu copertă",
+  "prProfile": "Profil",
+  "prAurumListener": "Ascultător Astra",
+  "prPremiumBadge": "✦ Astra Premium",
+  "prAurumPremiumPlain": "Astra Premium",
+  "prBenefitSyncTitle": "Sincronizează Biblioteca",
+  "prBenefitSyncSub": "Muzica ta sincronizată pe toate dispozitivele",
+  "prBenefitLifetimeTitle": "Acces pe Viață",
+  "prBenefitLifetimeSub": "Fără abonamente, al tău pentru totdeauna",
+  "prBenefitAdFreeTitle": "Fără Reclame",
+  "prBenefitAdFreeSub": "Zero întreruperi, muzică pură",
+  "prBenefitQualityTitle": "Audio de Înaltă Calitate",
+  "prBenefitQualitySub": "Cea mai bună calitate de streaming disponibilă",
+  "prBenefitOfflineTitle": "Pregătit pentru Offline",
+  "prBenefitOfflineSub": "Descarcă și redă oriunde",
+  "prBenefitRecsTitle": "Recomandări Inteligente",
+  "prBenefitRecsSub": "Coadă și descoperire bazate pe dispoziție",
+  "prAllFeaturesUnlocked": "Toate funcțiile deblocate",
+  "prUpgradeToUnlock": "Actualizează pentru a debloca tot",
+  "prActive": "Activ",
+  "prFree": "Gratuit",
+  "prSyncingLibrary": "Se sincronizează biblioteca…",
+  "prSignedIn": "Conectat",
+  "prSyncLibraryTitle": "Sincronizează-ți Biblioteca",
+  "prSyncLibrarySubtitle": "Conectează-te pentru acces pe toate dispozitivele",
+  "prSignIn": "Conectare",
+  "prSignedInSynced": "Conectat — biblioteca ta este sincronizată",
+  "prSignedInUpgradePrompt": "Conectat! Actualizează la Premium pentru a activa sincronizarea în cloud.",
+  "prSignOutTitle": "Deconectare?",
+  "prSignOutBody": "Melodiile tale apreciate, playlisturile, artiștii urmăriți și istoricul vor fi șterse de pe acest dispozitiv. Conectează-te din nou oricând pentru a le recupera.",
+  "prCancel": "Anulează",
+  "prSignOut": "Deconectare",
+  "prSignedOutCleared": "Deconectat — datele tale au fost șterse de pe acest dispozitiv",
+  "psAurumPlus": "Astra Plus",
+  "psTagline": "Muzică, așa cum ar trebui să fie ascultată.",
+  "psRating": "Rating 4,9★",
+  "psSecure": "Securizat",
+  "psRefund": "Rambursare în 7 zile",
+  "psChoosePlan": "Alege-ți planul",
+  "psBadgeTryIt": "ÎNCEARCĂ",
+  "psBadgeSave58": "ECONOMISEȘTE 58%",
+  "psBadgeBestDeal": "CEA MAI BUNĂ OFERTĂ",
+  "psEverythingIncluded": "Tot inclus",
+  "psFeatHdAudioTitle": "Audio HD • 320kbps",
+  "psFeatHdAudioSub": "Calitate lossless cristalină",
+  "psFeatSkipsTitle": "Salturi Nelimitate",
+  "psFeatSkipsSub": "Sari peste câte melodii vrei",
+  "psFeatAdsTitle": "Zero Reclame",
+  "psFeatAdsSub": "Experiență complet fără reclame",
+  "psFeatAiTitle": "Recomandări AI",
+  "psFeatAiSub": "Melodii selectate special pentru tine",
+  "psFeatOfflineTitle": "Descărcări Offline",
+  "psFeatOfflineSub": "Ascultă fără internet",
+  "psFeatSyncTitle": "Sincronizare în Cloud",
+  "psFeatSyncSub": "Biblioteca ta pe orice dispozitiv",
+  "psFeatFollowTitle": "Apreciază și Urmărește Artiști",
+  "psFeatFollowSub": "Construiește-ți colecția personală",
+  "psFeatPlaylistsTitle": "Playlisturi Nelimitate",
+  "psFeatPlaylistsSub": "Creează și distribuie playlisturi",
+  "psFeatThemesTitle": "Teme Exclusive",
+  "psFeatThemesSub": "Culori premium și stiluri de player",
+  "psGetPlusPrice": "Obține Plus — {price}",
+  "psSignInGetPlus": "Conectează-te și Obține Plus",
+  "psPerMonth": "{price}/lună",
+  "psPerYear": "{price}/an",
+  "psOneTime": "{price} o singură dată",
+  "psSecurePayments": "🔒  Plăți securizate prin Razorpay  •  Anulează oricând",
+  "psMoneyBack": "Garanție de rambursare de 7 zile",
+  "psPlanMonthly": "1 Lună",
+  "psPlanYearly": "1 An",
+  "psPlanLifetime": "Pe Viață",
+  "psSubPerMonth": "pe lună",
+  "psSubPerYear": "pe an",
+  "psSubPayOnce": "plătește o dată, deține pentru totdeauna",
+  "psSuccessTitle": "Acum ești Plus ✦",
+  "psSuccessBody": "Toate funcțiile sunt deblocate.\nBucură-te de experiența completă Astra.",
+  "psStartListening": "Începe să Asculți",
+  "@psGetPlusPrice": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psPerYear": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "@psOneTime": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageSystemDefault": "Implicit sistem",
+  "fpLikeSongsFeature": "Apreciază Melodii",
+  "fpLikeSongsSignIn": "Conectează-te cu Google pentru a salva melodii în biblioteca ta.",
+  "fpClosePlayer": "Închide playerul",
+  "fpNowPlaying": "SE REDĂ ACUM",
+  "fpMoreOptions": "Mai multe opțiuni",
+  "fpUnlimitedSkipsFeature": "Salturi Nelimitate",
+  "fpUnlimitedSkipsSignIn": "Conectează-te cu Google pentru a sări de câte ori vrei.",
+  "fpShuffle": "Amestecă",
+  "fpPrevious": "Anterioară",
+  "fpNext": "Următoarea",
+  "fpRepeat": "Repetă",
+  "fpLocalBadge": "LOCALĂ",
+  "fpQueueLyricsInfo": "Coadă · Versuri · Informații",
+  "fpPause": "Pauză",
+  "fpPlay": "Redă",
+  "fpShareText": "{artist} — {title}\n\nDistribuit din Astra 🎵",
+  "@fpShareText": {
+    "description": "Text shared when sharing a song",
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSongInfoTitle": "Titlu",
+  "fpSongInfoArtist": "Artist",
+  "fpSongInfoAlbum": "Album",
+  "fpSongInfoDuration": "Durată",
+  "fpSongInfoYear": "An",
+  "fpSongInfoLanguage": "Limbă",
+  "fpSongInfo": "Informații Melodie",
+  "fpAlreadyDownloaded": "Deja descărcată",
+  "fpAlreadyDownloading": "Deja se descarcă",
+  "fpAlreadyOnDevice": "Deja pe acest dispozitiv",
+  "fpDownloadingSong": "Se descarcă {title}…",
+  "@fpDownloadingSong": {
+    "description": "Toast when a download starts",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fpPlayNext": "Redă Următoarea",
+  "fpAddToQueue": "Adaugă la Coadă",
+  "fpAddedToQueue": "Adăugat la coadă",
+  "fpLiked": "Apreciată",
+  "fpLikeAction": "Apreciază",
+  "fpLikeSignInBuildLibrary": "Conectează-te cu Google pentru a-ți construi biblioteca personală.",
+  "fpAddedToLiked": "Adăugat la Apreciate",
+  "fpRemovedFromLiked": "Eliminat din Apreciate",
+  "fpShare": "Distribuie",
+  "fpSaveToPlaylist": "Salvează în Playlist",
+  "fpAudioEffects": "Efecte Audio",
+  "fpSleepRemaining": "Somn • {time}",
+  "@fpSleepRemaining": {
+    "description": "Shows remaining sleep timer time on a pill",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fpSleepTimer": "Temporizator de Somn",
+  "fpDownloaded": "Descărcată",
+  "fpDownloading": "Se descarcă…",
+  "fpDownload": "Descarcă",
+  "fpDownloadingPercent": "Se descarcă {percent}%",
+  "@fpDownloadingPercent": {
+    "description": "Download progress percent label",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "fpQueue": "Coadă",
+  "fpLyrics": "Versuri",
+  "fpInfo": "Informații",
+  "fpQueueEmpty": "Coada este goală",
+  "fpUpNext": "URMEAZĂ",
+  "fpFindingSongs": "Se caută melodii pentru tine…",
+  "fpMoveToTop": "Mută în Sus",
+  "fpRemoveFromQueue": "Elimină din Coadă",
+  "fpNoLyricsFound": "Nu s-au găsit versuri",
+  "fpLyricsNotAvailable": "Versurile nu sunt disponibile pentru această melodie",
+  "fpSourceLabel": "Sursă",
+  "fpLocalLibrary": "Bibliotecă Locală",
+  "fpOnlineStream": "Transmisie Online",
+  "fpDownloadFailed": "Nu s-a putut descărca \"{title}\" — transmisia nu este disponibilă",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
+}
