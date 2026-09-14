@@ -95,6 +95,25 @@ class _ArtistScreenState extends State<ArtistScreen> {
       String? id = widget.artistId;
       id ??= await ApiService.resolveArtistId(widget.artistName);
       if (!mounted) return;
+      // FIX ("Couldn't load Hwasa" — a Saavn backend is disabled
+      // (`_saavnDisabled = true` in api_service.dart) dead end): a
+      // non-empty `id` here isn't necessarily usable. Any id that
+      // doesn't start with 'yt_' (a stale/bare 'saavn_'-prefixed id, or
+      // any other non-YT id, e.g. from a Saavn-sourced artist card,
+      // liked list, or follow made while Saavn was still live) walks
+      // straight into fetchArtist's/_fetchArtistStreaming's
+      // `_saavnDisabled` branch, which fails fast with null and no
+      // fallback — every such artist error out with "Couldn't load
+      // <name>" forever, even though we already have the artist's real
+      // NAME right here and a perfectly good InnerTube-based resolver
+      // (resolveArtistId, the same one used two lines up when `id` was
+      // null) that doesn't touch Saavn at all. Re-resolve by name
+      // whenever the id we ended up with isn't a 'yt_' id, exactly as if
+      // no id had been passed in to begin with.
+      if (id != null && !id.startsWith('yt_')) {
+        id = await ApiService.resolveArtistId(widget.artistName);
+        if (!mounted) return;
+      }
       if (id == null || id.isEmpty) {
         setState(() {
           _loading = false;

@@ -1544,21 +1544,27 @@ class ApiService {
   // Bounded to a handful of entries since only the current + next few
   // songs are ever realistically in play on a phone at once.
   static final Map<String, Future<List<Song>>> _autoQueueCache = {};
-  static const int _autoQueueCacheMaxEntries = 8;
+  // Bumped 8 -> 16: cache keys are now (song id + dedup-context) pairs
+  // instead of song id alone (see getAutoQueue's FIX comment), so the
+  // same anchor song legitimately produces more than one live entry
+  // during a session (initial build key, then a distinct key each time
+  // auto-extend re-anchors on it with a larger exclusion set). Doubling
+  // the cap keeps that from evicting a still-useful entry too eagerly.
+  static const int _autoQueueCacheMaxEntries = 16;
 
-  static void _rememberAutoQueueFuture(String songId, Future<List<Song>> future) {
+  static void _rememberAutoQueueFuture(String cacheKey, Future<List<Song>> future) {
     // Simple FIFO eviction — good enough here since entries are cheap
     // Futures, not the song data itself, and playback is linear so the
     // oldest entry is almost always the least likely to be reused.
     if (_autoQueueCache.length >= _autoQueueCacheMaxEntries) {
       _autoQueueCache.remove(_autoQueueCache.keys.first);
     }
-    _autoQueueCache[songId] = future;
+    _autoQueueCache[cacheKey] = future;
     // Don't let a failed build poison the cache for future attempts on
     // the same song — drop it on error so the next call retries fresh
     // instead of forever replaying the same failure.
     future.catchError((_) {
-      _autoQueueCache.remove(songId);
+      _autoQueueCache.remove(cacheKey);
       return <Song>[];
     });
   }
@@ -1585,11 +1591,40 @@ class ApiService {
     int limit = 60,
     Set<String>? existingQueueIds,
   }) async {
+    // FIX ("Up Next 13 songs pe hi ruk jata hai" — the cache used to be
+    // keyed by currentSong.id ALONE. _buildInitialSmartQueue seeds the
+    // cache early with a SMALL existingQueueIds set; later,
+    // _maybeExtendQueue can walk backward and land on that exact same
+    // anchor song again (e.g. after a local track, or a short queue) and
+    // call getAutoQueue for it a SECOND time with a much LARGER
+    // existingQueueIds set (everything added since). Keyed on song id
+    // only, that second call got back the FIRST call's cached result —
+    // a batch already fully deduped against the old, smaller queue, so
+    // every song in it now already exists in the live queue.
+    // _maybeExtendQueue's own dedup loop then filtered the entire
+    // returned batch out (`toAdd` ends up empty), silently ending the
+    // auto-extend chain for that whole session even though real,
+    // never-seen recommendations still exist. Keying on the *combined*
+    // set of ids we're deduping against (not just the anchor song) means
+    // a call with a different exclusion set is treated as a distinct
+    // request instead of replaying a stale, already-consumed answer.
+    // Order-independent hash of the exclusion set (cheap: XOR of each id's
+    // hashCode, no sorting/joining a potentially long id list on every
+    // call) combined with its length so two different-sized sets landing
+    // on the same XOR by coincidence still produce different keys.
+    int idsHash = 0;
+    for (final id in existingQueueIds ?? const <String>{}) {
+      idsHash ^= id.hashCode;
+    }
+    final cacheKey =
+        '${currentSong.id}|${existingQueueIds?.length ?? 0}|$idsHash';
+
     // Reuse an in-flight or already-completed build for this exact song
-    // instead of doing the network work again — see _autoQueueCache doc
-    // comment above for why this is what makes repeat/overlapping calls
-    // (Phase 1 + Phase 2, or a queue-extend shortly after) feel instant.
-    final cached = _autoQueueCache[currentSong.id];
+    // + dedup-context pair instead of doing the network work again — see
+    // _autoQueueCache doc comment above for why this is what makes
+    // repeat/overlapping calls (Phase 1 + Phase 2, or a queue-extend
+    // shortly after with the SAME exclusion set) feel instant.
+    final cached = _autoQueueCache[cacheKey];
     if (cached != null) return cached;
 
     final future = _buildAutoQueue(
@@ -1597,7 +1632,7 @@ class ApiService {
       limit: limit,
       existingQueueIds: existingQueueIds,
     );
-    _rememberAutoQueueFuture(currentSong.id, future);
+    _rememberAutoQueueFuture(cacheKey, future);
     return future;
   }
 
@@ -3368,6 +3403,27 @@ class ApiService {
     final featured = await featuredFuture;
     final seeded = (await seededFuture).whereType<HomeShelf>().toList();
 
+    // FIX ("home page pe ek hi category kitne baar aa raha hai" — same
+    // shelf, e.g. "Dancing on your own", showing up 2-3 times in a row):
+    // `real` (raw FEmusic_home parse), `similar` (per-affinity-artist
+    // shelves), `featured`, and `seeded` (the fixed _kSeedHomeShelfQueries
+    // list, which itself includes a literal "Dancing on your own" entry)
+    // were concatenated with NO title-level dedup at all. Two ways that
+    // produced visible repeats: (1) FEmusic_home's own raw payload can
+    // legitimately include the same shelf title more than once across
+    // different sections of the response — fetchRealHomeShelves() just
+    // parses every section it finds, so both copies survived into `real`
+    // unchanged; (2) `seeded`'s fixed "Dancing on your own" entry could
+    // land right alongside a same-titled shelf already pulled in via
+    // `real` or `similar` for the same session. Either way, nothing
+    // downstream ever checked one shelf's title against another's before
+    // this list got capped and handed to the UI, so a genuine duplicate
+    // rode all the way to the screen. Dedup by normalized title here,
+    // first-seen-wins (in `real -> similar -> featured -> seeded`
+    // priority order — the real personalized shelves should never lose
+    // their slot to a generic fixed-query one with the same name), before
+    // the maxShelves cap so a duplicate never displaces a genuinely
+    // different shelf that would otherwise have made the cut.
     final combined = [
       ...real,
       ...similar,
@@ -3375,8 +3431,16 @@ class ApiService {
       ...seeded,
     ];
 
+    final seenTitles = <String>{};
+    final deduped = <HomeShelf>[];
+    for (final shelf in combined) {
+      final key = shelf.title.trim().toLowerCase();
+      if (key.isEmpty || !seenTitles.add(key)) continue;
+      deduped.add(shelf);
+    }
+
     const maxShelves = 7;
-    return combined.take(maxShelves).toList();
+    return deduped.take(maxShelves).toList();
   }
 
   static Future<List<Song>> resolveHomeShelfPlaylist(
