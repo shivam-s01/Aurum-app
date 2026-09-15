@@ -111,9 +111,9 @@ List<ArtistSimple> _decodeArtists(String raw) {
 /// Which sections a given pull-to-refresh should actually hit the network
 /// for. Produced from [HomeFeedCache.bumpPullRefreshAndGetPosition]'s 1-10
 /// cycle position via [RefreshStage.forPosition] — see that constructor's
-/// doc comment for the staged rollout this implements ("dhire dhire har
-/// refresh mein thoda thoda naya content, ekdam last mein sab kuch ek saath
-/// na ho" — 2026-09-15).
+/// doc comment for the round-robin rollout this implements ("har refresh
+/// pe thoda content refresh ho, sirf Quick Picks nahi, YouTube Music jaisa
+/// naturally, heavy load/MB spike na ho" — 2026-09-15, round-robin revision).
 class RefreshStage {
   final bool quickPicks;
   final bool shelves;
@@ -128,26 +128,36 @@ class RefreshStage {
   });
 
   /// Maps a 1-10 cycle position to which sections are due a real fetch on
-  /// THIS pull. Deliberately cumulative — a section active at position N
-  /// stays active at every position after N in the same cycle — so the
-  /// experience is a genuine ramp (each pull adds one more thing on top
-  /// of what already refreshes) rather than each pull touching an
-  /// isolated, unrelated section:
-  ///   1-3   → Quick Picks only (cheapest — zero-network pool reshuffle,
-  ///           see _QuickPicksSection._rotateFromPool; only falls back to
-  ///           a real fetch if the pool's too small to reshuffle)
-  ///   4-6   → + real Shelves fetch joins in
-  ///   7-9   → + Similar-Artist rows join in
-  ///   10    → + Similar-Song rows join in (everything now active —
-  ///           the "complete" refresh, but it's the union of pieces
-  ///           already warmed up over the last 9 pulls, not a cold
-  ///           all-at-once spike)
+  /// THIS pull.
+  ///
+  /// REVISED (2026-09-15): the original version was cumulative/clustered —
+  /// pulls 1-3 touched Quick Picks only, so three refreshes in a row felt
+  /// identical before Shelves ever joined in at pull 4. That read as "sirf
+  /// Quick Picks refresh ho rahe hai, sb kuch nahi" — technically a ramp,
+  /// but not one the user could feel on every single pull.
+  ///
+  /// This version is round-robin instead of cumulative: Quick Picks stays
+  /// on every pull (it's the free one — a zero-network pool reshuffle, see
+  /// _QuickPicksSection._rotateFromPool), and exactly ONE heavy section
+  /// rotates in on top of it each time, so every single pull visibly
+  /// brings *something* new without ever bundling multiple network-heavy
+  /// sections into the same pull (that bundling is exactly the MB/heat
+  /// spike this feature exists to avoid — same reasoning as before, just
+  /// spread as "one new thing per pull" instead of "nothing new for 3
+  /// pulls, then one more thing on top of the last"):
+  ///   position % 3 == 1  → Quick Picks + Shelves
+  ///   position % 3 == 2  → Quick Picks + Similar-Artist rows
+  ///   position % 3 == 0  → Quick Picks + Similar-Song rows
+  /// Position still cycles 1-10 (see [HomeFeedCache.fullRefreshEvery]) so
+  /// the saved cycle counter and its persistence/wraparound contract are
+  /// unchanged — only how a position maps to active sections changed.
   factory RefreshStage.forPosition(int position) {
+    final slot = position % 3;
     return RefreshStage(
       quickPicks: true,
-      shelves: position >= 4,
-      similarArtistRows: position >= 7,
-      similarSongRows: position >= 10,
+      shelves: slot == 1,
+      similarArtistRows: slot == 2,
+      similarSongRows: slot == 0,
     );
   }
 }
@@ -753,34 +763,34 @@ class HomeFeedCache {
     }
   }
 
-  // ── Pull-to-refresh throttle counter ("10 baar refresh kre tab jaake
-  // poora fresh content aaye, MB/heating kam ho, aur dhire dhire har
-  // refresh mein thoda thoda naya content aaye, ekdam last mein hi sab
-  // kuch ek saath na ho" — 2026-09-15, staged version): an earlier binary
-  // cut of this idea — 9 refreshes touching only Quick Picks, then the
-  // 10th forcing shelves + similar-artist rows + similar-song rows +
-  // artists ALL AT ONCE — would have just moved the exact MB/heat spike
-  // this feature exists to remove from "every pull" to "pull #10". This
-  // version spreads the heavy pieces across the 10-pull cycle instead —
-  // each pull past the first activates one additional real network
-  // section (on top of every section already active from earlier pulls
-  // this cycle), so pull 10 is the union of everything without any
-  // single pull ever being a sudden all-at-once spike. Persisted (not
-  // just in-memory) so the position in the cycle survives app restarts.
+  // ── Pull-to-refresh throttle counter ("har refresh pe thoda content
+  // refresh ho, sirf Quick Picks nahi — dhire dhire naturally, YouTube
+  // Music jaisa, heavy load/MB spike na ho" — 2026-09-15, round-robin
+  // revision): the original staged cut (Quick-Picks-only for 3 pulls,
+  // then Shelves joins at pull 4, etc.) avoided ever spiking every
+  // section at once, but meant 3 refreshes in a row felt identical
+  // before anything else joined in — not something the user could feel
+  // on every single pull. RefreshStage.forPosition now rotates exactly
+  // ONE heavy section in per pull (position % 3) on top of the always-on
+  // free Quick Picks reshuffle, so every pull visibly brings something
+  // new while still never bundling more than one network-heavy section
+  // into the same pull. Persisted (not just in-memory) so the position
+  // in the cycle survives app restarts.
   static const _pullRefreshCountKey = 'home_pull_refresh_count';
 
-  // How many pull-to-refreshes make one full cycle. Kept as 10 to match
-  // the original ask ("10 baar refresh") — RefreshStage.forPosition maps
-  // each position 1-10 in the cycle to which sections are due a fetch.
+  // How many pull-to-refreshes make one full cycle before the counter
+  // wraps back to 1. Kept at 10 for continuity with the saved counter's
+  // existing range — RefreshStage.forPosition only actually cares about
+  // position % 3, so any multiple of 3 boundary isn't required here.
   static const int fullRefreshEvery = 10;
 
   /// Increments the counter and returns the 1-10 position within the
   /// current cycle (wraps back to 1 after [fullRefreshEvery]). Home
   /// screen turns this into a [RefreshStage] via [RefreshStage.forPosition]
-  /// to decide which sections are due a real fetch on this specific
-  /// pull. Best-effort: on any SharedPreferences failure, returns
-  /// [fullRefreshEvery] (the fullest stage) rather than silently
-  /// under-refreshing forever.
+  /// to decide which section rotates in as the "new" one on this specific
+  /// pull. Best-effort: on any SharedPreferences failure, returns 1
+  /// (Quick Picks + Shelves — a single, cheap, guaranteed-safe stage)
+  /// rather than guessing at a position that might land on a heavier slot.
   static Future<int> bumpPullRefreshAndGetPosition() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -789,7 +799,7 @@ class HomeFeedCache {
       final pos = ((next - 1) % fullRefreshEvery) + 1;
       return pos;
     } catch (_) {
-      return fullRefreshEvery;
+      return 1;
     }
   }
 

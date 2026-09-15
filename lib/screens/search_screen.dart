@@ -522,6 +522,16 @@ class _SearchScreenState extends State<SearchScreen>
       // Fired here too, same generation-counter guard _search() already
       // uses (see _searchGeneration's doc comment) so a fast-typed stale
       // query's response can't clobber a newer one's results.
+      //
+      // NOTE (2026-09-15): an earlier pass skipped this entirely under
+      // Data Saver to cut image traffic while typing. Reverted per
+      // explicit direction — Data Saver must never remove a feature or
+      // skip a fetch, only reduce the SIZE/quality of images already
+      // being downloaded (see AurumArtwork/_dataSaverScaledSize). Artist
+      // and album live-typing cards keep firing exactly as before in
+      // every mode; their thumbnails are already served smaller under
+      // Data Saver via AurumArtwork, which is the correct place for that
+      // tradeoff to live.
       final myLiveGeneration = ++_searchGeneration;
       ApiService.searchArtists(query).then((artists) {
         if (!mounted || myLiveGeneration != _searchGeneration) return;

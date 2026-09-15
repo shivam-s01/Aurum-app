@@ -2408,14 +2408,60 @@ class RecommendationEngine {
     // downstream search-by-name call this feeds (fetchSimilarArtistAlbums
     // in home_screen.dart, plus every other rotatingAffinityArtists call
     // site in api_service.dart).
-    final pool = sorted
+    var pool = sorted
         .where((e) => e.value > 0.5)
         .take(12)
         .map((e) => _artistDisplayName[e.key] ?? e.key)
         .toList();
+    // FIX ("refresh pr cards change nahi ho rahe, artist/album same
+    // rehte hain" — 2026-09-15): the whole point of this function over
+    // topAffinityArtists is to rotate on every pull instead of freezing
+    // on the same artists — but shuffling only helps once the pool
+    // actually has MORE than `count` candidates to shuffle among. Anyone
+    // who hasn't yet pushed more than ~3 artists past the neutral 0.5
+    // affinity line (a very common state — most artists sit at exactly
+    // 0.5 until real listening signal moves them) had a pool that was
+    // ALREADY <= count, so `if (pool.length <= count) return pool`
+    // below fired every single time regardless of seed — same 2-3
+    // artists shown forever, no matter how many times the user pulled
+    // to refresh. Widen the fallback to include every artist the user
+    // has ANY real signal for (weight != the untouched-default 0.5,
+    // i.e. genuinely nudged up OR down by real listening/skip history —
+    // never a stranger with zero interaction), capped at 20 so this
+    // still stays a rotation among artists the user actually has a
+    // relationship with, never a source of unfamiliar/heavy new-artist
+    // fetches. Only engaged when the strict pool is too thin to rotate;
+    // a user with a healthy >12-artist strict pool never reaches this at
+    // all, so their experience is unchanged.
+    if (pool.length <= count && sorted.length > pool.length) {
+      pool = sorted
+          .where((e) => e.value != 0.5)
+          .take(20)
+          .map((e) => _artistDisplayName[e.key] ?? e.key)
+          .toList();
+    }
     if (pool.length <= count) return pool;
-    pool.shuffle(math.Random(seed));
-    return pool.take(count).toList();
+    // ROTATION FIX ("dhire dhire, bari bari sab replace ho, users ko
+    // pata chale, lekin heavy na ho" — 2026-09-15): a full
+    // `pool.shuffle(Random(seed))` picks an entirely new random order
+    // every single pull — by chance that can swap all 3 shown artists
+    // at once on one pull, then barely change anything on the next. A
+    // round-robin window instead advances through the SAME stable-
+    // ordered pool by exactly ONE position each pull (seed increments by
+    // 1 per refresh — see home_screen.dart's _playlistRefreshKey++):
+    // pull N's window overlaps pull N-1's by (count - 1) artists, so
+    // each refresh swaps out exactly one "oldest" artist and brings in
+    // one "next" one, wrapping back to the start once it runs past the
+    // pool's end. That gives a visibly steady, one-artist-at-a-time
+    // progression through the person's real affinity list — never a
+    // jarring all-at-once swap — and it's pure in-memory list math, no
+    // extra network cost over the plain shuffle it replaces.
+    final step = (seed ?? 0) % pool.length;
+    final window = <String>[];
+    for (var i = 0; i < count && i < pool.length; i++) {
+      window.add(pool[(step + i) % pool.length]);
+    }
+    return window;
   }
 
   /// Top genres by user affinity. Used for home feed section ordering.

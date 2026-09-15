@@ -509,19 +509,17 @@ class _HomeScreenState extends State<HomeScreen> {
   // cache their own art/songs in initState) get fresh widget identities and
   // refetch a brand-new random Saavn-first set instead of showing stale data.
   int _playlistRefreshKey = 0;
-  // STAGED REFRESH ("10 baar refresh kre tab jaake poora fresh content
-  // aaye, MB/heating kam ho, aur dhire dhire har refresh mein thoda thoda
-  // naya content aaye" — 2026-09-15): bumped on EVERY pull-to-refresh.
+  // STAGED REFRESH ("har refresh pe thoda content refresh ho, sirf Quick
+  // Picks nahi — YouTube Music jaisa naturally" — 2026-09-15, round-robin
+  // revision): bumped on EVERY pull-to-refresh.
   // _QuickPicksSection listens to this directly. _HomeShelvesAndSimilarSection
   // also listens to it (as its own refreshKey) but gates its three
   // internal fetches (shelves / similar-artist rows / similar-song rows)
   // behind the RefreshStage computed alongside this bump — see
-  // _onPullToRefresh. Replaces the old binary _playlistRefreshKey (only
-  // bumped 1-in-10) — that split meant _HomeShelvesAndSimilarSection sat
-  // completely frozen for 9 pulls, then fetched everything at once on the
-  // 10th, which is exactly the all-at-once network/MB/heat spike this
-  // feature exists to remove, just moved to a single pull instead of
-  // spread out.
+  // _onPullToRefresh. RefreshStage.forPosition now rotates exactly ONE of
+  // those three in per pull (round-robin) instead of clustering them
+  // across a 1-10 ramp, so every single pull brings something new without
+  // ever bundling more than one network-heavy section into the same pull.
   int _quickPicksRefreshKey = 0;
   // Current position (1-10) in the staged-refresh cycle — read by
   // _HomeShelvesAndSimilarSection to decide which of its three sections
@@ -1051,19 +1049,22 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
             displacement: 48,
-            // STAGED REFRESH ("10 baar refresh kre tab jaake poora fresh
-            // content aaye, MB/heating kam ho, dhire dhire har refresh
-            // mein thoda thoda naya content aaye" — 2026-09-15): every
-            // pull no longer unconditionally re-fetches shelves + similar
-            // rows together. HomeFeedCache.bumpPullRefreshAndGetPosition()
-            // persists a 1-10 cycle position; RefreshStage.forPosition
-            // maps that to which of shelves/similar-artist-rows/similar-
-            // song-rows are due THIS pull. Quick Picks reshuffles on every
-            // pull (cheapest, zero-network); shelves join in from pull 4,
-            // similar-artist rows from pull 7, similar-song rows from
-            // pull 10 — cumulative, so pull 10 is the union of everything
-            // warmed up over the cycle rather than a cold all-at-once
-            // spike. See RefreshStage's doc comment for the full ramp.
+            // STAGED REFRESH ("har refresh pe thoda content refresh ho,
+            // sirf Quick Picks nahi — naturally, YouTube Music jaisa,
+            // heavy load/MB spike na ho" — 2026-09-15, round-robin
+            // revision): every pull no longer unconditionally re-fetches
+            // shelves + similar rows together.
+            // HomeFeedCache.bumpPullRefreshAndGetPosition() persists a
+            // 1-10 cycle position; RefreshStage.forPosition maps that to
+            // which of shelves/similar-artist-rows/similar-song-rows is
+            // due THIS pull. Quick Picks reshuffles on every pull
+            // (cheapest, zero-network); exactly ONE of the three heavier
+            // sections rotates in alongside it each pull (shelves, then
+            // similar-artist rows, then similar-song rows, then back to
+            // shelves...) so every single pull visibly brings something
+            // new without ever bundling more than one network-heavy
+            // section into the same pull. See RefreshStage's doc comment
+            // for the full rotation.
             onRefresh: () => isOnline ? _onPullToRefresh() : context.read<LibraryProvider>().refresh(),
             child: AurumScrollDeltaScope(
               notifier: _scrollDelta.notifier,
@@ -5000,7 +5001,26 @@ class _HomeShelvesAndSimilarSectionState
     final children = <Widget>[
       for (final row in similar)
         _SimilarArtistsRow(
-          key: ValueKey('${row.artistName}_${widget.refreshKey}'),
+          // AWKWARD-REBUILD FIX ("sb kuch ekdam balance rahna chahiye,
+          // kuch bhi awkward na ho" — 2026-09-15): this key used to
+          // include widget.refreshKey directly. Under the round-robin
+          // refresh (RefreshStage.forPosition), refreshKey now bumps on
+          // EVERY pull, but a given pull only actually re-fetches ONE of
+          // shelves/similar-artist-rows/similar-song-rows — the other two
+          // keep showing their existing content untouched (see
+          // didUpdateWidget's skipX derivation above). Baking the raw,
+          // always-incrementing refreshKey into every row's key meant
+          // Flutter treated EVERY row as a brand-new widget on EVERY
+          // pull, even the ones whose data didn't change that pull —
+          // tearing down and rebuilding their scroll offset, any
+          // in-progress fade/entrance animation, and image widgets for
+          // no reason. Keying on the row's own artist name instead (which
+          // only changes when this row's data actually changes) keeps
+          // Flutter's element/state genuinely stable across a pull that
+          // didn't touch this row, and still gives a fresh key on the
+          // pulls that DO refresh it, since a refreshed row's artist name
+          // is a new value pulled from a rotated seed.
+          key: ValueKey('similar_artist_${row.artistName}'),
           seedArtistName: row.artistName,
           seedArtistImageUrl: row.artistImageUrl,
           relatedArtist: row.relatedArtist,
@@ -5008,13 +5028,17 @@ class _HomeShelvesAndSimilarSectionState
         ),
       for (final row in similarSongs)
         _SimilarSongsRow(
-          key: ValueKey('${row.seedSong.id}_${widget.refreshKey}'),
+          // Same fix as above — keyed on the seed song's stable id
+          // instead of the ever-incrementing refreshKey.
+          key: ValueKey('similar_song_${row.seedSong.id}'),
           seedSong: row.seedSong,
           related: row.related,
         ),
       for (final shelf in realShelves)
         _RealHomeShelfRow(
-          key: ValueKey('${shelf.title}_${widget.refreshKey}'),
+          // Same fix as above — keyed on the shelf's own stable title
+          // instead of the ever-incrementing refreshKey.
+          key: ValueKey('real_shelf_${shelf.title}'),
           shelf: shelf,
         ),
     ];

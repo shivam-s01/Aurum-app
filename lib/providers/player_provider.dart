@@ -2250,6 +2250,17 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       await _engine.moveQueueItem(from, to);
       final moved = _queue.removeAt(from);
       _queue.insert(to, moved);
+      // BUG ("Up Next mein song choose karne pe koi aur play ho jata
+      // hai" — 2026-09-15): same class of debounce-target desync as
+      // removeFromQueue/moveQueueItem above. Inserting this song at
+      // `to` shifts every existing song from `to` onward one slot later
+      // — if a skipToIndex() debounce is mid-flight targeting one of
+      // those now-shifted songs, the pending numeric index needs to
+      // move with it or the eventual native call lands one song early.
+      final pending = _skipDebounceTargetIndex;
+      if (pending != null && pending >= to) {
+        _skipDebounceTargetIndex = pending + 1;
+      }
     }
     notifyListeners();
   }
@@ -2272,6 +2283,31 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _queue.removeAt(index);
       if (index < _currentIndex) {
         _currentIndex -= 1;
+      }
+      // BUG ("Up Next mein song choose karne pe koi aur play ho jata
+      // hai" — 2026-09-15): skipToIndex() debounces its actual native
+      // call via _scheduleSkipFlush, which remembers only a raw queue
+      // POSITION (_skipDebounceTargetIndex) — not the song's identity.
+      // If a remove (this swipe-to-delete, or the onPlayNext/
+      // onMoveToTop actions in full_player_screen.dart, which both call
+      // this) lands inside that ~60ms debounce window, the position the
+      // user actually tapped shifts, but the pending flush still fires
+      // for the STALE numeric index — landing on whatever song now
+      // happens to sit there instead of the one the user chose. Same
+      // adjustment as _currentIndex directly above: a removal before
+      // the pending target shifts it left by one; a removal exactly AT
+      // the pending target means that song no longer exists, so the
+      // pending skip is cancelled outright rather than firing for
+      // whatever now occupies its old slot.
+      final pending = _skipDebounceTargetIndex;
+      if (pending != null) {
+        if (index == pending) {
+          _skipDebounce?.cancel();
+          _skipDebounce = null;
+          _skipDebounceTargetIndex = null;
+        } else if (index < pending) {
+          _skipDebounceTargetIndex = pending - 1;
+        }
       }
     }
     notifyListeners();
@@ -2297,6 +2333,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         _currentIndex -= 1;
       } else if (from > _currentIndex && clampedTo <= _currentIndex) {
         _currentIndex += 1;
+      }
+
+      // BUG ("Up Next mein song choose karne pe koi aur play ho jata
+      // hai" — 2026-09-15): same debounce-target desync as
+      // removeFromQueue above — a drag-reorder (or the onMoveToTop
+      // action) landing inside skipToIndex()'s ~60ms debounce window
+      // shifts the pending numeric target to point at a different song
+      // than the one actually tapped. Same index math as _currentIndex
+      // just above, applied to the pending target instead.
+      final pending = _skipDebounceTargetIndex;
+      if (pending != null) {
+        if (from == pending) {
+          _skipDebounceTargetIndex = clampedTo;
+        } else if (from < pending && clampedTo >= pending) {
+          _skipDebounceTargetIndex = pending - 1;
+        } else if (from > pending && clampedTo <= pending) {
+          _skipDebounceTargetIndex = pending + 1;
+        }
       }
     }
     notifyListeners();
