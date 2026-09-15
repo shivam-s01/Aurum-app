@@ -15,8 +15,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # persist-credentials/fetch-depth kept as-is — harmless even
-          # though this job no longer pushes commits of its own.
+          # persist-credentials required (true) — the "Commit bumped
+          # version back to repo" step below now pushes a commit using
+          # this checkout's saved GITHUB_TOKEN credentials.
           persist-credentials: true
           fetch-depth: 0
 
@@ -48,12 +49,54 @@ jobs:
       - name: Analyze (safety gate — stops here on real errors)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Set build number from run number
+      - name: Bump build number (persisted in pubspec.yaml)
+        # FIX ("update popup fake/not showing — app is always 'up to
+        # date'"): this used to set the build number to
+        # github.run_number every run, WITHOUT ever committing that
+        # change back to the repo. Two problems from that: (1)
+        # pubspec.yaml in git stayed frozen at whatever it was last
+        # hand-edited to (2.3.2+345 here) forever, so UpdateService's
+        # comparison logic and any docs/checkouts reading the repo saw
+        # a stale number; (2) run_number counts EVERY workflow run
+        # (including failed/re-run/workflow_dispatch runs), so it can
+        # jump unpredictably and doesn't reflect "how many releases have
+        # actually shipped" — it's a CI counter, not a release counter.
+        # Fix: read the last committed build number from pubspec.yaml,
+        # increment it by exactly 1, write it back into pubspec.yaml,
+        # and commit+push that change (below) so it's the permanent,
+        # ever-increasing source of truth — matching the tag/release
+        # name AND what ships inside the APK AND what's visible in the
+        # repo, always in lockstep.
+        #
+        # ONE-TIME RESYNC: pubspec.yaml was stuck at +345 while GitHub
+        # Releases had already reached build1125 (from the old
+        # run_number-based scheme). Floor LAST_BUILD at 1125 so this
+        # first bump continues from 1126 onward instead of restarting
+        # at 346 and looking like an OLDER build than what's already
+        # been released and possibly installed on phones. Every run
+        # after this one just increments normally — this floor only
+        # ever matters once.
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
-          NEW_VERSION="${BASE_VERSION}+${{ github.run_number }}"
+          LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
+          if [ "$LAST_BUILD" -lt 1125 ]; then
+            LAST_BUILD=1125
+          fi
+          NEW_BUILD=$((LAST_BUILD + 1))
+          NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
           sed -i "s/^version:.*/version: ${NEW_VERSION}/" pubspec.yaml
-          echo "Set pubspec.yaml version to ${NEW_VERSION}"
+          echo "Bumped pubspec.yaml version ${LAST_BUILD} -> ${NEW_BUILD} (${NEW_VERSION})"
+
+      - name: Commit bumped version back to repo
+        # Runs before the actual APK build so a build failure never
+        # leaves the bump uncommitted (which would silently repeat the
+        # same +1 next run and desync from what actually shipped).
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "chore: bump build number [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Build Release APK
         # FIX (build failures from transient upstream 429 "Too Many

@@ -108,11 +108,32 @@ class UpdateService {
 
       final downloadUrl = apkAsset['browser_download_url'] as String;
       final buildMatch = RegExp(r'(?:build)?(\d+)').firstMatch(latestTag);
-      final latestBuild = int.tryParse(buildMatch?.group(1) ?? '0') ?? 0;
+      // FIX ("update popup fake / never showing even when a newer build
+      // exists"): a failed regex match used to fall back to '0' via
+      // `?? '0'`, which fed straight into `latestBuild <= currentBuild`
+      // as a real "0 <= currentBuild" comparison — always true, always
+      // silently reads as "you're up to date" with zero indication the
+      // tag didn't actually parse. Now a parse failure is tracked
+      // separately and treated as "can't determine — skip the up-to-date
+      // check" rather than "definitely not newer", so a tag-format
+      // change (or an unexpected non-numeric tag) can never masquerade
+      // as a real "no update available" result.
+      final latestBuild = buildMatch != null
+          ? int.tryParse(buildMatch.group(1)!)
+          : null;
 
       if (kDebugMode) {
         debugPrint('[Aurum] UpdateService: currentBuild=$currentBuild '
             'latestTag="$latestTag" latestBuild=$latestBuild');
+      }
+
+      if (latestBuild == null) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: could not parse a build '
+              'number out of tag "$latestTag" — skipping.');
+        }
+        if (!silent && context.mounted) _showCheckFailed(context);
+        return;
       }
 
       if (latestBuild <= currentBuild) {
