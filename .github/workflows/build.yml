@@ -66,9 +66,20 @@ jobs:
         # backoff (30s, then 60s) so a transient rate-limit has an
         # actual chance to clear before the next attempt, instead of
         # requiring a manual empty-commit re-run every time it happens.
+        #
+        # --dart-define passes GH_RELEASE_TOKEN in at build time so
+        # UpdateService's GitHub API call is authenticated (5000 req/hour
+        # instead of 60/hour shared across every user's IP — see
+        # update_service.dart's doc comment for how the unauthenticated
+        # limit was silently breaking the update popup for everyone).
+        # The secret is injected by the Actions runner and only ever
+        # lives in this ephemeral environment — it is never written to
+        # any file in the repo.
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
           for attempt in 1 2 3; do
-            if flutter build apk --release --split-per-abi; then
+            if flutter build apk --release --split-per-abi --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
               exit 0
             fi
             echo "Build attempt $attempt failed."

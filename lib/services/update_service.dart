@@ -17,6 +17,18 @@ import '../utils/aurum_motion.dart';
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
+  // Fine-grained PAT, Contents:Read-only on this repo only, 1yr expiry.
+  // Read from --dart-define at build time (see BUILD.md) — NEVER hardcode
+  // this, since Aurum-app is a public repo and a hardcoded token here
+  // would be visible to anyone browsing the source on GitHub within
+  // minutes (bots actively scan public repos for exactly this).
+  // Was unauthenticated (60 req/hour PER IP, shared across every Aurum
+  // user behind that IP/NAT/carrier) — once that shared budget ran out,
+  // GitHub returned 403 to everyone, and since the launch-time check
+  // runs with silent:true, a non-200 response is swallowed with zero UI
+  // (see the `!silent` guards below), so nobody ever saw the popup with
+  // no visible error either. Authenticated raises this to 5000/hour.
+  static const _githubToken = String.fromEnvironment('GH_RELEASE_TOKEN');
   static const _channel = MethodChannel('com.aurum.music/media_store');
 
   // Persisted dismiss: "Later" hides the popup for 12 hours, tracked
@@ -39,8 +51,10 @@ class UpdateService {
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
 
       final response = await http
-          .get(Uri.parse(_apiUrl),
-              headers: {'Accept': 'application/vnd.github.v3+json'})
+          .get(Uri.parse(_apiUrl), headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': 'Bearer $_githubToken',
+          })
           .timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) {

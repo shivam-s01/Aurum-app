@@ -1,0 +1,13 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+
+# Local secrets — NEVER commit tokens. Keep your GitHub PAT here and
+# pass it at build time with --dart-define-from-file=secrets.env
+# (see BUILD.md).
+secrets.env
