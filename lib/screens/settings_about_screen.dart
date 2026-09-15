@@ -278,7 +278,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         icon: Icons.system_update_rounded,
         title: l10n.abCheckForUpdate,
         subtitle: l10n.abCheckForUpdateSubtitle,
-        onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context); },
+        onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context, silent: false, force: true); },
       ),
       AurumSettingsTile.action(context,
         icon: Icons.history_rounded,

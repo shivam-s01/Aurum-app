@@ -41,14 +41,25 @@ class UpdateService {
   /// checks). [force] bypasses the 12h snooze (used for the manual
   /// Settings "Check for Update" tap, so the user always gets a fresh
   /// answer when they explicitly ask).
+  // TEMP DIAGNOSTIC — unconditional (not kDebugMode-gated) so it's visible
+  // in release builds too. Remove once the popup issue is confirmed fixed.
+  static void _diag(BuildContext context, String msg) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('[diag] $msg'), duration: const Duration(seconds: 4)),
+    );
+  }
+
   static Future<void> checkForUpdate(
     BuildContext context, {
     bool silent = true,
     bool force = false,
   }) async {
+    _diag(context, 'checkForUpdate called, silent=$silent force=$force');
     try {
       final info = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
+      _diag(context, 'currentBuild=$currentBuild, calling GitHub API');
 
       final response = await http
           .get(Uri.parse(_apiUrl), headers: {
@@ -57,12 +68,15 @@ class UpdateService {
           })
           .timeout(const Duration(seconds: 8));
 
+      _diag(context, 'API responded: ${response.statusCode}');
+
       if (response.statusCode != 200) {
         // DIAGNOSTIC (was previously silent even for the common
         // unauthenticated-GitHub-API-rate-limit case, 403, which meant
         // a real-world "why didn't I get the popup" was undebuggable —
         // this branch had zero visibility before). kDebugMode-gated so
         // it costs nothing in release builds' normal operation.
+        _diag(context, 'FAILED: API returned ${response.statusCode} — ${response.body}');
         if (kDebugMode) {
           debugPrint('[Aurum] UpdateService: releases/latest returned '
               '${response.statusCode} (silent=$silent): ${response.body}');
@@ -77,6 +91,7 @@ class UpdateService {
       final body = data['body'] as String? ?? '';
       final assets = data['assets'] as List<dynamic>? ?? [];
       if (assets.isEmpty) {
+        _diag(context, 'FAILED: release "$latestTag" has no assets');
         if (kDebugMode) {
           debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no assets');
         }
@@ -89,6 +104,7 @@ class UpdateService {
         orElse: () => null,
       );
       if (apkAsset == null) {
+        _diag(context, 'FAILED: release "$latestTag" has no .apk asset');
         if (kDebugMode) {
           debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no .apk asset');
         }
@@ -100,22 +116,27 @@ class UpdateService {
       final buildMatch = RegExp(r'(?:build)?(\d+)').firstMatch(latestTag);
       final latestBuild = int.tryParse(buildMatch?.group(1) ?? '0') ?? 0;
 
+      _diag(context, 'currentBuild=$currentBuild latestTag="$latestTag" latestBuild=$latestBuild');
       if (kDebugMode) {
         debugPrint('[Aurum] UpdateService: currentBuild=$currentBuild '
             'latestTag="$latestTag" latestBuild=$latestBuild');
       }
 
       if (latestBuild <= currentBuild) {
+        _diag(context, 'UP TO DATE: latestBuild=$latestBuild <= currentBuild=$currentBuild');
         if (!silent && context.mounted) _showUpToDate(context);
         return;
       }
 
       if (!force && await _isSnoozed(latestTag)) {
+        _diag(context, 'SKIPPED: "$latestTag" is snoozed (Not now dabaya tha, 12h cooldown)');
         if (kDebugMode) {
           debugPrint('[Aurum] UpdateService: "$latestTag" is snoozed, skipping popup');
         }
         return;
       }
+
+      _diag(context, 'Showing update dialog for "$latestTag"');
 
       final highlights = _parseHighlights(body);
 
@@ -129,6 +150,7 @@ class UpdateService {
         );
       }
     } catch (e) {
+      _diag(context, 'EXCEPTION: $e');
       if (kDebugMode) {
         debugPrint('[Aurum] UpdateService: checkForUpdate threw (silent=$silent): $e');
       }
