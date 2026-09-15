@@ -247,6 +247,25 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
       // Update check
       final prefs = await SharedPreferences.getInstance();
+
+      // FIX ("purane users ko update popup nahi mil raha"): 'check_updates'
+      // is disk-persisted and never had any UI to toggle it — it could
+      // only ever have been set to false manually/temporarily (e.g. while
+      // testing around build 646). Because it's a plain persisted bool,
+      // any install that ever passed through that state keeps
+      // check_updates=false forever on every future launch/build, with no
+      // way for the user to know or fix it themselves. This is a one-time,
+      // one-way migration: if the stale `false` is found, it's cleared
+      // back to the default (true) exactly once and never touched again,
+      // so it doesn't fight a real "Check for Update" toggle if one gets
+      // added to Settings later.
+      const migrationFlag = 'check_updates_regression_fix_applied_v1';
+      if (prefs.getBool('check_updates') == false &&
+          !(prefs.getBool(migrationFlag) ?? false)) {
+        await prefs.remove('check_updates');
+        await prefs.setBool(migrationFlag, true);
+      }
+
       final checkUpdates = prefs.getBool('check_updates') ?? true;
       if (checkUpdates && mounted) {
         await UpdateService.checkForUpdate(context);
