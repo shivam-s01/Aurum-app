@@ -150,4 +150,32 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">ipwho.is</domain>
     </domain-config>
+
+    <!-- FIX: UpdateService.checkForUpdate() calls api.github.com
+         (releases/latest) to check for in-app updates, and the APK
+         download itself comes from objects.githubusercontent.com (GitHub
+         Releases' actual asset-serving CDN, not api.github.com — release
+         assets redirect there). Neither domain was whitelisted here, so
+         with cleartextTrafficPermitted="false" + this custom
+         networkSecurityConfig, Android silently blocked BOTH the update
+         check and the update download before either request left the
+         device — same class of bug as every other FIX comment in this
+         file (Worker/Saavn/YouTube/iTunes/ipapi). This is why the update
+         popup never appeared and the Settings "Check for Update" button
+         produced no toast, no dialog, and no error: the HTTP call never
+         got a response at all, success or failure, so every UI branch in
+         checkForUpdate() that depends on that response was simply never
+         reached. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.github.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">github.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">objects.githubusercontent.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">github-releases.githubusercontent.com</domain>
+    </domain-config>
 </network-security-config>
