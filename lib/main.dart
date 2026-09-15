@@ -51,6 +51,7 @@ import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/audio_prefs.dart';
 import 'services/battery_saver_controller.dart';
+import 'services/data_saver_controller.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
@@ -306,6 +307,15 @@ Future<void> main() async {
   // BatterySaverController.start()'s doc comment).
   try {
     BatterySaverController.instance.start();
+  } catch (_) {}
+
+  // EXTREME DATA SAVER (2026-09-15): begin pushing AudioPrefs.
+  // dataSaverActiveNotifier down to native immediately after prefs are
+  // loaded (same placement/reasoning as BatterySaverController just
+  // above) — see DataSaverController's doc comment for what this
+  // actually narrows (native's ahead-of-need queue pre-buffering).
+  try {
+    DataSaverController.instance.start();
   } catch (_) {}
 
   try {

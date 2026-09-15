@@ -2707,9 +2707,7 @@ class ApiService {
         String artworkUrl = '';
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
-          artworkUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
-              : '';
+          artworkUrl = _scaledArtworkUrl(rawUrl, 1000);
         }
 
         final flexColumns = (item['flexColumns'] as List?) ?? const [];
@@ -2820,10 +2818,58 @@ class ApiService {
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>');
 
+  // FIX ("data saver on karne ke baad bhe app extreme MB le raha hai" —
+  // 2026-09-15): AudioPrefs.dataSaver (the app's own Data Saver toggle)
+  // only ever fed qualityOrder() — i.e. which AUDIO bitrate to stream.
+  // Every artwork/thumbnail/banner URL across the app was hardcoded to a
+  // fixed large size (=w300-h300 for shelf/list cards via
+  // _hqArtworkGeneric, =w1000-h1000 / =w1080-h1080-p for
+  // artist/album/playlist headers, and =w1440-h1440-p for artist
+  // banners) with NO regard for the toggle at all — a Data Saver user
+  // pulling a shelf of 12 sections x 10 cards each still downloaded 120+
+  // full 300x300 thumbnails, and opening a single artist page still
+  // pulled a 1440x1440 banner plus a 1080x1080 avatar, exactly as if
+  // Data Saver were off. Since images (fetched on every scroll/shelf/
+  // refresh, far more often than a single audio stream is chosen) are
+  // the actual dominant MB cost here, Data Saver needs to shrink these
+  // too, not just the audio ladder. This scales every requested
+  // dimension down by a fixed factor whenever dataSaver is on (covers
+  // both the standalone toggle and the 'DataSaver' streamQuality tier,
+  // same "either flag counts" contract qualityOrder() already uses) —
+  // still crisp enough for card-sized art on screen, just meaningfully
+  // fewer bytes over the wire.
+  static int _dataSaverScaledSize(int fullSize) {
+    final saverActive = AudioPrefs.dataSaverActiveNotifier.value;
+    if (!saverActive) return fullSize;
+    // ~40% of the full size — well above visible-blur territory for a
+    // shelf card or list thumbnail, but a real byte reduction (roughly
+    // 1/6th the pixel count) for banners/headers that were previously
+    // forced all the way up to 1440px regardless of how small they
+    // actually render on screen.
+    final scaled = (fullSize * 0.4).round();
+    // Floor so a tiny already-small request never gets scaled below
+    // something legible.
+    return scaled < 96 ? 96 : scaled;
+  }
+
   static String _hqArtworkGeneric(String url) {
     if (url.isEmpty) return url;
+    final size = _dataSaverScaledSize(300);
+    return url.replaceAll(RegExp(r'=w\d+-h\d+[\w-]*$'), '=w$size-h$size');
+  }
 
-    return url.replaceAll(RegExp(r'=w\d+-h\d+[\w-]*$'), '=w300-h300');
+  // Shared helper for the =wN-hN[-p] header/banner/top-songs artwork URLs
+  // scattered across the InnerTube parsing below — all six of those call
+  // sites previously hardcoded their own fixed size (=w1000-h1000,
+  // =w1080-h1080-p, =w1440-h1440-p) directly in a .replaceAll() call with
+  // no Data Saver awareness at all. [suffix] preserves each site's own
+  // trailing modifier (some InnerTube header URLs need the '-p' crop
+  // hint, list/top-songs thumbnails don't) so behaviour is otherwise
+  // identical to before, just at a Data-Saver-scaled size.
+  static String _scaledArtworkUrl(String rawUrl, int fullSize, {String suffix = ''}) {
+    if (rawUrl.isEmpty) return rawUrl;
+    final size = _dataSaverScaledSize(fullSize);
+    return rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w$size-h$size$suffix');
   }
 
   static Future<List<HomeShelf>> fetchRealHomeShelves({
@@ -3335,6 +3381,13 @@ class ApiService {
             .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
             .where((t) => t != ' • ' && t.trim().isNotEmpty)
             .lastWhere((_) => true, orElse: () => ''));
+
+        // FIX ("Similar to" shelf showing a random creator channel /
+        // thin devotional-album card instead of a real curated playlist):
+        // reject channel-style results (subtitle says "N subscribers")
+        // and thin one-off albums/compilations (no song-count marker, or
+        // below the minimum) before they ever reach the shelf.
+        if (RecommendationEngine.isLowQualityPlaylistShelfItem(subtitle)) continue;
 
         items.add(HomeShelfItem(
           browseId: browseId,
@@ -6515,21 +6568,16 @@ class ApiService {
             const [];
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
-
-          imageUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1080-h1080-p')
-              : '';
+          imageUrl = _scaledArtworkUrl(rawUrl, 1080, suffix: '-p');
         }
         final bannerThumbs = (headerRenderer['background']?['musicThumbnailRenderer']
                     ?['thumbnail']?['thumbnails'] as List?) ??
             const [];
         if (bannerThumbs.isNotEmpty) {
-          bannerUrl = (bannerThumbs.last['url'] ?? '').toString();
-          if (bannerUrl.isNotEmpty) {
-            bannerUrl = bannerUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1440-h1440-p');
-          } else {
-            bannerUrl = null;
-          }
+          final rawBannerUrl = (bannerThumbs.last['url'] ?? '').toString();
+          bannerUrl = rawBannerUrl.isNotEmpty
+              ? _scaledArtworkUrl(rawBannerUrl, 1440, suffix: '-p')
+              : null;
         }
 
         final monthlyListenersText = ((headerRenderer['monthlyListenerCount']?['runs'] as List?) ?? const [])
@@ -6583,9 +6631,7 @@ class ApiService {
         String artworkUrl = '';
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
-          artworkUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
-              : '';
+          artworkUrl = _scaledArtworkUrl(rawUrl, 1000);
         }
 
         final flexColumns = (item['flexColumns'] as List?) ?? const [];
@@ -7148,7 +7194,7 @@ class ApiService {
       if (headerThumbs.isNotEmpty) {
         final rawUrl = (headerThumbs.last['url'] ?? '').toString();
         if (rawUrl.isNotEmpty) {
-          headerArtworkUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1080-h1080-p');
+          headerArtworkUrl = _scaledArtworkUrl(rawUrl, 1080, suffix: '-p');
         }
       }
 

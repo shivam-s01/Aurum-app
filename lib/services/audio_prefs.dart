@@ -54,6 +54,21 @@ class AudioPrefs {
   /// [streamQuality] — used to save mobile data. Overrides streamQuality.
   static bool dataSaver = false;
 
+  /// EXTREME DATA SAVER (2026-09-15): mirrors [dataSaver] as a
+  /// ValueNotifier (same "plain bool for cheap reads everywhere +
+  /// notifier for the few call sites that need to react to changes"
+  /// split [batterySaverActiveNotifier] already uses) so
+  /// DataSaverController can listen and push the current state down to
+  /// the native pre-buffer resolver (AurumAudioEngine.setDataSaverActive)
+  /// whenever it changes, instead of only affecting Dart-side URL/
+  /// bitrate construction as before. streamQuality == 'DataSaver' does
+  /// NOT update this notifier on its own (that tier is a dropdown value,
+  /// not a live toggle) — DataSaverController reads both signals itself
+  /// when computing what to push. Kept in sync with [dataSaver] inside
+  /// [setDataSaver] below; nothing else should assign to this directly.
+  static final ValueNotifier<bool> dataSaverActiveNotifier =
+      ValueNotifier<bool>(false);
+
   /// Approximate kbps of the most recently resolved stream URL (e.g. 320,
   /// 160, 96, 48, 12 for Saavn tiers; null when unknown, such as for
   /// YouTube-sourced streams where no discrete tier is reported). Not
@@ -436,18 +451,46 @@ class AudioPrefs {
     gapless             = p.getBool(_kGapless) ?? gapless;
     castIconVisibilityNotifier.value =
         p.getString(_kCastIconVisibility) ?? castIconVisibilityNotifier.value;
+    // EXTREME DATA SAVER (2026-09-15): seed dataSaverActiveNotifier from
+    // whichever persisted values were just restored above (streamQuality,
+    // dataSaver) — see _recomputeDataSaverActive's doc comment. Placed
+    // last so both source fields are guaranteed already hydrated.
+    _recomputeDataSaverActive();
   }
 
   static Future<void> setStreamQuality(String v) async {
     streamQuality = v;
     final p = await SharedPreferences.getInstance();
     await p.setString(_kStreamQuality, v);
+    // EXTREME DATA SAVER (2026-09-15): picking/leaving the 'DataSaver'
+    // streamQuality tier is the other signal (besides the standalone
+    // [dataSaver] toggle) that should activate extreme mode — see
+    // _recomputeDataSaverActive's doc comment.
+    _recomputeDataSaverActive();
   }
 
   static Future<void> setDataSaver(bool v) async {
     dataSaver = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kDataSaver, v);
+    _recomputeDataSaverActive();
+  }
+
+  /// EXTREME DATA SAVER (2026-09-15): recomputes
+  /// [dataSaverActiveNotifier] from BOTH ways extreme mode can be turned
+  /// on — the standalone [dataSaver] toggle, or picking 'DataSaver' as
+  /// the [streamQuality] tier — same "either flag counts" contract
+  /// qualityOrder() already used before this notifier existed. Called
+  /// from both setters above (so a Settings change takes effect
+  /// immediately) and once from [load] below (so a cold start where
+  /// either was already persisted as on starts DataSaverController
+  /// already pointed at the correct native state, instead of only
+  /// activating on the next explicit Settings change).
+  static void _recomputeDataSaverActive() {
+    final shouldBeActive = dataSaver || streamQuality == 'DataSaver';
+    if (dataSaverActiveNotifier.value != shouldBeActive) {
+      dataSaverActiveNotifier.value = shouldBeActive;
+    }
   }
 
   static Future<void> setPauseOnCall(bool v) async {

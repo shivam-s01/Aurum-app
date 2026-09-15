@@ -509,25 +509,36 @@ class _HomeScreenState extends State<HomeScreen> {
   // cache their own art/songs in initState) get fresh widget identities and
   // refetch a brand-new random Saavn-first set instead of showing stale data.
   int _playlistRefreshKey = 0;
-  // LIGHT REFRESH ("10 baar refresh kre tab jaake poora fresh content
-  // aaye" — 2026-09-15): bumped on EVERY pull-to-refresh, unlike
-  // _playlistRefreshKey above which only bumps on the 1-in-10 "full"
-  // refresh (see onRefresh below). Only _QuickPicksSection listens to
-  // this — every refresh rotates that one cheap row (a handful of
-  // fetchYouMightAlsoLike seed calls) so pull-to-refresh always feels
-  // like it did something, without the heavier shelves/similar-rows/
-  // artist-strip network cost firing every single time.
+  // STAGED REFRESH ("10 baar refresh kre tab jaake poora fresh content
+  // aaye, MB/heating kam ho, aur dhire dhire har refresh mein thoda thoda
+  // naya content aaye" — 2026-09-15): bumped on EVERY pull-to-refresh.
+  // _QuickPicksSection listens to this directly. _HomeShelvesAndSimilarSection
+  // also listens to it (as its own refreshKey) but gates its three
+  // internal fetches (shelves / similar-artist rows / similar-song rows)
+  // behind the RefreshStage computed alongside this bump — see
+  // _onPullToRefresh. Replaces the old binary _playlistRefreshKey (only
+  // bumped 1-in-10) — that split meant _HomeShelvesAndSimilarSection sat
+  // completely frozen for 9 pulls, then fetched everything at once on the
+  // 10th, which is exactly the all-at-once network/MB/heat spike this
+  // feature exists to remove, just moved to a single pull instead of
+  // spread out.
   int _quickPicksRefreshKey = 0;
-  // Whether the CURRENT _quickPicksRefreshKey bump was a full (1-in-10)
-  // refresh or a light one — read by _QuickPicksSection's didUpdateWidget
-  // via the fullRefresh prop to decide between a real fetch and a
-  // zero-network local pool reshuffle. See _onPullToRefresh below.
-  bool _quickPicksFullRefresh = false;
+  // Current position (1-10) in the staged-refresh cycle — read by
+  // _HomeShelvesAndSimilarSection to decide which of its three sections
+  // are due a real fetch on this particular pull. See RefreshStage's doc
+  // comment in home_feed_cache.dart for the exact 1-10 ramp.
+  RefreshStage _refreshStage = const RefreshStage(
+    quickPicks: true,
+    shelves: false,
+    similarArtistRows: false,
+    similarSongRows: false,
+  );
 
   List<ArtistSimple> _homeArtists = [];
   bool _artistsLoading = true;
   // Scopes the cache-shrink-flash guard in _loadArtists() to only the
   // FIRST streaming callback per load — see that guard's doc comment.
+
   bool _isFirstArtistUpdate = true;
 
   final ScrollController _scrollCtrl = ScrollController();
@@ -779,40 +790,33 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Recommendation Intelligence helper — RecommendationEngine only ever
-  // stores/returns song IDs (kept intentionally lightweight so its
-  // SharedPreferences footprint stays tiny even for a heavy listener), so
-  // Home resolves those IDs back to full Song objects (for art, title,
-  // artist, playback) from RecentlyPlayedProvider's own history, which
-  // already holds every song the engine could possibly reference here
-  // (Continue Listening / Rediscover Favorites only ever draw from songs
-  // the user has actually played). Order follows `ids` (the engine's own
-  // ranking), not `history`'s order.
-  // Extracted (2026-09-06) so pull-to-refresh can still rotate
-  // _RealHomeShelvesSection's real InnerTube shelves without going through
-  // _loadOnline()/_onlineSections at all — see this function's call site
-  // in the RefreshIndicator above.
-  Future<void> _bumpPlaylistRefreshKey() async {
-    if (!mounted) return;
-    setState(() => _playlistRefreshKey++);
-  }
-
-  // Throttled pull-to-refresh entry point — see onRefresh's doc comment
-  // above for the full reasoning. Only ever called from the
-  // RefreshIndicator (isOnline branch), never from initState/cold start.
+  // Throttled pull-to-refresh entry point — see RefreshStage's doc
+  // comment (home_feed_cache.dart) for the full 1-10 staged ramp this
+  // drives. Only ever called from the RefreshIndicator (isOnline branch),
+  // never from initState/cold start.
   Future<void> _onPullToRefresh() async {
-    final full = await HomeFeedCache.bumpPullRefreshAndCheckFull();
+    final position = await HomeFeedCache.bumpPullRefreshAndGetPosition();
     if (!mounted) return;
-    // Flag set BEFORE the key bump below so _QuickPicksSection's
-    // didUpdateWidget (fired by the setState this triggers) reads the
-    // correct fullRefresh value for THIS refresh.
+    final stage = RefreshStage.forPosition(position);
+    // Flags set BEFORE the key bump below so both sections' didUpdateWidget
+    // (fired by this same setState) read the correct stage for THIS pull.
     setState(() {
-      _quickPicksFullRefresh = full;
+      _refreshStage = stage;
       _quickPicksRefreshKey++;
+      // _playlistRefreshKey now bumps on every pull too (not just the old
+      // 1-in-10 "full" pull) — _HomeShelvesAndSimilarSection itself reads
+      // _refreshStage to decide which of its three internal fetches
+      // (shelves / similar-artist rows / similar-song rows) are actually
+      // due on this particular pull, so bumping this key every time just
+      // gives it the didUpdateWidget signal to re-check the stage; it does
+      // NOT mean every pull re-fetches everything.
+      _playlistRefreshKey++;
     });
-    if (full) {
-      await Future.wait([_bumpPlaylistRefreshKey(), _loadArtists()]);
-    }
+    // _loadArtists() dropped from here — _homeArtists' only render site
+    // (the standalone "Popular Artists" strip) was already removed
+    // (2026-09-14, see the removal comment further down this file), so
+    // refreshing it on every pull was pure wasted network/MB for data
+    // nothing on screen displays anymore.
   }
 
   // ignore: unused_element
@@ -1047,16 +1051,19 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
             displacement: 48,
-            // THROTTLED REFRESH ("10 baar refresh kre tab jaake poora fresh
-            // content aaye, MB/heating kam ho" — 2026-09-15): every pull no
-            // longer unconditionally re-fetches shelves + similar rows +
-            // artists together — HomeFeedCache.bumpPullRefreshAndCheckFull()
-            // persists a counter and only returns true on every 10th pull.
-            // On a non-full pull, only _quickPicksRefreshKey bumps (light —
-            // rotates just the Quick Picks row). On the 10th, it's exactly
-            // the old behavior: _playlistRefreshKey bumps too (which drives
-            // _HomeShelvesAndSimilarSection's real InnerTube shelves) and
-            // _loadArtists() runs for a real full refresh.
+            // STAGED REFRESH ("10 baar refresh kre tab jaake poora fresh
+            // content aaye, MB/heating kam ho, dhire dhire har refresh
+            // mein thoda thoda naya content aaye" — 2026-09-15): every
+            // pull no longer unconditionally re-fetches shelves + similar
+            // rows together. HomeFeedCache.bumpPullRefreshAndGetPosition()
+            // persists a 1-10 cycle position; RefreshStage.forPosition
+            // maps that to which of shelves/similar-artist-rows/similar-
+            // song-rows are due THIS pull. Quick Picks reshuffles on every
+            // pull (cheapest, zero-network); shelves join in from pull 4,
+            // similar-artist rows from pull 7, similar-song rows from
+            // pull 10 — cumulative, so pull 10 is the union of everything
+            // warmed up over the cycle rather than a cold all-at-once
+            // spike. See RefreshStage's doc comment for the full ramp.
             onRefresh: () => isOnline ? _onPullToRefresh() : context.read<LibraryProvider>().refresh(),
             child: AurumScrollDeltaScope(
               notifier: _scrollDelta.notifier,
@@ -1162,7 +1169,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: _QuickPicksSection(
                       refreshKey: _quickPicksRefreshKey,
-                      fullRefresh: _quickPicksFullRefresh,
                     ),
                   ),
                   // ADDED ("mixed for you bhe ekdam top level ka" —
@@ -1240,6 +1246,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: _HomeShelvesAndSimilarSection(
                       refreshKey: _playlistRefreshKey,
+                      stage: _refreshStage,
                     ),
                   ),
                 ],
@@ -4121,20 +4128,12 @@ class _SimilarArtistAlbumCard extends StatelessWidget {
 // Cold-start: hydrates instantly from HomeFeedCache.loadQuickPicks() (same
 // "show last session's result now, refresh quietly after" contract as every
 // other Home row) and only fires a real fetch when there's no cache yet or
-// the 6-hour freshness window has lapsed. Pull-to-refresh: a real refetch
-// only on the 1-in-10 "full" refresh (see fullRefresh below) — every other
-// pull does a zero-network local reshuffle instead.
+// the 6-hour freshness window has lapsed. Pull-to-refresh: every pull does
+// a zero-network local pool reshuffle (_rotateFromPool) — it self-escalates
+// to a real fetch only if the pool's too small to meaningfully reshuffle.
 class _QuickPicksSection extends StatefulWidget {
   final int refreshKey;
-  // THROTTLED REFRESH ("10 baar refresh kre tab jaake poora fresh content
-  // aaye, MB/heating kam ho" — 2026-09-15): true only on the 1-in-10 "full"
-  // pull-to-refresh (see HomeScreen._onPullToRefresh). On every OTHER
-  // refreshKey bump, this stays false and _load() below does a zero-network
-  // local reshuffle of the already-fetched ranked pool instead of a real
-  // fetch — still visibly rotates the row (feels like something happened)
-  // without the network/MB/heat cost of re-fetching on every single pull.
-  final bool fullRefresh;
-  const _QuickPicksSection({this.refreshKey = 0, this.fullRefresh = false});
+  const _QuickPicksSection({this.refreshKey = 0});
 
   @override
   State<_QuickPicksSection> createState() => _QuickPicksSectionState();
@@ -4194,12 +4193,14 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     super.didUpdateWidget(oldWidget);
     // Pull-to-refresh bumps refreshKey — rotate Quick Picks along with
     // every other section rather than leaving it frozen from cold start.
+    // STAGED REFRESH (2026-09-15): Quick Picks is due on EVERY pull in
+    // the 1-10 cycle (the cheapest section — see RefreshStage's doc
+    // comment in home_feed_cache.dart), so this always reshuffles;
+    // _rotateFromPool itself already self-escalates to a real fetch only
+    // when the pool's too small to meaningfully reshuffle (see its own
+    // doc comment), so no separate "full vs light" flag is needed here.
     if (oldWidget.refreshKey != widget.refreshKey) {
-      if (widget.fullRefresh) {
-        _load(silent: true);
-      } else {
-        _rotateFromPool();
-      }
+      _rotateFromPool();
     }
   }
 
@@ -4593,7 +4594,24 @@ class _QuickPickListRow extends StatelessWidget {
 // rows' own "see all" arrow below, same destination either way.
 class _HomeShelvesAndSimilarSection extends StatefulWidget {
   final int refreshKey;
-  const _HomeShelvesAndSimilarSection({this.refreshKey = 0});
+  // STAGED REFRESH (2026-09-15): tells this section which of its three
+  // internal pieces (shelves / similar-artist rows / similar-song rows)
+  // are actually due a real network fetch on THIS pull — see
+  // RefreshStage's doc comment in home_feed_cache.dart for the 1-10 ramp.
+  // Defaults to quick-picks-only-equivalent (nothing here due) so cold
+  // start / non-refresh rebuilds never accidentally force a fetch through
+  // this prop — cold start's own _hydrateFromCache path is unaffected by
+  // this and decides its own fetches independently via cache freshness.
+  final RefreshStage stage;
+  const _HomeShelvesAndSimilarSection({
+    this.refreshKey = 0,
+    this.stage = const RefreshStage(
+      quickPicks: true,
+      shelves: false,
+      similarArtistRows: false,
+      similarSongRows: false,
+    ),
+  });
 
   @override
   State<_HomeShelvesAndSimilarSection> createState() =>
@@ -4654,9 +4672,9 @@ class _HomeShelvesAndSimilarSectionState
     // re-fetch whichever ones are already fresh on disk — the actual
     // MB/latency saving. When a flag is false (no cache yet, or aged
     // past the 6-hour window), _load() fetches that one exactly as it
-    // always did. A manual pull-to-refresh (didUpdateWidget below) never
-    // sets these, so it always forces a real fetch for all three, same
-    // as before.
+    // always did. A manual pull-to-refresh (didUpdateWidget below) now
+    // computes its OWN skip flags from widget.stage (RefreshStage) instead
+    // of always forcing all three — see the STAGED REFRESH comment there.
     if (shelvesFresh && similarFresh && similarSongsFresh) return;
     _load(
       skipShelves: shelvesFresh,
@@ -4686,7 +4704,21 @@ class _HomeShelvesAndSimilarSectionState
     // here; _load() below now only overwrites each field when the
     // refreshed fetch for it actually produced something.
     if (oldWidget.refreshKey != widget.refreshKey) {
-      _load(refreshKey: widget.refreshKey);
+      // STAGED REFRESH (2026-09-15): a manual pull-to-refresh used to
+      // ALWAYS force a real fetch for all three pieces here — that's the
+      // exact all-at-once network/MB/heat spike the staged rollout exists
+      // to remove. Now each piece only re-fetches when widget.stage says
+      // it's due on this specific pull; a piece not yet due this cycle
+      // simply keeps showing whatever it already has on screen (same
+      // "never clear, only overwrite on real new data" contract this
+      // section's _load already follows for failures — see the FIX
+      // comment above didUpdateWidget).
+      _load(
+        refreshKey: widget.refreshKey,
+        skipShelves: !widget.stage.shelves,
+        skipSimilar: !widget.stage.similarArtistRows,
+        skipSimilarSongs: !widget.stage.similarSongRows,
+      );
     }
   }
 
@@ -4709,15 +4741,14 @@ class _HomeShelvesAndSimilarSectionState
     // MB FIX ("MB kam use ho, koi feature cut na ho" — 2026-09-14, and
     // "poora home page reopen pe shimmer karta hai" — 2026-09-15): a
     // fresh HomeFeedCache copy (checked by the caller — _hydrateFromCache
-    // on cold start, or simply never true on an explicit pull-to-refresh
-    // since that always calls _load with these left false) means the
-    // exact same real network fetch would just be re-requesting data
-    // that's already sitting on disk from minutes/hours ago. Skipping it
-    // here saves that round-trip and its artwork downloads entirely —
-    // nothing about WHAT gets shown changes, only whether it's fetched
-    // again unnecessarily. A manual pull-to-refresh (didUpdateWidget
-    // below) never sets these, so it always forces a real fetch same as
-    // before.
+    // on cold start) means the exact same real network fetch would just
+    // be re-requesting data that's already sitting on disk from
+    // minutes/hours ago. Skipping it here saves that round-trip and its
+    // artwork downloads entirely — nothing about WHAT gets shown changes,
+    // only whether it's fetched again unnecessarily. A manual
+    // pull-to-refresh (didUpdateWidget above) now sets these per-piece
+    // from widget.stage (RefreshStage) instead of always leaving all
+    // three false — see the STAGED REFRESH comment there.
     final shelvesFuture =
         skipShelves ? null : ApiService.fetchHomeShelvesForDisplay(
       refreshSeed: seed,

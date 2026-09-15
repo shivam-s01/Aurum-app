@@ -1365,6 +1365,42 @@ class RecommendationEngine {
     return _junkUploadPattern.hasMatch(title);
   }
 
+  // FIX ("Similar to <artist>" home shelf showing awkward/unprofessional
+  // results — a random small creator's channel page (e.g. "Juli Jha", a
+  // personal devotional-content channel with a subscriber-count subtitle,
+  // not a real curated playlist), plus low-grade regional/devotional
+  // compilation albums like "Chhath Ke Geet" / "Thave Ki Bhawani" that
+  // only matched because they share keywords with the loose
+  // "<artist> mix playlist" YTM search query): _searchAsHomeShelf's only
+  // filter was isLowQualityUpload(title), which catches junk KEYWORDS but
+  // has no concept of "is this actually a curated playlist made by a real
+  // publisher" vs "is this someone's personal channel / a one-off
+  // devotional album that happens to match the search text". Two signals
+  // catch that distinction that keyword-blocklisting can't:
+  //   1. subtitle shape — YT Music playlists carry a subtitle like
+  //      "Playlist • 42 songs" or a known publisher name; a channel/
+  //      creator result instead shows "N subscribers" or is otherwise
+  //      missing the song-count marker entirely.
+  //   2. song count — a real mix/playlist worth surfacing has a
+  //      meaningful number of tracks; a thin one-off album (Chhath Ke
+  //      Geet-style compilations are often single-digit or low-count) is
+  //      exactly the kind of niche/regional-festival release that reads
+  //      as amateur next to Spotify/Apple-Music-style curated shelves.
+  static final RegExp _subscriberCountPattern =
+      RegExp(r'\bsubscribers?\b', caseSensitive: false);
+  static final RegExp _songCountPattern =
+      RegExp(r'(\d[\d,]*)\s*songs?\b', caseSensitive: false);
+  static const int _minPlaylistSongCount = 10;
+
+  static bool isLowQualityPlaylistShelfItem(String subtitle) {
+    if (subtitle.trim().isEmpty) return true;
+    if (_subscriberCountPattern.hasMatch(subtitle)) return true;
+    final match = _songCountPattern.firstMatch(subtitle);
+    if (match == null) return true;
+    final count = int.tryParse(match.group(1)!.replaceAll(',', '')) ?? 0;
+    return count < _minPlaylistSongCount;
+  }
+
   // FIX ("Allah Kare Dil Na Lage Kisise is a son...", "ALLAH KARE DIL NA
   // LAGE @MsLofiShorts" ranking above the real song in search): these two
   // shapes slipped past every existing check because _junkUploadPattern is

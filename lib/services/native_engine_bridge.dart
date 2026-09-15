@@ -497,6 +497,12 @@ class NativeAudioEngine {
   // reasoning as the rest of this bridge.
   Future<void> setBatterySaverActive(bool active) =>
       _method.invokeMethod('setBatterySaverActive', {'active': active});
+  // EXTREME DATA SAVER (2026-09-15): pushes AudioPrefs.dataSaver's active
+  // state down to the same native pre-buffer resolver — see
+  // AurumAudioEngine.dataSaverActive / effectivePacedDelayMs. Same
+  // best-effort/fail-open contract as setBatterySaverActive above.
+  Future<void> setDataSaverActive(bool active) =>
+      _method.invokeMethod('setDataSaverActive', {'active': active});
   Future<void> setCurrentSongLiked(bool liked) =>
       _method.invokeMethod('setCurrentSongLiked', {'liked': liked});
   Future<void> setCrossfadeSeconds(double secs) =>

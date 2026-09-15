@@ -837,6 +837,27 @@ class AurumAudioEngine(
     // hear otherwise.
     @Volatile private var batterySaverActive = false
 
+    // EXTREME DATA SAVER ("ekdam extreme sb kuch control mai le le, data
+    // kam se kam use ho, bs play aur thumbnail mein problem na aaye" —
+    // 2026-09-15): mirrors Dart's AudioPrefs.dataSaver (or the
+    // 'DataSaver' streamQuality tier) via setDataSaverActive() — same
+    // push pattern as batterySaverActive above. This is the single
+    // biggest real data cost in the whole app: resolveQueueInBackground()
+    // below walks the ENTIRE rest of the queue (forward AND backward),
+    // paced PACED_RESOLVE_DELAY_MS apart, calling player.addMediaItem()
+    // for every song it resolves — and once a MediaItem is in ExoPlayer's
+    // timeline, ExoPlayer's own DefaultLoadControl actively buffers real
+    // AUDIO BYTES for it (not just a URL), completely independent of
+    // whether the user ever actually reaches that song. That happens
+    // regardless of Data Saver today. When this flag is active,
+    // effectivePacedDelayMs (used instead of the raw PACED_RESOLVE_DELAY_MS
+    // constant in resolveQueueInBackground below) stretches the tail walk
+    // out enormously — the immediate next song still resolves instantly
+    // (priorityForwardWindow floors at 1 regardless of any flag, so a tap
+    // on "Next" is never slowed down), but nothing beyond that gets
+    // buffered ahead of actual need.
+    @Volatile private var dataSaverActive = false
+
     // Android's own "is this a genuinely low-RAM device" signal — set once
     // by the OS at install/build time from actual device specs (see
     // ActivityManager.isLowRamDevice docs: true on devices below the
@@ -853,10 +874,24 @@ class AurumAudioEngine(
             ?.isLowRamDevice ?: false
 
     private val priorityForwardWindow: Int
-        get() = if (batterySaverActive || isLowRamDevice) PRIORITY_FORWARD_WINDOW_SAVER else PRIORITY_FORWARD_WINDOW_NORMAL
+        get() = if (batterySaverActive || isLowRamDevice || dataSaverActive) PRIORITY_FORWARD_WINDOW_SAVER else PRIORITY_FORWARD_WINDOW_NORMAL
+
+    // Extreme Data Saver stretches the paced tail walk from every 5s to
+    // every 60s — the rest of the queue still eventually gets a resolved/
+    // buffered MediaItem (so nothing is permanently broken or missing if
+    // the user does listen straight through a long queue), just far
+    // slower than actual playback progress, so in practice almost nothing
+    // beyond the current + immediate-next song ever gets buffered ahead
+    // of when it's actually needed.
+    private val effectivePacedDelayMs: Long
+        get() = if (dataSaverActive) PACED_RESOLVE_DELAY_MS_DATA_SAVER else PACED_RESOLVE_DELAY_MS
 
     fun setBatterySaverActive(active: Boolean) {
         batterySaverActive = active
+    }
+
+    fun setDataSaverActive(active: Boolean) {
+        dataSaverActive = active
     }
 
     // FIX (loading-stuck / "10-20s pe atak jaata hai"): between a tap and
@@ -967,6 +1002,16 @@ class AurumAudioEngine(
         // a song more than one PACED_RESOLVE_DELAY_MS step ahead of where
         // playback actually is, so slowing this down costs no responsiveness.
         private const val PACED_RESOLVE_DELAY_MS = 5000L
+        // EXTREME DATA SAVER (2026-09-15): used instead of
+        // PACED_RESOLVE_DELAY_MS (via effectivePacedDelayMs above) whenever
+        // dataSaverActive is set. 60s between each further-out queue song's
+        // resolve/buffer step means, in practice, playback almost never
+        // catches up to a song ExoPlayer has speculatively buffered ahead
+        // of time — nearly all of that buffering (the real MB cost) simply
+        // doesn't happen, while the immediate next song (priorityForwardWindow,
+        // which floors at 1 regardless of this flag) still resolves right
+        // away so skip/next never feels slow.
+        private const val PACED_RESOLVE_DELAY_MS_DATA_SAVER = 60000L
 
         // FIX (Spotify-style slow-network tolerance): both caps sized to
         // actually cover resolveFast()'s own inner budget instead of
@@ -2577,7 +2622,7 @@ class AurumAudioEngine(
                 for (i in startIndex + 1 until songs.size) {
                     if (sessionId != playSessionId) return@launch
                     if (i - startIndex > priorityForwardWindow) {
-                        delay(PACED_RESOLVE_DELAY_MS)
+                        delay(effectivePacedDelayMs)
                         if (sessionId != playSessionId) return@launch
                     }
                     try {
@@ -2616,7 +2661,7 @@ class AurumAudioEngine(
                 for (i in startIndex - 1 downTo 0) {
                     if (sessionId != playSessionId) return@launch
                     if (startIndex - i > PRIORITY_BACKWARD_WINDOW) {
-                        delay(PACED_RESOLVE_DELAY_MS)
+                        delay(effectivePacedDelayMs)
                         if (sessionId != playSessionId) return@launch
                     }
                     try {

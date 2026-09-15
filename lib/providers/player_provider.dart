@@ -1007,12 +1007,26 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ApiService.prewarmYtStream has its own per-session dedup (_prewarmedIds)
   // and skips songs whose URL is already locally cached, so calling this
   // repeatedly as the queue advances is cheap and safe.
+  //
+  // EXTREME DATA SAVER ("ekdam extreme sb kuch control mai le le" —
+  // 2026-09-15): this window still fires 5 real network round-trips
+  // (stream URL resolution — small individually, but genuinely avoidable)
+  // regardless of Data Saver, purely to warm a cache for songs the user
+  // hasn't reached yet and may never reach (skip, stop, queue reorder all
+  // make some of these five resolves pure waste). Under Data Saver this
+  // shrinks to 1 — just the very next song, matching the native engine's
+  // own PRIORITY_FORWARD_WINDOW floor (AurumAudioEngine.kt) so "Next"
+  // still feels instant, without speculatively warming songs further out.
   static const int _prewarmWindow = 5;
+  static const int _prewarmWindowDataSaver = 1;
 
   void _prewarmUpcoming(int fromIndex) {
     final q = _queue;
     if (q.isEmpty) return;
-    final end = (fromIndex + 1 + _prewarmWindow).clamp(0, q.length);
+    final window = AudioPrefs.dataSaverActiveNotifier.value
+        ? _prewarmWindowDataSaver
+        : _prewarmWindow;
+    final end = (fromIndex + 1 + window).clamp(0, q.length);
     for (var i = fromIndex + 1; i < end; i++) {
       ApiService.prewarmYtStream(q[i]);
     }

@@ -108,6 +108,50 @@ List<ArtistSimple> _decodeArtists(String raw) {
       .toList();
 }
 
+/// Which sections a given pull-to-refresh should actually hit the network
+/// for. Produced from [HomeFeedCache.bumpPullRefreshAndGetPosition]'s 1-10
+/// cycle position via [RefreshStage.forPosition] — see that constructor's
+/// doc comment for the staged rollout this implements ("dhire dhire har
+/// refresh mein thoda thoda naya content, ekdam last mein sab kuch ek saath
+/// na ho" — 2026-09-15).
+class RefreshStage {
+  final bool quickPicks;
+  final bool shelves;
+  final bool similarArtistRows;
+  final bool similarSongRows;
+
+  const RefreshStage({
+    required this.quickPicks,
+    required this.shelves,
+    required this.similarArtistRows,
+    required this.similarSongRows,
+  });
+
+  /// Maps a 1-10 cycle position to which sections are due a real fetch on
+  /// THIS pull. Deliberately cumulative — a section active at position N
+  /// stays active at every position after N in the same cycle — so the
+  /// experience is a genuine ramp (each pull adds one more thing on top
+  /// of what already refreshes) rather than each pull touching an
+  /// isolated, unrelated section:
+  ///   1-3   → Quick Picks only (cheapest — zero-network pool reshuffle,
+  ///           see _QuickPicksSection._rotateFromPool; only falls back to
+  ///           a real fetch if the pool's too small to reshuffle)
+  ///   4-6   → + real Shelves fetch joins in
+  ///   7-9   → + Similar-Artist rows join in
+  ///   10    → + Similar-Song rows join in (everything now active —
+  ///           the "complete" refresh, but it's the union of pieces
+  ///           already warmed up over the last 9 pulls, not a cold
+  ///           all-at-once spike)
+  factory RefreshStage.forPosition(int position) {
+    return RefreshStage(
+      quickPicks: true,
+      shelves: position >= 4,
+      similarArtistRows: position >= 7,
+      similarSongRows: position >= 10,
+    );
+  }
+}
+
 class HomeFeedCache {
   static const _sectionsKey = 'home_feed_cache_sections_v1';
   // BUMPED v1 -> v2 ("home page pe artist ke real images nahi aate" —
@@ -710,37 +754,43 @@ class HomeFeedCache {
   }
 
   // ── Pull-to-refresh throttle counter ("10 baar refresh kre tab jaake
-  // poora fresh content aaye, MB/heating kam ho" — 2026-09-15): every
-  // pull-to-refresh used to force a real fetch for shelves + similar
-  // artist rows + similar song rows + the artist strip all at once —
-  // several concurrent InnerTube round-trips plus fresh artwork
-  // downloads, every single time, however often a user pulled to
-  // refresh. Persisted (not just in-memory) so the count survives app
-  // restarts — a user who refreshes 6 times, closes the app, then
-  // refreshes 4 more times still gets the "full" refresh on that 10th
-  // pull, not a reset count on next cold start.
+  // poora fresh content aaye, MB/heating kam ho, aur dhire dhire har
+  // refresh mein thoda thoda naya content aaye, ekdam last mein hi sab
+  // kuch ek saath na ho" — 2026-09-15, staged version): an earlier binary
+  // cut of this idea — 9 refreshes touching only Quick Picks, then the
+  // 10th forcing shelves + similar-artist rows + similar-song rows +
+  // artists ALL AT ONCE — would have just moved the exact MB/heat spike
+  // this feature exists to remove from "every pull" to "pull #10". This
+  // version spreads the heavy pieces across the 10-pull cycle instead —
+  // each pull past the first activates one additional real network
+  // section (on top of every section already active from earlier pulls
+  // this cycle), so pull 10 is the union of everything without any
+  // single pull ever being a sudden all-at-once spike. Persisted (not
+  // just in-memory) so the position in the cycle survives app restarts.
   static const _pullRefreshCountKey = 'home_pull_refresh_count';
 
-  // How many pull-to-refreshes between one "full" refresh (all
-  // sections — shelves, similar rows, artists) — every OTHER refresh in
-  // between only rotates the cheap Quick Picks row, so it still feels
-  // like something happened without the heavier network/MB/heat cost of
-  // re-fetching everything.
+  // How many pull-to-refreshes make one full cycle. Kept as 10 to match
+  // the original ask ("10 baar refresh") — RefreshStage.forPosition maps
+  // each position 1-10 in the cycle to which sections are due a fetch.
   static const int fullRefreshEvery = 10;
 
-  /// Increments the counter and returns whether THIS refresh should be a
-  /// full one (every Nth call, N = [fullRefreshEvery]) — call this once
-  /// per pull-to-refresh, right at the start of the refresh handler.
-  static Future<bool> bumpPullRefreshAndCheckFull() async {
+  /// Increments the counter and returns the 1-10 position within the
+  /// current cycle (wraps back to 1 after [fullRefreshEvery]). Home
+  /// screen turns this into a [RefreshStage] via [RefreshStage.forPosition]
+  /// to decide which sections are due a real fetch on this specific
+  /// pull. Best-effort: on any SharedPreferences failure, returns
+  /// [fullRefreshEvery] (the fullest stage) rather than silently
+  /// under-refreshing forever.
+  static Future<int> bumpPullRefreshAndGetPosition() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final next = (prefs.getInt(_pullRefreshCountKey) ?? 0) + 1;
       await prefs.setInt(_pullRefreshCountKey, next);
-      return next % fullRefreshEvery == 0;
+      final pos = ((next - 1) % fullRefreshEvery) + 1;
+      return pos;
     } catch (_) {
-      // Best-effort — if this fails, default to a full refresh rather
-      // than silently under-refreshing forever.
-      return true;
+      return fullRefreshEvery;
     }
   }
+
 }

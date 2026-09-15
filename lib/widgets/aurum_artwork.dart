@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/aurum_image_cache.dart';
+import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_motion.dart';
 
@@ -93,8 +94,22 @@ class AurumArtwork extends StatelessWidget {
   /// which is the best quality Saavn's CDN provides at all. A URL that
   /// matches neither pattern (local file, content:// URI, already-large,
   /// or an unrecognized host) is returned unchanged.
+  ///
+  /// EXTREME DATA SAVER ("ekdam extreme sb kuch control mai le le, data
+  /// kam se kam use ho, bs play aur thumbnail mein problem na aaye" —
+  /// 2026-09-15): skipped entirely when Data Saver is on — the full
+  /// player already has a perfectly displayable list-sized image cached
+  /// (the exact same URL every shelf/tile already downloaded), so
+  /// upgrading to 600x600/500x500 here is a genuinely avoidable EXTRA
+  /// download purely for sharpness on one specific screen. Data Saver
+  /// trades that sharpness for real bytes saved — the smaller image
+  /// still fills the full player, just visibly softer at that size,
+  /// same tradeoff YouTube Music/Spotify's own data saver modes make.
   static String upgradeForFullPlayer(String url) {
     if (url.isEmpty) return url;
+    if (AudioPrefs.dataSaverActiveNotifier.value) {
+      return url;
+    }
     if (url.contains('=w300-h300')) {
       return url.replaceAll('=w300-h300', '=w600-h600');
     }

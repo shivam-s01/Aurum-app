@@ -7787,67 +7787,6 @@ class _MarqueeTextState extends State<_MarqueeText>
 // Buffered Track Shape
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// Equalizer Icon — animated bars
-// ─────────────────────────────────────────────────────────────────────────────
-class _EqualizerIcon extends StatefulWidget {
-  const _EqualizerIcon();
-
-  @override
-  State<_EqualizerIcon> createState() => _EqualizerIconState();
-}
-
-class _EqualizerIconState extends State<_EqualizerIcon>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 20,
-      height: 18,
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (_, __) {
-          final v = _ctrl.value;
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _bar(0.3 + 0.7 * v),
-              _bar(0.8 - 0.6 * v),
-              _bar(0.5 + 0.5 * v),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _bar(double f) => Container(
-        width: 3.5,
-        height: 18 * f,
-        decoration: BoxDecoration(
-          color: AurumTheme.accent,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Icon Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _IconBtn extends StatelessWidget {
