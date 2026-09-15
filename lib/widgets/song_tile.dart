@@ -34,6 +34,19 @@ class SongTile extends StatefulWidget {
   // genuine saved list pass true; search passes false (the default).
   final bool curatedQueue;
 
+  // MULTI-SELECT LONG-PRESS FIX ("long press krne pe kuch hota hi nahi" on
+  // Liked Songs): screens that need to enter a multi-select mode used to
+  // wrap SongTile in their own outer GestureDetector(onLongPress: ...).
+  // That never worked — SongTile's own InkWell(onLongPress: _showOptions)
+  // is registered on a descendant in the same gesture arena, and Flutter
+  // resolves a long-press conflict in favor of the inner recognizer, so
+  // the outer callback never fired and only the options sheet ever
+  // triggered. Passing a callback here lets the tile itself swap its
+  // long-press target to the caller's handler (e.g. entering select mode)
+  // instead of racing a second recognizer against its own — no arena
+  // conflict, because there's only ever one long-press recognizer.
+  final VoidCallback? onLongPressOverride;
+
   const SongTile({
     super.key,
     required this.song,
@@ -42,6 +55,7 @@ class SongTile extends StatefulWidget {
     this.showIndex = false,
     this.displayIndex,
     this.curatedQueue = false,
+    this.onLongPressOverride,
   });
 
   @override
@@ -181,7 +195,7 @@ class _SongTileState extends State<SongTile> {
     return RepaintBoundary(
       child: InkWell(
       onTap: () => _handleTap(context),
-      onLongPress: () => _showOptions(context),
+      onLongPress: widget.onLongPressOverride ?? () => _showOptions(context),
       borderRadius: BorderRadius.circular(8),
       // FIX ("song tap pe ek grey/white layer ban jaata hai, cold start
       // pe zyada dikhta hai" — Library/Recently Played, confirmed via

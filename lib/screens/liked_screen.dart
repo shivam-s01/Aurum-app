@@ -292,28 +292,26 @@ class _LikedScreenState extends State<LikedScreen> {
                     final songIndex = index - 1;
                     final song = songs[songIndex];
                     final isSelected = _selectedIds.contains(song.id);
+                    // LONG-PRESS FIX ("long press krne pe kuch hota hi
+                    // nahi"): this used to wrap SongTile in an outer
+                    // GestureDetector(onLongPress: _enterSelectMode) and
+                    // rely on the wrapper "winning" the gesture arena
+                    // against SongTile's own internal InkWell long-press —
+                    // it never did, so long-press only ever opened the
+                    // options sheet and select mode could never be
+                    // entered. Passing onLongPressOverride makes SongTile
+                    // itself fire _enterSelectMode instead of its options
+                    // sheet — a single recognizer, no arena conflict.
                     final tile = SongTile(
                       song: song,
                       queue: songs,
                       index: songIndex,
                       curatedQueue: true,
+                      onLongPressOverride:
+                          _selectMode ? null : () => _enterSelectMode(song.id),
                     );
                     if (!_selectMode) {
-                      // Long-press still needs to enter select mode even
-                      // though SongTile's own onLongPress already opens
-                      // its options sheet — wrapping with a Listener that
-                      // only watches for a long-press-and-hold BEFORE
-                      // SongTile's own gesture arena resolves would be
-                      // fragile, so instead the entry point into select
-                      // mode is the row's leading area only (a small,
-                      // reliable long-press target that doesn't fight
-                      // SongTile's own long-press-for-options behavior on
-                      // the rest of the row).
-                      return GestureDetector(
-                        onLongPress: () => _enterSelectMode(song.id),
-                        behavior: HitTestBehavior.translucent,
-                        child: tile,
-                      );
+                      return tile;
                     }
                     return Stack(
                       children: [
