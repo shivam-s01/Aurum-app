@@ -79,8 +79,8 @@ jobs:
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
           LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
-          if [ "$LAST_BUILD" -lt 1125 ]; then
-            LAST_BUILD=1125
+          if [ "$LAST_BUILD" -lt 3126 ]; then
+            LAST_BUILD=3126
           fi
           NEW_BUILD=$((LAST_BUILD + 1))
           NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
