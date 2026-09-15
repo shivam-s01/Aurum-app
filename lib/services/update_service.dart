@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -43,6 +44,15 @@ class UpdateService {
           .timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) {
+        // DIAGNOSTIC (was previously silent even for the common
+        // unauthenticated-GitHub-API-rate-limit case, 403, which meant
+        // a real-world "why didn't I get the popup" was undebuggable —
+        // this branch had zero visibility before). kDebugMode-gated so
+        // it costs nothing in release builds' normal operation.
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: releases/latest returned '
+              '${response.statusCode} (silent=$silent): ${response.body}');
+        }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
       }
@@ -53,6 +63,9 @@ class UpdateService {
       final body = data['body'] as String? ?? '';
       final assets = data['assets'] as List<dynamic>? ?? [];
       if (assets.isEmpty) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no assets');
+        }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
       }
@@ -62,6 +75,9 @@ class UpdateService {
         orElse: () => null,
       );
       if (apkAsset == null) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no .apk asset');
+        }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
       }
@@ -70,12 +86,22 @@ class UpdateService {
       final buildMatch = RegExp(r'(?:build)?(\d+)').firstMatch(latestTag);
       final latestBuild = int.tryParse(buildMatch?.group(1) ?? '0') ?? 0;
 
+      if (kDebugMode) {
+        debugPrint('[Aurum] UpdateService: currentBuild=$currentBuild '
+            'latestTag="$latestTag" latestBuild=$latestBuild');
+      }
+
       if (latestBuild <= currentBuild) {
         if (!silent && context.mounted) _showUpToDate(context);
         return;
       }
 
-      if (!force && await _isSnoozed(latestTag)) return;
+      if (!force && await _isSnoozed(latestTag)) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: "$latestTag" is snoozed, skipping popup');
+        }
+        return;
+      }
 
       final highlights = _parseHighlights(body);
 
@@ -88,7 +114,10 @@ class UpdateService {
           highlights: highlights,
         );
       }
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Aurum] UpdateService: checkForUpdate threw (silent=$silent): $e');
+      }
       if (!silent && context.mounted) _showCheckFailed(context);
     }
   }
