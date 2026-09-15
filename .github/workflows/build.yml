@@ -106,23 +106,9 @@ jobs:
           path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
       - name: Create Release
-        # FIX ("update notification kisi ko nahi ja raha, popup kabhi
-        # aata hi nahi" — root cause): this used to be gated behind a
-        # manual `[release]` keyword in the commit message
-        # (steps.release_gate.outputs.should_release). That gate meant
-        # EVERY push to main/master that didn't happen to include that
-        # exact keyword built an APK artifact but never created a GitHub
-        # release — and UpdateService.checkForUpdate() only ever checks
-        # the `releases/latest` API endpoint, which 404s (silently, since
-        # every real-world call site passes silent:true on cold launch)
-        # when no release has ever been published. That's exactly what
-        # was happening: no commit had ever included the keyword, so
-        # https://github.com/shivam-s01/Aurum-app had zero releases,
-        # ever — nobody could possibly have gotten an update prompt, no
-        # matter how the popup/push code itself was written. Removing the
-        # manual gate entirely: every successful build on main/master now
-        # always creates/updates a release, so this class of "forgot the
-        # magic keyword" failure can't happen again.
+        # Gate removed (per explicit request): every successful push to
+        # main/master now always creates/updates a GitHub release,
+        # unconditionally — no [release] keyword needed.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build${{ steps.ver.outputs.build }}
@@ -131,11 +117,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify users of new update (FCM push)
-        # Runs on every release now (see the Create Release step above —
-        # the old manual [release] gate is gone). Silently skipped (not
-        # failed) if the FIREBASE_SERVICE_ACCOUNT secret hasn't been added
-        # yet, so this step is a no-op until FCM_SETUP.md's steps are
-        # done, rather than breaking the whole release pipeline for
+        # Runs on every release now (gate removed, see Create Release
+        # above). Separately, and regardless of that: silently skipped
+        # (not failed) if the FIREBASE_SERVICE_ACCOUNT secret hasn't been
+        # added yet, so this step is a no-op until FCM_SETUP.md's steps
+        # are done, rather than breaking the whole release pipeline for
         # anyone who hasn't set up push notifications yet.
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
