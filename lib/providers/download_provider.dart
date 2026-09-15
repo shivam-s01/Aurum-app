@@ -328,6 +328,57 @@ class DownloadProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // How many downloads are actually transferring right now — the live
+  // truth NotificationService needs to decide per-song vs batch, since
+  // `_cancelTokens` only holds entries for downloads that have reached the
+  // point of an actual network transfer (matches what's really "active").
+  int get _activeDownloadCount => _cancelTokens.length;
+
+  // FIX ("50 songs download kare to notification bump/spam na ho"): every
+  // showProgress() call used to go straight to NotificationService with a
+  // fresh per-song notification id — fine for one or two downloads at a
+  // time (downloadPlaylist's own maxConcurrent=4 default, or a future
+  // bulk-select flow, could otherwise put up to 4+ separate live
+  // notifications in the tray simultaneously). Routing every progress
+  // update through this single choke point means the moment more than
+  // NotificationService's _maxIndividualNotifications downloads are
+  // active, ALL of them (not just the newest) collapse into one
+  // "completed of total" summary notification instead — existing
+  // per-song notifications are cancelled so none are left stranded
+  // on-screen once the batch notification takes over.
+  Future<void> _notifyProgress({
+    required String songId,
+    required String title,
+    required int percent,
+  }) async {
+    final active = _activeDownloadCount;
+    if (NotificationService.instance.shouldUseBatchNotification(active)) {
+      // Cancel this song's own notification (if one exists from before the
+      // batch threshold was crossed) so it doesn't linger alongside the
+      // summary.
+      await NotificationService.instance.cancelProgress(songId);
+      final completed = _items.values
+          .where((d) => d.status == DownloadStatus.completed)
+          .length;
+      // "total" here means everything currently tracked as in-flight or
+      // just finished in this burst — completed + still-active — which is
+      // what a user watching the tray actually expects the denominator to
+      // mean ("12 of 50"), not a fixed snapshot from when the batch
+      // started (playlist downloads already filter to just the pending
+      // subset before starting, so this stays accurate as items finish).
+      await NotificationService.instance.showBatchProgress(
+        completed: completed,
+        total: completed + active,
+      );
+    } else {
+      await NotificationService.instance.showProgress(
+        songId: songId,
+        title: title,
+        percent: percent,
+      );
+    }
+  }
+
   Future<Directory> _downloadsDir() async {
     final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/downloads');
@@ -455,7 +506,7 @@ class DownloadProvider extends ChangeNotifier {
     // uncaught throw here would previously crash download() entirely
     // before a single byte was ever requested.
     try {
-      await NotificationService.instance.showProgress(
+      await _notifyProgress(
         songId: song.id,
         title: song.title,
         percent: (resumeFromBytes > 0
@@ -668,7 +719,7 @@ class DownloadProvider extends ChangeNotifier {
             if (hasTotal && percent != lastNotifiedPercent) {
               lastNotifiedPercent = percent!;
               try {
-                await NotificationService.instance.showProgress(
+                await _notifyProgress(
                   songId: song.id,
                   title: song.title,
                   percent: percent,
@@ -740,7 +791,7 @@ class DownloadProvider extends ChangeNotifier {
               // otherwise-healthy file transfer that might be seconds from
               // finishing successfully.
               try {
-                await NotificationService.instance.showProgress(
+                await _notifyProgress(
                   songId: song.id,
                   title: song.title,
                   percent: percent,
@@ -869,6 +920,16 @@ class DownloadProvider extends ChangeNotifier {
       }
     } finally {
       _cancelTokens.remove(song.id);
+      // Once the batch has drained down to the last one or two downloads
+      // (or finished entirely), drop the summary notification — otherwise
+      // it would sit there stale/complete-looking while the final
+      // straggler(s) fall back to their own per-song notification, or
+      // linger forever after everything's actually done.
+      if (!NotificationService.instance.shouldUseBatchNotification(_activeDownloadCount)) {
+        try {
+          await NotificationService.instance.cancelBatchProgress();
+        } catch (_) {}
+      }
     }
   }
 

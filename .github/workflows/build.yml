@@ -94,24 +94,122 @@ jobs:
           name: aurum-music-release
           path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
-      - name: Check release opt-in
-        id: release_gate
-        run: |
-          if [[ "${{ github.event.head_commit.message }}" == *"[release]"* ]]; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "Commit message doesn't contain [release] — build artifact is available above, but no public release was created. Nobody's app will be prompted to update from this run."
-          fi
-
       - name: Create Release
-        if: steps.release_gate.outputs.should_release == 'true'
+        # FIX ("update notification kisi ko nahi ja raha, popup kabhi
+        # aata hi nahi" — root cause): this used to be gated behind a
+        # manual `[release]` keyword in the commit message
+        # (steps.release_gate.outputs.should_release). That gate meant
+        # EVERY push to main/master that didn't happen to include that
+        # exact keyword built an APK artifact but never created a GitHub
+        # release — and UpdateService.checkForUpdate() only ever checks
+        # the `releases/latest` API endpoint, which 404s (silently, since
+        # every real-world call site passes silent:true on cold launch)
+        # when no release has ever been published. That's exactly what
+        # was happening: no commit had ever included the keyword, so
+        # https://github.com/shivam-s01/Aurum-app had zero releases,
+        # ever — nobody could possibly have gotten an update prompt, no
+        # matter how the popup/push code itself was written. Removing the
+        # manual gate entirely: every successful build on main/master now
+        # always creates/updates a release, so this class of "forgot the
+        # magic keyword" failure can't happen again.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build${{ steps.ver.outputs.build }}
           name: Build ${{ steps.ver.outputs.build }}
           files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify users of new update (FCM push)
+        # Runs on every release now (see the Create Release step above —
+        # the old manual [release] gate is gone). Silently skipped (not
+        # failed) if the FIREBASE_SERVICE_ACCOUNT secret hasn't been added
+        # yet, so this step is a no-op until FCM_SETUP.md's steps are
+        # done, rather than breaking the whole release pipeline for
+        # anyone who hasn't set up push notifications yet.
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT secret not set — skipping push notification (see FCM_SETUP.md)."
+            exit 0
+          fi
+          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/fcm-service-account.json
+          PROJECT_ID=$(python3 -c "import json; print(json.load(open('/tmp/fcm-service-account.json'))['project_id'])")
+
+          # OAuth2 access token via the service account's private key (JWT
+          # bearer flow) — no extra CLI/tooling needed beyond openssl+curl,
+          # which every ubuntu-latest runner already has.
+          #
+          # YAML-SAFETY NOTE: every line of this embedded Python script is
+          # kept indented at least as far as this `run: |` block's own
+          # baseline indentation (10 spaces) — a literal block scalar in
+          # YAML ends at the first line indented LESS than its first
+          # content line, so a flush-left heredoc body here would
+          # silently truncate the workflow (everything after would be
+          # parsed as sibling YAML keys, not job steps) rather than
+          # failing loudly. textwrap.dedent() strips that shared leading
+          # whitespace back off before Python actually runs the code, so
+          # this indentation is purely to keep YAML's parser happy and
+          # has zero effect on the script's actual behavior.
+          python3 - <<'PYEOF'
+          import json, time, base64, subprocess, textwrap
+
+          src = textwrap.dedent("""
+          import json, time, base64, subprocess, os
+
+          with open('/tmp/fcm-service-account.json') as f:
+              sa = json.load(f)
+
+          now = int(time.time())
+          header = {"alg": "RS256", "typ": "JWT"}
+          claims = {
+              "iss": sa["client_email"],
+              "scope": "https://www.googleapis.com/auth/firebase.messaging",
+              "aud": "https://oauth2.googleapis.com/token",
+              "iat": now,
+              "exp": now + 3600,
+          }
+
+          def b64url(data: bytes) -> str:
+              return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+          signing_input = f"{b64url(json.dumps(header).encode())}.{b64url(json.dumps(claims).encode())}"
+
+          with open('/tmp/pkey.pem', 'w') as f:
+              f.write(sa["private_key"])
+
+          sig = subprocess.run(
+              ["openssl", "dgst", "-sha256", "-sign", "/tmp/pkey.pem"],
+              input=signing_input.encode(), capture_output=True, check=True
+          ).stdout
+          jwt = f"{signing_input}.{b64url(sig)}"
+
+          with open('/tmp/jwt.txt', 'w') as f:
+              f.write(jwt)
+          """)
+          exec(src)
+          PYEOF
+
+          JWT=$(cat /tmp/jwt.txt)
+          ACCESS_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${JWT}" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+          curl -s -X POST "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send" \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"message\": {
+                \"topic\": \"updates\",
+                \"notification\": {
+                  \"title\": \"Update available\",
+                  \"body\": \"A new version of Aurum is ready to install.\"
+                }
+              }
+            }"
+
+          rm -f /tmp/fcm-service-account.json /tmp/pkey.pem /tmp/jwt.txt
 
   # ════════════════════════════════════════════════════════════════════════
   # WEB PREVIEW — builds a browser-viewable version of the UI and publishes

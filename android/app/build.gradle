@@ -4,6 +4,14 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Push notifications (FCM): only applied when google-services.json is
+// actually present, so a fresh checkout / a contributor who hasn't set up
+// Firebase yet still builds fine — this plugin hard-fails the build if it's
+// applied but the file is missing. See FCM_SETUP.md to add the file.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
+
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file('key.properties')
 if (keystorePropertiesFile.exists()) {

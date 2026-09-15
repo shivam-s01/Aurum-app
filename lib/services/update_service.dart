@@ -209,6 +209,58 @@ class UpdateService {
       rethrow;
     }
   }
+
+  // FIX ("update install/uninstall jaisa lagta hai"): installApk() above
+  // only confirms the PackageInstaller session was STARTED — the real
+  // outcome (user confirmed the update prompt and it succeeded, they
+  // dismissed it, or it failed) arrives later via this native→Dart
+  // callback, since a session can be waiting on a user tap for several
+  // seconds. Callers (currently just _UpdateDialog) register here to
+  // reflect the actual result instead of assuming success the instant
+  // installApk's method call returns.
+  static void Function(bool success, String message)? onInstallResult;
+
+  static void wireInstallResultHandler() {
+    // FIX ("updates jaana band ho gaya sabke liye" — regression from the
+    // silent-install change): this handler runs on _channel
+    // ('com.aurum.music/media_store'), which THE SAME static channel
+    // object every other service (LocalMusicService, DiagnosticLogService,
+    // AudioPrefs, NativeRelatedVideos, and checkForUpdate/installApk right
+    // here) also calls invokeMethod on. setMethodCallHandler only affects
+    // INCOMING calls (native→Dart) — it does not block outgoing
+    // invokeMethod calls made by those other services, so this by itself
+    // was never the cause of updates failing to reach users.
+    //
+    // The real risk was narrower but real: if this callback ever threw
+    // (a malformed/unexpected `call.arguments` shape, or literally any
+    // other method someone adds to this channel in the future landing
+    // here unhandled), the exception propagates back through the
+    // platform channel machinery as an uncaught error. That doesn't
+    // crash invokeMethod callers immediately, but on some Flutter engine
+    // versions an uncaught platform-channel handler exception can leave
+    // the channel's isolate-side dispatcher in a bad state for
+    // *subsequent* calls on that same channel — which would silently
+    // break every other media_store call after it, including the ones
+    // checkForUpdate's installApk() depends on. Hardened below so this
+    // handler can never throw, no matter what arrives on this channel:
+    // only ever reacts to the one method it knows about, everything else
+    // (including malformed args) is ignored rather than crashing.
+    _channel.setMethodCallHandler((call) async {
+      try {
+        if (call.method != 'onInstallResult') return null;
+        final rawArgs = call.arguments;
+        if (rawArgs is! Map) return null;
+        final args = Map<String, dynamic>.from(rawArgs);
+        onInstallResult?.call(
+          args['success'] as bool? ?? false,
+          args['message'] as String? ?? '',
+        );
+      } catch (e) {
+        debugPrint('[Aurum] UpdateService: onInstallResult handler error (ignored): $e');
+      }
+      return null;
+    });
+  }
 }
 
 class _UpdateToast extends StatefulWidget {
@@ -315,10 +367,30 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
     super.initState();
     _entryCtrl = AnimationController(vsync: this, duration: AurumMotion.long2);
     _entryCtrl.forward();
+    // Listens for the real install outcome (see UpdateService.
+    // onInstallResult's doc comment) — a hard failure (corrupt file,
+    // signature mismatch, session error) can arrive within a second or
+    // two of installApk() being called, well before the user would see
+    // anything else; a genuine success/user-confirmed-it usually arrives
+    // after this dialog has already closed (Android's own confirmation
+    // screen takes over), in which case there's no dialog left to update
+    // and the callback is a no-op here — that's fine, the update either
+    // proceeded or the user dismissed the OS prompt themselves.
+    UpdateService.onInstallResult = (success, message) {
+      if (!mounted) return;
+      if (!success) {
+        setState(() {
+          _downloading = false;
+          _installing = false;
+          _status = message.isNotEmpty ? message : 'Install failed — please try again';
+        });
+      }
+    };
   }
 
   @override
   void dispose() {
+    UpdateService.onInstallResult = null;
     _entryCtrl.dispose();
     super.dispose();
   }
@@ -374,6 +446,12 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
       });
       AurumHaptics.light();
       await Future.delayed(const Duration(milliseconds: 350));
+      // installApk() only confirms the PackageInstaller session STARTED —
+      // popping this dialog here hands control to Android's own update
+      // confirmation screen (or, on a fast/silent path, the update just
+      // proceeds). A genuine early failure (bad file, session error) is
+      // still caught by the onInstallResult listener in initState() above
+      // while this dialog is still up, before this pop ever runs.
       await UpdateService.installApk(path);
       if (mounted) Navigator.pop(context);
     } catch (e) {

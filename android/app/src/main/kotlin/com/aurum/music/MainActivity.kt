@@ -38,6 +38,13 @@ class MainActivity : FlutterFragmentActivity() {
     // AurumMediaSessionService.sharedEngine is set inside its init{} so the
     // service (bound below, right after this) always finds the same
     // ExoPlayer instance instead of building a second one.
+    // Held so AurumSilentInstaller's async install callback (which can
+    // fire well after the "installApk" method-channel call itself already
+    // returned — PackageInstaller sessions are inherently async, often
+    // waiting on a user tapping a confirmation screen) has a channel to
+    // call back into Dart on with the real success/failure outcome.
+    private var methodChannel: MethodChannel? = null
+
     private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
 
     // Exposes YoutubeInnertube.getRelated() (YouTube's own related-videos
@@ -139,7 +146,8 @@ class MainActivity : FlutterFragmentActivity() {
 
         batteryChannelHandler = AurumBatteryChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).also { methodChannel = it }
+        methodChannel!!
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getSongs" -> {
@@ -179,18 +187,28 @@ class MainActivity : FlutterFragmentActivity() {
                 "installApk" -> {
                     try {
                         val apkPath = call.argument<String>("path") ?: run { result.error("NO_PATH", "No path", null); return@setMethodCallHandler }
-                        val file = java.io.File(apkPath)
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            this,
-                            "${packageName}.fileprovider",
-                            file
-                        )
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        // FIX ("update install/uninstall jaisa lagta hai"):
+                        // replaces the old ACTION_VIEW file-open flow with
+                        // PackageInstaller's session API — see
+                        // AurumSilentInstaller's doc comment for exactly
+                        // why that flow could present as an uninstall
+                        // prompt on some devices/failure paths, and why
+                        // this categorically cannot. `result.success(null)`
+                        // here just acknowledges the install was STARTED —
+                        // the actual outcome (success/fail, possibly after
+                        // the user taps through a confirmation screen)
+                        // arrives later via the "onInstallResult" call back
+                        // into Dart below, since PackageInstaller sessions
+                        // are inherently async and can outlive this single
+                        // method-channel round trip.
+                        AurumSilentInstaller.install(this, apkPath) { success, message ->
+                            runOnUiThread {
+                                methodChannel?.invokeMethod(
+                                    "onInstallResult",
+                                    mapOf("success" to success, "message" to message)
+                                )
+                            }
                         }
-                        startActivity(intent)
                         result.success(null)
                     } catch (e: Exception) {
                         result.error("INSTALL_ERROR", e.message, null)

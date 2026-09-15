@@ -186,6 +186,21 @@
         <receiver
             android:name=".AutoSleepGuardActionReceiver"
             android:exported="false"/>
+
+        <!-- Push notifications (FCM) — "new update available" alerts that
+             need to reach users even when the app is fully killed, since
+             UpdateService's own check only runs while the app is open.
+             Default channel/icon so FCM's own background-message handler
+             (no custom Kotlin service needed — firebase_messaging's Flutter
+             plugin handles delivery) has something to show notifications
+             with; NotificationService's existing "Downloads" channel is
+             deliberately left untouched/separate from this. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="com.aurum.music.channel.updates"/>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher"/>
     </application>
     <queries>
         <intent>

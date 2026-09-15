@@ -324,7 +324,12 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: AurumM3Loader(height: 6, borderRadius: 4),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 6,
+              backgroundColor: AurumTheme.dividerOf(context),
+              valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.accentOf(context)),
+            ),
           ),
           const SizedBox(height: 12),
           AurumPressable(

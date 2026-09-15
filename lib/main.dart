@@ -47,6 +47,8 @@ import 'services/diagnostic_log_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/native_engine_bridge.dart';
 import 'services/notification_service.dart';
+import 'services/update_push_service.dart';
+import 'services/update_service.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/audio_prefs.dart';
@@ -329,6 +331,29 @@ Future<void> main() async {
         AurumPageRoute(builder: (_) => const DownloadsScreen()),
       );
     };
+    NotificationService.instance.onUpdateNotificationTapped = () {
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) UpdateService.checkForUpdate(ctx, silent: false, force: true);
+    };
+  } catch (_) {}
+
+  // Push notifications ("update available" reaching users even when the
+  // app is killed — see UpdatePushService's doc comment for the full
+  // flow). Deliberately placed after NotificationService.init() (needs
+  // its "App Updates" channel to already exist for the foreground-message
+  // path) and, like every other post-runApp() block here, never blocks
+  // the cold-start path — it fails soft on its own if Firebase isn't
+  // configured for this build (see FCM_SETUP.md).
+  try {
+    await UpdatePushService.instance.init();
+  } catch (_) {}
+
+  // Wires the native→Dart callback for PackageInstaller's async install
+  // result (see UpdateService.installApk / AurumSilentInstaller's doc
+  // comment) — has to run once at startup so the handler exists no
+  // matter when/whether the user ever opens the update dialog.
+  try {
+    UpdateService.wireInstallResultHandler();
   } catch (_) {}
   }, (error, stack) {
     debugPrint('[Aurum] Uncaught error: $error\n$stack');
