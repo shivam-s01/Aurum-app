@@ -157,38 +157,55 @@ class _LikedScreenState extends State<LikedScreen> {
                 }
               },
             ),
-            // SELECTION APP BAR ("select krne pr 3 dot aa jaye"): while
-            // selecting, the title/heart row is swapped for a live count
-            // and a 3-dot menu (Select all / Deselect all / Unlike
-            // selected) — same pattern as the Artists tab above, so the
-            // two multi-select flows feel identical across the app.
+            // SELECTION APP BAR (FIX — "select all wala awkward hai"):
+            // Select all/Deselect all used to be buried two taps deep
+            // inside a 3-dot menu, which is exactly the kind of hidden
+            // control that makes bulk-selection screens feel clunky
+            // (Gmail/Photos/Spotify all put it directly in the app bar
+            // as a single tap). Replaced with a direct toggling action
+            // button — reads "Select all" while anything is unselected,
+            // flips to "Deselect all" once every song is selected — plus
+            // a dedicated unlike (delete) icon so the whole flow is two
+            // visible taps (select all → unlike) instead of three
+            // (menu → select all → menu → unlike).
             actions: _selectMode
                 ? [
                     Consumer<FavoritesProvider>(
-                      builder: (context, fav, _) => PopupMenuButton<String>(
-                        icon: Icon(Icons.more_vert_rounded,
-                            color: AurumTheme.textPrimaryOf(context)),
-                        onSelected: (value) {
-                          if (value == 'select_all') {
+                      builder: (context, fav, _) {
+                        final allSelected = fav.favorites.isNotEmpty &&
+                            _selectedIds.length == fav.favorites.length;
+                        return TextButton(
+                          onPressed: () {
                             AurumHaptics.selection();
                             setState(() {
-                              _selectedIds
-                                ..clear()
-                                ..addAll(fav.favorites.map((s) => s.id));
+                              if (allSelected) {
+                                _selectedIds.clear();
+                              } else {
+                                _selectedIds
+                                  ..clear()
+                                  ..addAll(fav.favorites.map((s) => s.id));
+                              }
                             });
-                          } else if (value == 'deselect_all') {
-                            AurumHaptics.selection();
-                            setState(() => _selectedIds.clear());
-                          } else if (value == 'unlike') {
-                            _confirmUnlikeSelected();
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(value: 'select_all', child: Text('Select all')),
-                          PopupMenuItem(value: 'deselect_all', child: Text('Deselect all')),
-                          PopupMenuItem(value: 'unlike', child: Text('Unlike selected')),
-                        ],
+                          },
+                          child: Text(
+                            allSelected ? 'Deselect all' : 'Select all',
+                            style: TextStyle(
+                              color: AurumTheme.accentOf(context),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        color: _selectedIds.isEmpty
+                            ? AurumTheme.textMutedOf(context)
+                            : Colors.redAccent,
                       ),
+                      onPressed: _selectedIds.isEmpty ? null : _confirmUnlikeSelected,
                     ),
                     const SizedBox(width: 4),
                   ]
@@ -313,6 +330,22 @@ class _LikedScreenState extends State<LikedScreen> {
                     if (!_selectMode) {
                       return tile;
                     }
+                    // CHECKBOX PLACEMENT FIX ("select wala option
+                    // thumbnail pr aa raha hai, awkward lagta hai"): the
+                    // previous version squeezed an extra circle in
+                    // between the screen edge and the artwork, visually
+                    // colliding with/crowding the thumbnail. Spotify and
+                    // Google Photos instead replace the thumbnail itself
+                    // with the selection indicator — a dimming scrim
+                    // directly over the artwork with a checkmark
+                    // centered on top when selected — so nothing new is
+                    // squeezed into the row layout at all; the check
+                    // simply takes over the exact space the artwork
+                    // already occupies. Precisely sized/positioned to
+                    // match SongTile's own artwork geometry (58px,
+                    // 10px radius, 16px left padding) so it sits exactly
+                    // on top of the real thumbnail beneath, pixel for
+                    // pixel.
                     return Stack(
                       children: [
                         IgnorePointer(child: tile),
@@ -323,15 +356,36 @@ class _LikedScreenState extends State<LikedScreen> {
                               onTap: () => _toggleSelected(song.id),
                               child: Row(
                                 children: [
-                                  const SizedBox(width: 8),
-                                  Icon(
-                                    isSelected
-                                        ? Icons.check_circle_rounded
-                                        : Icons.radio_button_off_rounded,
-                                    color: isSelected
-                                        ? AurumTheme.accentOf(context)
-                                        : AurumTheme.textMutedOf(context),
-                                    size: 22,
+                                  const SizedBox(width: 16),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    width: 58,
+                                    height: 58,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      color: isSelected
+                                          ? Colors.black.withOpacity(0.55)
+                                          : Colors.transparent,
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: AnimatedScale(
+                                      duration: const Duration(milliseconds: 150),
+                                      scale: isSelected ? 1.0 : 0.0,
+                                      curve: Curves.easeOutBack,
+                                      child: Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: AurumTheme.accentOf(context),
+                                        ),
+                                        child: Icon(
+                                          Icons.check_rounded,
+                                          color: AurumTheme.bgOf(context),
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),

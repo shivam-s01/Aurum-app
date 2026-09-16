@@ -68,17 +68,34 @@ jobs:
         # name AND what ships inside the APK AND what's visible in the
         # repo, always in lockstep.
         #
-        # ONE-TIME RESYNC: pubspec.yaml was stuck at +345 while GitHub
-        # Releases had already reached build1125 (from the old
-        # run_number-based scheme). Floor LAST_BUILD at 1125 so this
-        # first bump continues from 1126 onward instead of restarting
-        # at 346 and looking like an OLDER build than what's already
-        # been released and possibly installed on phones. Every run
-        # after this one just increments normally — this floor only
-        # ever matters once.
+        # SECOND RESYNC (this one matters — the first floor of 1125
+        # undershot): Build 1126's *tag* said "1126", but the APK
+        # actually shipped inside it was compiled with versionCode=3126
+        # — confirmed via `aapt dump badging` against the real
+        # installed APK. That means some run before this fix landed
+        # already pushed pubspec.yaml (or fed flutter.versionCode) with
+        # a run_number in the 3100s, so the true high-water mark is
+        # 3126, not 1125. Floor at 3126 so every future build is
+        # guaranteed newer than every APK anyone could already have
+        # installed — this is the number that must never be undershot
+        # again, since UpdateService's "latestBuild <= currentBuild"
+        # check silently reports "up to date" (no error, no crash) for
+        # any release whose number doesn't clear the highest build ever
+        # actually shipped.
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
           LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
+          # Defensive: if pubspec.yaml's version line is ever missing,
+          # malformed, or has no "+build" suffix, LAST_BUILD would come
+          # out empty — `[ "" -lt 3126 ]` errors out ("integer expression
+          # expected") and fails this step, blocking every future build
+          # until someone notices and hand-fixes pubspec.yaml. Falling
+          # back to 0 here means a malformed version line still floors
+          # correctly at 3126 and the pipeline keeps working instead of
+          # going red on something this step already exists to fix.
+          if ! [[ "$LAST_BUILD" =~ ^[0-9]+$ ]]; then
+            LAST_BUILD=0
+          fi
           if [ "$LAST_BUILD" -lt 3126 ]; then
             LAST_BUILD=3126
           fi
@@ -142,6 +159,125 @@ jobs:
           BUILD=$(echo $VERSION | cut -d'+' -f2)
           echo "build=$BUILD" >> $GITHUB_OUTPUT
 
+      - name: Generate polished changelog
+        id: changelog
+        # Turns raw commit messages into a clean, categorized release
+        # body WITHOUT any AI/API call — pure text processing, so it
+        # costs nothing and needs no secret key. Sorts each commit into
+        # one of a fixed set of sections by its conventional-commit-style
+        # prefix (fix:/add:/feat:/improve:/perf:/remove:/docs:), title-
+        # cases the message, and only prints sections that actually have
+        # content — so a push with just one fix never shows four empty
+        # headers. This is what UpdateService's _parseHighlights() reads
+        # on-device to build the "WHAT'S NEW" list in the update popup,
+        # so the section headers/bullets emitted here are intentionally
+        # plain markdown ("## Heading", "- bullet") with NO emoji baked
+        # directly into the text — _parseHighlights() strips markdown
+        # heading/bullet markers but keeps emoji, so emoji are added
+        # per-section below and survive into the on-device popup, while
+        # raw "## " noise never does.
+        run: |
+          # Commits since the previous tag only (not the whole repo
+          # history) — falls back to the last 20 commits on the very
+          # first release, when no previous tag exists yet.
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s")
+          else
+            COMMITS=$(git log -20 --pretty=format:"%s")
+          fi
+
+          declare -A SECTIONS
+          SECTIONS[feat]=""
+          SECTIONS[fix]=""
+          SECTIONS[improve]=""
+          SECTIONS[perf]=""
+          SECTIONS[remove]=""
+          SECTIONS[docs]=""
+          SECTIONS[other]=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            # Never surface the bot's own bump commits as a user-facing
+            # changelog line — [skip ci] already keeps them from
+            # retriggering CI, this keeps them out of what users read.
+            case "$line" in
+              *"[skip ci]"*) continue ;;
+            esac
+
+            lower=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+            case "$lower" in
+              feat:*|add:*|added:*)      key=feat;    msg="${line#*:}" ;;
+              fix:*|fixed:*|bugfix:*)    key=fix;     msg="${line#*:}" ;;
+              improve:*|improved:*|refactor:*) key=improve; msg="${line#*:}" ;;
+              perf:*|performance:*)      key=perf;    msg="${line#*:}" ;;
+              remove:*|removed:*|chore:*) key=remove; msg="${line#*:}" ;;
+              docs:*|doc:*)              key=docs;    msg="${line#*:}" ;;
+              *)                         key=other;   msg="$line" ;;
+            esac
+
+            # Trim leading space left after stripping "prefix:", then
+            # capitalize just the first letter — title-casing the WHOLE
+            # message would mangle proper nouns/code identifiers that
+            # are already correctly cased (e.g. "SongTile", "GitHub").
+            msg=$(echo "$msg" | sed 's/^ *//')
+            first_char=$(echo "${msg:0:1}" | tr '[:lower:]' '[:upper:]')
+            msg="${first_char}${msg:1}"
+
+            SECTIONS[$key]="${SECTIONS[$key]}- ${msg}
+          "
+          done <<< "$COMMITS"
+
+          {
+            if [ -n "${SECTIONS[feat]}" ]; then
+              echo "## ✨ New"
+              printf '%s' "${SECTIONS[feat]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[improve]}" ]; then
+              echo "## ⚡ Improved"
+              printf '%s' "${SECTIONS[improve]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[fix]}" ]; then
+              echo "## 🐛 Fixed"
+              printf '%s' "${SECTIONS[fix]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[perf]}" ]; then
+              echo "## 🚀 Performance"
+              printf '%s' "${SECTIONS[perf]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[docs]}" ]; then
+              echo "## 📝 Docs"
+              printf '%s' "${SECTIONS[docs]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[remove]}" ]; then
+              echo "## 🧹 Housekeeping"
+              printf '%s' "${SECTIONS[remove]}"
+              echo ""
+            fi
+            if [ -n "${SECTIONS[other]}" ]; then
+              echo "## 🔧 Other changes"
+              printf '%s' "${SECTIONS[other]}"
+              echo ""
+            fi
+          } > /tmp/changelog_body.md
+
+          # Guaranteed non-empty fallback: if every commit in this
+          # range was filtered out (e.g. the only commit was a
+          # [skip ci] bump), still ship a body instead of an empty
+          # release description.
+          if [ ! -s /tmp/changelog_body.md ]; then
+            echo "## ⚡ Improved" > /tmp/changelog_body.md
+            echo "- General improvements and stability fixes" >> /tmp/changelog_body.md
+          fi
+
+          echo "Generated changelog:"
+          cat /tmp/changelog_body.md
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -152,10 +288,16 @@ jobs:
         # Gate removed (per explicit request): every successful push to
         # main/master now always creates/updates a GitHub release,
         # unconditionally — no [release] keyword needed.
+        #
+        # body_path points at the categorized changelog generated above
+        # instead of relying on this action's own default (raw commit
+        # log dump) — that raw dump is what used to show up verbatim as
+        # a single flat bullet in the on-device "WHAT'S NEW" list.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build${{ steps.ver.outputs.build }}
           name: Build ${{ steps.ver.outputs.build }}
+          body_path: /tmp/changelog_body.md
           files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
 

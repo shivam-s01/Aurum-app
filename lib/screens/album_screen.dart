@@ -9,6 +9,7 @@
 
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
+import 'library_screen.dart' show DownloadsScreen;
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -438,6 +439,16 @@ class _AlbumScreenState extends State<AlbumScreen> {
   /// Queues every song in the album for download via DownloadProvider,
   /// skipping ones already downloaded/in-progress. Mirrors the per-song
   /// download flow used elsewhere in the app, just looped across the album.
+  ///
+  /// FIX ("download pr click krne pr kuch pta nahi chalta ho raha hai ya
+  /// nahi"): this used to just fire every download in the background and
+  /// show a toast that flashes by in 2 seconds — no visible confirmation
+  /// that anything is actually progressing, no way to check back on it.
+  /// Now opens the real Downloads screen (Downloaded / In Progress tabs,
+  /// live per-song progress rings) right after queuing, same screen the
+  /// Library tab's own Downloads entry uses — so the user lands straight
+  /// on proof the download is actually happening instead of having to
+  /// trust a toast and go hunting for a downloads list themselves.
   Future<void> _downloadAlbum(
       BuildContext context, DownloadProvider downloads) async {
     final toQueue = _songs
@@ -447,10 +458,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
       _snack(context, 'Already downloaded');
       return;
     }
-    _snack(context, 'Downloading ${toQueue.length} song(s)…');
     for (final song in toQueue) {
       unawaited(downloads.download(song));
     }
+    if (!context.mounted) return;
+    AurumDepthRoute.to(context, const DownloadsScreen());
   }
 
   void _showAlbumOptions(BuildContext context) {
@@ -675,7 +687,11 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                     for (final s in toQueue) {
                       unawaited(downloads.download(s));
                     }
-                    _snack('Downloading ${toQueue.length} song(s)…');
+                    // FIX ("download pr click krne pr kuch pta nahi
+                    // chalta"): close this sheet and open the real
+                    // Downloads screen so progress is actually visible.
+                    Navigator.pop(context);
+                    AurumDepthRoute.to(widget.rootContext, const DownloadsScreen());
                   },
                 ),
                 _GridOption(

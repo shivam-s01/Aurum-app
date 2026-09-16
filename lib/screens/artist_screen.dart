@@ -18,6 +18,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
+import '../widgets/aurum_snack.dart';
 import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
 import 'artist_all_songs_screen.dart';
@@ -425,13 +426,27 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       ? Icons.person_remove_rounded
                       : Icons.person_add_alt_1_rounded,
                   active: isFollowing,
+                  // FIX (production-readiness pass): this used to end
+                  // every follow/unfollow tap with a raw debug SnackBar —
+                  // 'id="..." was=... now=... totalSaved=...' — a leftover
+                  // internal-state dump from when there was no adb/logcat
+                  // access to verify the save landed. Harmless in dev,
+                  // but exactly the kind of thing that reads as broken/
+                  // unfinished to a real user on a release build. Same
+                  // fix in spirit as mix_screen.dart's/album_screen.dart's
+                  // download-toast cleanup: replaced with the same
+                  // AurumSnack.show(...) toast every other save/follow
+                  // action in the app already uses (Library "Added"/
+                  // "Removed", FollowedAlbums save/unsave) — themed,
+                  // deduped, and tells the user what actually happened
+                  // instead of what got written to a Hive box. Haptic
+                  // also downgraded medium→selection to match every other
+                  // like/save/follow toggle in the app (favorites,
+                  // FollowedAlbumsProvider) — medium is reserved for
+                  // heavier actions like shuffle-play here, not a binary
+                  // toggle.
                   onTap: () async {
-                    AurumHaptics.medium();
-                    // DEBUG VISIBILITY (temporary — no adb/logcat access on
-                    // this device): shows the exact id being saved and the
-                    // resulting box count directly on-screen via SnackBar,
-                    // so a real save failure or an id mismatch is visible
-                    // without any tooling. Safe to remove once confirmed.
+                    AurumHaptics.selection();
                     final wasFollowing = followed.isFollowing(artist.id);
                     await followed.toggleFollow(
                       artistId: artist.id,
@@ -439,15 +454,11 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       imageUrl: artist.imageUrl,
                     );
                     if (!context.mounted) return;
-                    final nowFollowing = followed.isFollowing(artist.id);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        duration: const Duration(seconds: 4),
-                        content: Text(
-                          'id="${artist.id}" was=$wasFollowing now=$nowFollowing '
-                          'totalSaved=${followed.followed.length}',
-                        ),
-                      ),
+                    AurumSnack.show(
+                      context,
+                      wasFollowing
+                          ? 'Unfollowed ${artist.name}'
+                          : 'Following ${artist.name}',
                     );
                   },
                 ),

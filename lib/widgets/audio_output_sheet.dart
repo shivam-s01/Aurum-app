@@ -71,6 +71,12 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   // jitters back from a slightly-stale native read.
   int? _volume;
   int _maxVolume = 15;
+  // Volume Boost slice (100-200) — the slider's 100%-200% range, past
+  // hardware max. Kept separate from _volume/_maxVolume (which stay pure
+  // STREAM_MUSIC as before) and combined into one continuous 0.0-2.0
+  // fraction only at render/drag time — see _sliderFraction /
+  // _onSliderChanged. Starts at 100 (off) until _loadVolume() resolves.
+  int _boostPercent = 100;
   // True only while the user's thumb is actively down on the slider —
   // see the StreamBuilder around _VolumeRow in build() for why this
   // exists: it's what stops a live external volume change (hardware
@@ -80,6 +86,10 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   // burst is actually sent to the platform channel, so a fast drag
   // doesn't flood it with dozens of calls.
   Timer? _volumeDebounce;
+  // Same debounce idea for setVolumeBoost — native already ramps the
+  // actual gain smoothly on its side (see AurumAudioEffects.setVolumeBoost),
+  // this just avoids flooding the channel with every pixel of drag.
+  Timer? _boostDebounce;
 
   @override
   void initState() {
@@ -91,6 +101,7 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   @override
   void dispose() {
     _volumeDebounce?.cancel();
+    _boostDebounce?.cancel();
     super.dispose();
   }
 
@@ -111,17 +122,52 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
     setState(() {
       _volume = mv.level;
       _maxVolume = mv.max > 0 ? mv.max : 1;
+      _boostPercent = mv.boostPercent;
     });
   }
 
-  void _onVolumeChanged(double value) {
-    setState(() => _volume = value.round());
-    _volumeDebounce?.cancel();
-    _volumeDebounce = Timer(const Duration(milliseconds: 40), () {
-      final v = _volume;
-      if (v == null) return;
-      context.read<PlayerProvider>().engine.setMediaVolume(v);
-    });
+  void _onSliderChanged(double fraction) {
+    final clamped = fraction.clamp(0.0, 2.0);
+    if (clamped <= 1.0) {
+      final newVolume = (clamped * _maxVolume).round();
+      setState(() {
+        _volume = newVolume;
+        // Snapping hardware back down below max always fully disengages
+        // boost too — dragging left off the 200% end should feel like one
+        // continuous motion back toward silence, not leave boost stuck on
+        // at some stale percent while hardware volume drops.
+        if (_boostPercent != 100) _boostPercent = 100;
+      });
+      _volumeDebounce?.cancel();
+      _volumeDebounce = Timer(const Duration(milliseconds: 40), () {
+        final v = _volume;
+        if (v == null) return;
+        final engine = context.read<PlayerProvider>().engine;
+        engine.setMediaVolume(v);
+        // Ensure boost is actually re-sent to native once when crossing
+        // back under 100%, not just optimistically zeroed locally.
+        engine.setVolumeBoost(100);
+      });
+    } else {
+      final newBoost = (100 + (clamped - 1.0) * 100).round();
+      setState(() {
+        // Hardware volume is pinned at max while in boost territory —
+        // matches how the underlying gain path works (boost only ever
+        // adds on top of a maxed-out hardware stream).
+        _volume = _maxVolume;
+        _boostPercent = newBoost;
+      });
+      _volumeDebounce?.cancel();
+      _volumeDebounce = Timer(const Duration(milliseconds: 40), () {
+        final v = _volume;
+        if (v == null) return;
+        context.read<PlayerProvider>().engine.setMediaVolume(v);
+      });
+      _boostDebounce?.cancel();
+      _boostDebounce = Timer(const Duration(milliseconds: 40), () {
+        context.read<PlayerProvider>().engine.setVolumeBoost(_boostPercent);
+      });
+    }
   }
 
   /// Live label for the currently playing stream's resolved quality —
@@ -309,16 +355,28 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                   stream: engine.mediaVolumeStream,
                   builder: (context, volSnapshot) {
                     final live = volSnapshot.data;
+                    // Live hardware-volume events (hardware keys, another
+                    // app) never carry a live boostPercent — see
+                    // native_engine_bridge.dart's mediaVolumeStream doc —
+                    // so only _volume/_maxVolume follow the live stream
+                    // here; _boostPercent always comes from local state,
+                    // which only this sheet ever changes.
                     final effectiveVolume =
                         (!_isDragging && live != null) ? live.level : _volume;
                     final effectiveMax =
                         (!_isDragging && live != null && live.max > 0)
                             ? live.max
                             : _maxVolume;
+                    final fraction = (() {
+                      final hw = (effectiveVolume ?? 0) /
+                          (effectiveMax <= 0 ? 1 : effectiveMax);
+                      final boost = (_boostPercent - 100) / 100.0;
+                      return (hw + boost).clamp(0.0, 2.0);
+                    })();
                     return _VolumeRow(
-                      volume: effectiveVolume,
-                      max: effectiveMax,
-                      onChanged: _onVolumeChanged,
+                      fraction: fraction,
+                      boosted: _boostPercent > 100,
+                      onChanged: _onSliderChanged,
                       onDragStart: () => setState(() => _isDragging = true),
                       onDragEnd: () => setState(() => _isDragging = false),
                     );
@@ -431,74 +489,116 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
 /// updates with the current level (matches the reference "Play on" sheet
 /// pattern, just restyled to Aurum's gold-on-dark identity instead of a
 /// generic teal Material slider).
+///
+/// Range is 0.0-2.0: 0.0-1.0 is normal hardware volume (0%-100%, exactly
+/// as before), 1.0-2.0 is Volume Boost (100%-200%, extra electrical gain
+/// on top — see AurumAudioEffects.setVolumeBoost on the native side for
+/// why this is safe to push that far: gain is shared-budget-clamped and
+/// always ramped, never snapped, so there's no click/crackle crossing
+/// into or moving around the boost zone). A thin marker at the 1.0/100%
+/// mark plus an accent-color track change past it makes the boost zone
+/// visually distinct, so a user dragging into it knows they've crossed
+/// into "louder than normal" territory rather than being surprised by it.
 class _VolumeRow extends StatelessWidget {
-  final int? volume;
-  final int max;
+  final double fraction; // 0.0 - 2.0
+  final bool boosted;
   final ValueChanged<double> onChanged;
   final VoidCallback? onDragStart;
   final VoidCallback? onDragEnd;
 
   const _VolumeRow({
-    required this.volume,
-    required this.max,
+    required this.fraction,
+    required this.boosted,
     required this.onChanged,
     this.onDragStart,
     this.onDragEnd,
   });
 
   IconData get _icon {
-    final v = volume;
-    if (v == null || v <= 0) return Icons.volume_off_rounded;
-    if (v < max * 0.5) return Icons.volume_down_rounded;
+    if (fraction <= 0) return Icons.volume_off_rounded;
+    if (boosted) return Icons.volume_up_rounded;
+    if (fraction < 0.5) return Icons.volume_down_rounded;
     return Icons.volume_up_rounded;
   }
 
   @override
   Widget build(BuildContext context) {
     final muted = AurumTheme.textMutedOf(context);
-    final v = volume;
+    final accent = AurumTheme.accentOf(context);
+    // Boost zone reads as a warmer/brighter accent than the normal 0-100%
+    // track, purely as a visual "you're past 100% now" cue — no separate
+    // widget, so the whole thing still feels like one continuous slider.
+    final boostColor = Color.lerp(accent, const Color(0xFFFFC94A), 0.5)!;
+    final trackColor = boosted ? boostColor : accent;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
       child: Row(
         children: [
-          Icon(_icon, color: muted, size: 20),
+          Icon(_icon, color: boosted ? boostColor : muted, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                activeTrackColor: AurumTheme.accentOf(context),
-                inactiveTrackColor: muted.withOpacity(0.18),
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 7),
-                thumbColor: AurumTheme.accentOf(context),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 16),
-                overlayColor: AurumTheme.accentOf(context).withOpacity(0.18),
-              ),
-              child: Slider(
-                value: (v ?? 0).toDouble().clamp(0, max.toDouble()),
-                min: 0,
-                max: max.toDouble(),
-                // Null (not yet loaded) renders as a disabled-looking
-                // slider at 0 rather than a misleading full/empty guess —
-                // onChanged is still wired so it becomes interactive the
-                // instant the initial getMediaVolume() call resolves.
-                onChanged: onChanged,
-                // Marks the drag window so the live mediaVolumeStream
-                // (see the StreamBuilder wrapping this widget) knows to
-                // stay hands-off of the slider's displayed value until
-                // the user actually lets go — otherwise a live update
-                // arriving mid-drag (e.g. this same setMediaVolume call
-                // echoing back) could yank the thumb out from under the
-                // user's finger.
-                onChangeStart: onDragStart == null
-                    ? null
-                    : (_) => onDragStart!(),
-                onChangeEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
-              ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 100% mark — a faint tick exactly at the slider's
+                // midpoint, behind the track, so the boost boundary is
+                // visible without needing a label.
+                Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 2,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: muted.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    activeTrackColor: trackColor,
+                    inactiveTrackColor: muted.withOpacity(0.18),
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 7),
+                    thumbColor: trackColor,
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 16),
+                    overlayColor: trackColor.withOpacity(0.18),
+                  ),
+                  child: Slider(
+                    value: fraction.clamp(0.0, 2.0),
+                    min: 0.0,
+                    max: 2.0,
+                    onChanged: onChanged,
+                    // Marks the drag window so the live mediaVolumeStream
+                    // (see the StreamBuilder wrapping this widget) knows to
+                    // stay hands-off of the slider's displayed value until
+                    // the user actually lets go — otherwise a live update
+                    // arriving mid-drag (e.g. this same setMediaVolume call
+                    // echoing back) could yank the thumb out from under the
+                    // user's finger.
+                    onChangeStart: onDragStart == null
+                        ? null
+                        : (_) => onDragStart!(),
+                    onChangeEnd:
+                        onDragEnd == null ? null : (_) => onDragEnd!(),
+                  ),
+                ),
+              ],
             ),
           ),
+          if (boosted) ...[
+            const SizedBox(width: 8),
+            Text(
+              '${(100 + (fraction - 1.0).clamp(0.0, 1.0) * 100).round()}%',
+              style: TextStyle(
+                color: boostColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ],
       ),
     );

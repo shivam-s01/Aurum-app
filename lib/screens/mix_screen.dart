@@ -18,6 +18,7 @@
 
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
+import 'library_screen.dart' show DownloadsScreen;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -36,6 +37,8 @@ import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
 import '../widgets/cast_button.dart';
+import '../services/native_engine_bridge.dart' show CastState, CastConnectionStatus;
+import '../services/audio_prefs.dart';
 import 'artist_screen.dart';
 import 'search_screen.dart';
 import 'full_player_screen.dart' show shareSong;
@@ -705,17 +708,7 @@ class _MixScreenState extends State<MixScreen> {
                       );
                     },
                   ),
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AurumTheme.bgSurfaceOf(context),
-                    ),
-                    child: const Center(
-                      child: CastIconButton(size: 21),
-                    ),
-                  ),
+                  const _CastSlot(),
                 ],
               ),
             ),
@@ -837,6 +830,11 @@ class _MixScreenState extends State<MixScreen> {
   /// skipping ones already downloaded/in-progress. Mirrors AlbumScreen's
   /// bulk-download flow. Reads _songs so refresh-appended songs are
   /// included in "download all" too, not just the original batch.
+  ///
+  /// FIX (same as AlbumScreen's matching fix — "download pr click krne
+  /// pr kuch pta nahi chalta"): opens the real Downloads screen right
+  /// after queuing instead of leaving the user with only a toast and no
+  /// way to see the download actually progressing.
   Future<void> _downloadMix(
       BuildContext context, DownloadProvider downloads) async {
     final toQueue = _songs
@@ -847,10 +845,11 @@ class _MixScreenState extends State<MixScreen> {
       _snack(context, 'Already downloaded');
       return;
     }
-    _snack(context, 'Downloading ${toQueue.length} song(s)…');
     for (final song in toQueue) {
       unawaited(downloads.download(song));
     }
+    if (!context.mounted) return;
+    AurumDepthRoute.to(context, const DownloadsScreen());
   }
 
   void _showMixOptions(BuildContext context) {
@@ -1106,7 +1105,13 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                     for (final s in toQueue) {
                       unawaited(downloads.download(s));
                     }
-                    _snack('Downloading ${toQueue.length} song(s)…');
+                    // FIX (same as AlbumScreen — "download pr click krne
+                    // pr kuch pta nahi chalta"): close this options sheet
+                    // and open the real Downloads screen on the root
+                    // context so the user sees the download actually
+                    // progressing instead of only a toast.
+                    Navigator.pop(context);
+                    AurumDepthRoute.to(widget.rootContext, const DownloadsScreen());
                   },
                 ),
                 _GridOption(
@@ -1279,6 +1284,69 @@ class _RoundGlassButton extends StatelessWidget {
                   : AurumTheme.textPrimaryOf(context),
         ),
       ),
+    );
+  }
+}
+
+/// FIX ("action row ke end me ek khaali gol circle dikhta hai — awkward"):
+/// CastIconButton already hides ITSELF (SizedBox.shrink()) whenever no
+/// cast device is reachable — that's correct, matches Spotify/YT Music
+/// only ever showing the icon when it's actually actionable. The bug was
+/// here, not there: this row used to wrap it in its own hardcoded 48×48
+/// circular Container, so hiding the icon left that surrounding circle
+/// behind — an empty filled blob with nothing inside it, exactly the
+/// "awkward" 5th control visible in the reference screenshot.
+///
+/// Fix mirrors CastIconButton's own visibility check (same
+/// AudioPrefs.castIconVisibilityNotifier + CastState.supported/status
+/// gates it reads internally) one level up, so the circle and the icon
+/// hide and show as a single unit — never a background with nothing in
+/// it. Wrapped in a cheap AnimatedSwitcher (scale+fade, 220ms) purely so
+/// the *rare* case of a cast device appearing mid-session slides the
+/// control in smoothly instead of popping — the common case (no device,
+/// every other user, every other launch) is a single SizedBox.shrink(),
+/// zero extra width, zero extra paint.
+class _CastSlot extends StatelessWidget {
+  const _CastSlot();
+
+  @override
+  Widget build(BuildContext context) {
+    final engine = context.watch<PlayerProvider>().engine;
+    return ValueListenableBuilder<String>(
+      valueListenable: AudioPrefs.castIconVisibilityNotifier,
+      builder: (context, visibility, _) {
+        if (visibility == 'hidden') return const SizedBox.shrink();
+        return StreamBuilder<CastState>(
+          stream: engine.castStateStream,
+          initialData: engine.castState,
+          builder: (context, snapshot) {
+            final state = snapshot.data ?? const CastState();
+            final shouldShow = visibility == 'always'
+                ? state.supported
+                : (state.supported &&
+                    state.status != CastConnectionStatus.unavailable);
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: anim,
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: shouldShow
+                  ? Container(
+                      key: const ValueKey('cast_visible'),
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AurumTheme.bgSurfaceOf(context),
+                      ),
+                      child: const Center(child: CastIconButton(size: 21)),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('cast_hidden')),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -14,6 +14,12 @@ import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_motion.dart';
 
+class ChangelogSection {
+  final String title;
+  final List<String> items;
+  const ChangelogSection(this.title, this.items);
+}
+
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
@@ -186,20 +192,47 @@ class UpdateService {
     await prefs.setInt(_prefsDismissedAt, DateTime.now().millisecondsSinceEpoch);
   }
 
-  /// Turns a GitHub release body into a short, clean list of highlight
-  /// lines for the popup — strips markdown bullet/heading noise and
-  /// caps it at 4 lines so the dialog stays compact.
-  static List<String> _parseHighlights(String body) {
+  /// Turns a GitHub release body into a structured, categorized
+  /// changelog for the popup — groups bullets under their "## Heading"
+  /// section instead of flattening everything into one undifferentiated
+  /// list. Caps at 3 sections and 3 bullets per section so the dialog
+  /// stays compact and scannable (a Spotify-style "what's new" card
+  /// reads as organized, not as a wall of text).
+  static List<ChangelogSection> _parseHighlights(String body) {
     if (body.trim().isEmpty) return const [];
-    final lines = body
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .map((l) => l.replaceFirst(RegExp(r'^[-*•]\s*'), ''))
-        .map((l) => l.replaceFirst(RegExp(r'^#{1,6}\s*'), ''))
-        .where((l) => !l.startsWith('#'))
-        .toList();
-    return lines.take(4).toList();
+
+    final lines = body.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty);
+
+    final sections = <ChangelogSection>[];
+    String? currentTitle;
+    List<String> currentItems = [];
+
+    void flush() {
+      if (currentTitle != null && currentItems.isNotEmpty) {
+        sections.add(ChangelogSection(currentTitle!, currentItems.take(3).toList()));
+      }
+    }
+
+    for (final line in lines) {
+      final headingMatch = RegExp(r'^#{1,6}\s*(.+)$').firstMatch(line);
+      if (headingMatch != null) {
+        flush();
+        currentTitle = headingMatch.group(1)!.trim();
+        currentItems = [];
+        continue;
+      }
+      final bulletMatch = RegExp(r'^[-*•]\s*(.+)$').firstMatch(line);
+      if (bulletMatch != null) {
+        // A bullet before any heading (e.g. a hand-written release with
+        // no "## " sections) still needs a home — group those under a
+        // generic title rather than dropping them silently.
+        currentTitle ??= 'Changes';
+        currentItems.add(bulletMatch.group(1)!.trim());
+      }
+    }
+    flush();
+
+    return sections.take(3).toList();
   }
 
   static void _showDialog(
@@ -207,7 +240,7 @@ class UpdateService {
     required String version,
     required String displayName,
     required String url,
-    required List<String> highlights,
+    required List<ChangelogSection> highlights,
   }) {
     showDialog(
       context: context,
@@ -416,7 +449,7 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
 
 class _UpdateDialog extends StatefulWidget {
   final String version;
-  final List<String> highlights;
+  final List<ChangelogSection> highlights;
   final String url;
   final VoidCallback onDismiss;
   const _UpdateDialog({
@@ -621,40 +654,51 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('WHAT\'S NEW',
+                            for (int i = 0; i < widget.highlights.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 16),
+                              // Section title (e.g. "✨ New", "🐛 Fixed")
+                              // rendered as its own small caps label so
+                              // the popup reads as organized categories
+                              // rather than one undifferentiated bullet
+                              // dump — this is the "WHAT'S NEW" grouping
+                              // Spotify-style release notes use.
+                              Text(
+                                widget.highlights[i].title.toUpperCase(),
                                 style: TextStyle(
                                   color: AurumTheme.accent.withOpacity(0.9),
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.8,
-                                )),
-                            const SizedBox(height: 10),
-                            ...widget.highlights.map((h) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 5),
-                                        width: 5,
-                                        height: 5,
-                                        decoration: BoxDecoration(
-                                          color: AurumTheme.accent,
-                                          borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              ...widget.highlights[i].items.map((h) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 5),
+                                          width: 5,
+                                          height: 5,
+                                          decoration: BoxDecoration(
+                                            color: AurumTheme.accent,
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(h,
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(0.82),
-                                              fontSize: 13,
-                                              height: 1.4,
-                                            )),
-                                      ),
-                                    ],
-                                  ),
-                                )),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(h,
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(0.82),
+                                                fontSize: 13,
+                                                height: 1.4,
+                                              )),
+                                        ),
+                                      ],
+                                    ),
+                                  )),
+                            ],
                           ],
                         ),
                       ),

@@ -21,12 +21,14 @@
 
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
@@ -42,6 +44,7 @@ import '../widgets/aurum_snack.dart';
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/sync_service.dart';
+import '../services/recommendation_engine.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
@@ -55,6 +58,7 @@ import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import '../utils/aurum_transitions.dart';
 import 'settings_screen.dart';
+import 'settings_storage_screen.dart';
 import 'liked_screen.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
@@ -1524,38 +1528,47 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                         ),
                       ),
                       const Spacer(),
-                      PopupMenuButton<String>(
-                        icon: Icon(Icons.more_vert_rounded,
-                            color: AurumTheme.textPrimaryOf(context)),
-                        onSelected: (value) {
-                          if (value == 'select_all') {
+                      // FIX (same "select all wala awkward" fix as Liked
+                      // Songs): Select all was buried inside this 3-dot
+                      // menu — now a direct one-tap toggle button, plus
+                      // a dedicated unfollow icon.
+                      Builder(builder: (context) {
+                        final allIds = ordered.map((m) => (m['id'] ?? '').toString()).toSet();
+                        final allSelected = allIds.isNotEmpty &&
+                            _selectedIds.length == allIds.length;
+                        return TextButton(
+                          onPressed: () {
                             AurumHaptics.selection();
                             setState(() {
-                              _selectedIds
-                                ..clear()
-                                ..addAll(ordered.map((m) => (m['id'] ?? '').toString()));
+                              if (allSelected) {
+                                _selectedIds.clear();
+                              } else {
+                                _selectedIds
+                                  ..clear()
+                                  ..addAll(allIds);
+                              }
                             });
-                          } else if (value == 'deselect_all') {
-                            AurumHaptics.selection();
-                            setState(() => _selectedIds.clear());
-                          } else if (value == 'unfollow') {
-                            _confirmUnfollowSelected(ordered);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'select_all',
-                            child: Text('Select all'),
+                          },
+                          child: Text(
+                            allSelected ? 'Deselect all' : 'Select all',
+                            style: TextStyle(
+                              color: AurumTheme.accentOf(context),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                          const PopupMenuItem(
-                            value: 'deselect_all',
-                            child: Text('Deselect all'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'unfollow',
-                            child: Text('Unfollow selected'),
-                          ),
-                        ],
+                        );
+                      }),
+                      IconButton(
+                        icon: Icon(
+                          Icons.person_remove_outlined,
+                          color: _selectedIds.isEmpty
+                              ? AurumTheme.textMutedOf(context)
+                              : Colors.redAccent,
+                        ),
+                        onPressed: _selectedIds.isEmpty
+                            ? null
+                            : () => _confirmUnfollowSelected(ordered),
                       ),
                     ],
                   )
@@ -3240,7 +3253,21 @@ class _QuickAccessGrid extends StatelessWidget {
           iconColor: AurumTheme.accentOf(context),
           title: 'Cached',
           subtitle: 'Instant playback',
-          onTap: () {},
+          // FIX ("cache jo Library mein diya hu, uska kya kiya jaye, kisi
+          // kaam mein use kiya jaye"): this tile did nothing at all
+          // (onTap: () {}) — a dead button. The two real on-disk/in-memory
+          // caches in this app (Media3's song cache directory, the
+          // in-memory YouTube stream-URL cache) are both genuinely opaque
+          // — neither stores per-song metadata the UI can resolve back
+          // into a real "Song" to list, so faking a browsable "cached
+          // songs" list here would just be placeholder data pretending to
+          // be real, which this screen's own header comment explicitly
+          // rules out. _CacheInfoScreen instead surfaces the real numbers
+          // (song/image cache size on disk, same figures Settings →
+          // Storage already computes) plus a real clear action and a
+          // shortcut into the full Storage settings — genuinely useful,
+          // and nothing shown is invented.
+          onTap: () => AurumDepthRoute.to(context, const _CacheInfoScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.folder_rounded,
@@ -3254,7 +3281,24 @@ class _QuickAccessGrid extends StatelessWidget {
           iconColor: AurumTheme.accentOf(context),
           title: 'My top 50',
           subtitle: 'All time',
-          onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
+          // FIX ("Top 50 wala actually listening history pr bane, na ki
+          // history hi laga do"): this used to just open _HistoryScreen —
+          // the same chronological Recently Played list shown by the
+          // History tile above, only relabeled. Recently Played dedupes
+          // each song to its single most-recent play position, so it
+          // carries ZERO frequency signal — a song played 40 times and a
+          // song played once look identical there (whichever was played
+          // more recently sorts higher, full stop). That's not a "Top
+          // 50" by any real definition.
+          //
+          // RecommendationEngine already tracks a genuine per-song play
+          // COUNT on every single play (_plays, incremented in
+          // onSongStarted — see topPlayedSongIds()) entirely separately
+          // from history's move-to-front list, but nothing in the UI
+          // ever read it. _TopSongsScreen below is the first consumer:
+          // it ranks by that real play-count data and resolves each id
+          // back to a full Song via RecentlyPlayedProvider.history.
+          onTap: () => AurumDepthRoute.to(context, const _TopSongsScreen()),
         ),
       ],
     );
@@ -6322,7 +6366,406 @@ class _AurumTextField extends StatelessWidget {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ============================================================================
+// Top Songs Screen -- ranked by REAL play count (RecommendationEngine._plays,
+// incremented on every onSongStarted), not by recency. See "My top 50" tile's
+// onTap comment above for why this replaced reusing _HistoryScreen.
+// ============================================================================
+
+class _TopSongsScreen extends StatelessWidget {
+  const _TopSongsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<RecentlyPlayedProvider>(
+      builder: (context, rp, _) {
+        // Song objects aren't stored inside RecommendationEngine itself
+        // (it only tracks ids + counts, kept intentionally lightweight --
+        // see its _maxTrackedSongs pruning comment). Resolving each
+        // ranked id back to a full Song via the history list it already
+        // holds in memory -- a song that's been played enough to rank in
+        // a Top 50 will almost always still be present there (history
+        // holds up to 200 entries; RecommendationEngine tracks up to
+        // 500), and any id that genuinely fell out of both is simply
+        // skipped rather than shown broken.
+        final byId = {for (final s in rp.history) s.id: s};
+        final rankedIds = RecommendationEngine.topPlayedSongIds(count: 50);
+        final topSongs = rankedIds
+            .map((id) => byId[id])
+            .whereType<Song>()
+            .toList();
+
+        return Scaffold(
+          backgroundColor: AurumTheme.bgOf(context),
+          bottomNavigationBar: const MiniPlayerSlot(),
+          body: CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            cacheExtent: 1200,
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 120,
+                floating: false,
+                pinned: true,
+                backgroundColor: AurumTheme.bgOf(context),
+                leading: IconButton(
+                  icon: Icon(Icons.arrow_back_ios_new_rounded,
+                      color: AurumTheme.textPrimaryOf(context), size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                flexibleSpace: FlexibleSpaceBar(
+                  titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
+                  title: Row(children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AurumTheme.accentOf(context).withOpacity(0.15),
+                      ),
+                      child: Icon(Icons.trending_up_rounded,
+                          color: AurumTheme.accentOf(context), size: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'My Top 50',
+                      style: TextStyle(
+                        color: AurumTheme.accentOf(context),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+              if (topSongs.isEmpty)
+                SliverFillRemaining(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: AurumTheme.accentOf(context).withOpacity(0.08),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.trending_up_rounded,
+                              color: AurumTheme.accentOf(context).withOpacity(0.5),
+                              size: 36),
+                        ),
+                        const SizedBox(height: 20),
+                        Text('No top songs yet',
+                            style: TextStyle(
+                                color: AurumTheme.textPrimaryOf(context),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        Text('Keep listening -- your most-played songs will show up here',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: AurumTheme.textMutedOf(context),
+                                fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                )
+              else ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                    child: Row(children: [
+                      Text(
+                        '${topSongs.length} song${topSongs.length == 1 ? '' : 's'} \u00b7 ranked by plays',
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context),
+                            fontSize: 13),
+                      ),
+                      const Spacer(),
+                      AurumPressable(
+                        onTap: () {
+                          context.read<PlayerProvider>().playSong(
+                              topSongs[0],
+                              queue: topSongs,
+                              index: 0,
+                              curatedQueue: true);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            gradient: AurumTheme.accentGradientOf(context),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AurumTheme.accentOf(context).withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              )
+                            ],
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.play_arrow_rounded,
+                                color: AurumTheme.bg, size: 16),
+                            const SizedBox(width: 4),
+                            Text('Play All',
+                                style: TextStyle(
+                                    color: AurumTheme.bg,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700)),
+                          ]),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final song = topSongs[i];
+                      final rank = i + 1;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Row(
+                          children: [
+                            // Rank number badge -- top 3 pick up the
+                            // accent color/weight so the "most played"
+                            // handful visually stand out, matching how
+                            // Spotify Wrapped's Top Songs list reads.
+                            SizedBox(
+                              width: 32,
+                              child: Text(
+                                '$rank',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: rank <= 3
+                                      ? AurumTheme.accentOf(context)
+                                      : AurumTheme.textMutedOf(context),
+                                  fontSize: rank <= 3 ? 17 : 14,
+                                  fontWeight: rank <= 3
+                                      ? FontWeight.w800
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: SongTile(
+                                song: song,
+                                queue: topSongs,
+                                index: i,
+                                curatedQueue: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    childCount: topSongs.length,
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 100)),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// Cache Info Screen -- surfaces the REAL cache state (disk usage figures
+// already computed in Settings -> Storage) instead of leaving the old
+// "Cached" tile as a dead onTap: () {}. See that tile's onTap comment above
+// for why this isn't a browsable song list (neither on-disk nor in-memory
+// cache stores per-song metadata to resolve into real Song objects).
+// ============================================================================
+
+class _CacheInfoScreen extends StatefulWidget {
+  const _CacheInfoScreen();
+
+  @override
+  State<_CacheInfoScreen> createState() => _CacheInfoScreenState();
+}
+
+class _CacheInfoScreenState extends State<_CacheInfoScreen> {
+  bool _loading = true;
+  int _songCacheBytes = 0;
+  int _imageCacheBytes = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<int> _dirSize(Directory dir) async {
+    int total = 0;
+    try {
+      await for (final f in dir.list(recursive: true)) {
+        if (f is File) total += await f.length();
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  Future<void> _load() async {
+    final cacheDir = await getTemporaryDirectory();
+    int songBytes = 0;
+    int imageBytes = 0;
+    try {
+      final songCache = Directory('${cacheDir.path}/song_cache');
+      if (await songCache.exists()) songBytes = await _dirSize(songCache);
+      final imgCache = Directory('${cacheDir.path}/image_cache');
+      if (await imgCache.exists()) imageBytes = await _dirSize(imgCache);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _songCacheBytes = songBytes;
+      _imageCacheBytes = imageBytes;
+      _loading = false;
+    });
+  }
+
+  String _fmt(int bytes) {
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+  }
+
+  Widget _statCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String value,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AurumTheme.accentOf(context).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AurumTheme.accentOf(context), size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: TextStyle(
+                        color: AurumTheme.textMutedOf(context), fontSize: 12)),
+              ],
+            ),
+          ),
+          Text(value,
+              style: TextStyle(
+                  color: AurumTheme.accentOf(context),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalBytes = _songCacheBytes + _imageCacheBytes;
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      bottomNavigationBar: const MiniPlayerSlot(),
+      appBar: AppBar(
+        backgroundColor: AurumTheme.bgOf(context),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              color: AurumTheme.textPrimaryOf(context), size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text('Cached',
+            style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w600)),
+      ),
+      body: _loading
+          ? const Center(child: AurumMorphLoader(size: 56, contained: true))
+          : ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+              children: [
+                Text(
+                  'Aurum caches song streams and artwork on this device so '
+                  'they load instantly the next time you play them, instead '
+                  'of fetching over the network again.',
+                  style: TextStyle(
+                      color: AurumTheme.textSecondaryOf(context),
+                      fontSize: 13,
+                      height: 1.5),
+                ),
+                const SizedBox(height: 20),
+                _statCard(
+                  icon: Icons.music_note_rounded,
+                  title: 'Song cache',
+                  subtitle: 'Recently streamed songs kept for fast replay',
+                  value: _fmt(_songCacheBytes),
+                ),
+                _statCard(
+                  icon: Icons.image_rounded,
+                  title: 'Artwork cache',
+                  subtitle: 'Album art and thumbnails',
+                  value: _fmt(_imageCacheBytes),
+                ),
+                _statCard(
+                  icon: Icons.sd_storage_rounded,
+                  title: 'Total cache used',
+                  subtitle: 'Across song + artwork caches',
+                  value: _fmt(totalBytes),
+                ),
+                const SizedBox(height: 8),
+                AurumPressable(
+                  onTap: () =>
+                      AurumDepthRoute.to(context, const SettingsStorageScreen()),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      gradient: AurumTheme.accentGradientOf(context),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Center(
+                      child: Text('Manage cache in Storage settings',
+                          style: TextStyle(
+                              color: AurumTheme.bg,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // History Screen â€” time-grouped, animated, play all / shuffle
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -8282,29 +8725,44 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
             ),
             actions: _selectMode
                 ? [
-                    PopupMenuButton<String>(
-                      icon: Icon(Icons.more_vert_rounded,
-                          color: AurumTheme.textPrimaryOf(context)),
-                      onSelected: (value) {
-                        if (value == 'select_all') {
+                    // Direct select-all toggle + dedicated unfollow icon
+                    // — same fix as Liked Songs / the other Artists tab
+                    // (buried 3-dot menu replaced with a one-tap action).
+                    Builder(builder: (context) {
+                      final allIds = followed.map((m) => (m['id'] ?? '').toString()).toSet();
+                      final allSelected = allIds.isNotEmpty &&
+                          _selectedIds.length == allIds.length;
+                      return TextButton(
+                        onPressed: () {
                           AurumHaptics.selection();
                           setState(() {
-                            _selectedIds
-                              ..clear()
-                              ..addAll(followed.map((m) => (m['id'] ?? '').toString()));
+                            if (allSelected) {
+                              _selectedIds.clear();
+                            } else {
+                              _selectedIds
+                                ..clear()
+                                ..addAll(allIds);
+                            }
                           });
-                        } else if (value == 'deselect_all') {
-                          AurumHaptics.selection();
-                          setState(() => _selectedIds.clear());
-                        } else if (value == 'unfollow') {
-                          _confirmUnfollowSelected();
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'select_all', child: Text('Select all')),
-                        PopupMenuItem(value: 'deselect_all', child: Text('Deselect all')),
-                        PopupMenuItem(value: 'unfollow', child: Text('Unfollow selected')),
-                      ],
+                        },
+                        child: Text(
+                          allSelected ? 'Deselect all' : 'Select all',
+                          style: TextStyle(
+                            color: AurumTheme.accentOf(context),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }),
+                    IconButton(
+                      icon: Icon(
+                        Icons.person_remove_outlined,
+                        color: _selectedIds.isEmpty
+                            ? AurumTheme.textMutedOf(context)
+                            : Colors.redAccent,
+                      ),
+                      onPressed: _selectedIds.isEmpty ? null : _confirmUnfollowSelected,
                     ),
                     const SizedBox(width: 4),
                   ]
