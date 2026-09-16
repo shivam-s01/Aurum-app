@@ -1018,4 +1018,54 @@ class DownloadProvider extends ChangeNotifier {
 
   /// Total space used by all completed downloads, in bytes.
   int get totalBytesUsed => completed.fold(0, (sum, d) => sum + (d.fileSizeBytes ?? 0));
+
+  /// Wipes every download — used by Settings ▸ Privacy ▸ "Clear All Data".
+  ///
+  /// Deliberately does NOT do a bulk `_box.clear()`: that would drop the
+  /// list entries while leaving every actual file (public MediaStore
+  /// entry or private-storage file, plus any in-flight `.part` file) on
+  /// disk — exactly the "looks cleared but nothing was freed" bug
+  /// `deleteDownload` above was already written to fix for the single-item
+  /// case.
+  ///
+  /// A genuinely in-flight (`downloading`/`queued`) item can't be routed
+  /// straight into deleteDownload: `cancelDownload` only *requests* the
+  /// cancel via `cancelToken.cancel()` — the item isn't actually marked
+  /// `cancelled` until _runDownload's own catch block reacts to that,
+  /// asynchronously, on the in-flight request's own timeline. Reading
+  /// `_items[id]` again immediately after calling cancelDownload can still
+  /// see the old `downloading` status. So in-flight items are only asked
+  /// to cancel here; once the in-flight transfer settles, it persists
+  /// itself as `cancelled`/`failed` the normal way, and its row (with no
+  /// real file ever having been produced yet, since it hadn't reached
+  /// `completed`) can just be dropped straight from the box — there is no
+  /// public MediaStore file to reach `deletePublicDownload` for at that
+  /// point. Paused and completed items, by contrast, already have a
+  /// stable status, so those go through the exact same file-safe paths
+  /// `cancelDownload`/`deleteDownload` already use for a single item.
+  Future<void> clearAll() async {
+    final ids = _items.keys.toList();
+    for (final id in ids) {
+      final item = _items[id];
+      if (item == null) continue;
+      if (item.isDownloading) {
+        // Best-effort stop; drop the row directly rather than racing the
+        // async settle above with a file-delete call that has nothing to
+        // delete yet.
+        _cancelTokens[id]?.cancel();
+        _items.remove(id);
+        final box = _box ?? await _boxReady.future;
+        await box.delete(id);
+        try {
+          await NotificationService.instance.cancelProgress(id);
+        } catch (_) {}
+      } else if (item.isPaused) {
+        await cancelDownload(id); // removes the leftover .part file
+        await deleteDownload(id); // now safely `cancelled`, no file left
+      } else {
+        await deleteDownload(id); // completed/failed — file-safe delete
+      }
+    }
+    notifyListeners();
+  }
 }

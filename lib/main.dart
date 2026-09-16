@@ -283,6 +283,20 @@ Future<void> main() async {
     PaintingBinding.instance.imageCache.maximumSize = 250;
   } catch (_) {}
 
+  // Sync the native (Media3/ExoPlayer) stream-cache cap to whatever was
+  // last saved from Settings ▸ Storage — see
+  // AurumAudioEngine.streamCacheMaxBytes' matching comment. Without this,
+  // a cold start that never opens the Storage screen would leave the
+  // native engine on its own 500MB fallback default all session, silently
+  // ignoring a user's previously-saved larger/smaller cap for every song
+  // streamed until Storage happens to be opened once.
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final maxSongCacheMB = prefs.getDouble('max_song_cache') ?? 500.0;
+    unawaited(NativeAudioEngine()
+        .setStreamCacheMaxBytes((maxSongCacheMB * 1024 * 1024).toInt()));
+  } catch (_) {}
+
   try {
     await AurumHaptics.init();
   } catch (_) {} // haptics simply fall back to 'light' behavior if this fails

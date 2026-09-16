@@ -7,7 +7,14 @@ import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import '../services/sync_service.dart';
+import '../services/native_engine_bridge.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/favorites_provider.dart';
+import '../providers/playlist_provider.dart';
+import '../providers/download_provider.dart';
+import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
+import '../providers/saved_mixes_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../widgets/aurum_settings_tile.dart';
@@ -260,8 +267,64 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         title: l10n.sprClearAllData,
         subtitle: l10n.sprClearAllDataSubtitle,
         onTap: () { AurumHaptics.heavy(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
+          // FIX ("Clear All Data" only cleared SharedPreferences): the old
+          // version was `p.clear()` and nothing else — every Hive box
+          // (favorites, playlists, downloads, recently played, followed
+          // artists/albums, saved mixes) and every actual downloaded file
+          // on disk survived untouched, so the button's name badly
+          // overstated what it did. Each provider below is cleared through
+          // its own existing clearAll()/clearHistory() — not a raw
+          // Hive.deleteBoxFromDisk — because DownloadProvider.clearAll()
+          // in particular has to cancel in-flight transfers and route
+          // completed items through deletePublicDownload (MediaStore-URI
+          // aware) so files are actually freed from disk, not just
+          // orphaned. Captured via context.read BEFORE the first await
+          // (see the local-var comment below) since this screen's own
+          // context can be unmounted by the time later awaits resolve.
+          final favorites       = context.read<FavoritesProvider>();
+          final playlists       = context.read<PlaylistProvider>();
+          final downloads       = context.read<DownloadProvider>();
+          final recentlyPlayed  = context.read<RecentlyPlayedProvider>();
+          final followedArtists = context.read<FollowedArtistsProvider>();
+          final followedAlbums  = context.read<FollowedAlbumsProvider>();
+          final savedMixes      = context.read<SavedMixesProvider>();
+
+          await downloads.clearAll();
+          await Future.wait([
+            favorites.clearAll(),
+            playlists.clearAll(),
+            recentlyPlayed.clearHistory(),
+            followedArtists.clearAll(),
+            followedAlbums.clearAll(),
+            savedMixes.clearAll(),
+          ]);
+          // Wipe the cloud copies too — otherwise a signed-in user's next
+          // sync (this device or another) pulls everything right back
+          // down from Supabase, undoing what was just cleared locally.
+          // saved_mixes has no cloud table at all (local-only feature —
+          // see SavedMixesProvider), so nothing to wipe remotely for it.
+          unawaited(SyncService.instance.clearRemoteHistory());
+          unawaited(SyncService.instance.clearRemoteFavorites());
+          unawaited(SyncService.instance.clearRemotePlaylists());
+          unawaited(SyncService.instance.clearRemoteFollowedArtists());
+          unawaited(SyncService.instance.clearRemoteFollowedAlbums());
+          unawaited(RecommendationEngine.resetAll());
+
+          // SharedPreferences last: every setting/toggle in the app
+          // (including this screen's own _appLock/_incognitoMode/etc.
+          // fields) lives here, so clearing it first would leave the
+          // awaits above racing against a mid-reset app state.
           final p = await SharedPreferences.getInstance();
           await p.clear();
+          // p.clear() above wipes 'max_song_cache' back to unset, but the
+          // native engine's in-memory streamCacheMaxBytes field (synced
+          // from it — see AurumAudioEngine.streamCacheMaxBytes) has no way
+          // to know that happened on its own; it would otherwise keep
+          // enforcing whatever cap was last pushed to it until the app
+          // restarts or Settings ▸ Storage happens to be opened again.
+          // Push the same 500MB default the Storage screen itself falls
+          // back to, so the reset is immediate and consistent everywhere.
+          unawaited(NativeAudioEngine().setStreamCacheMaxBytes(500 * 1024 * 1024));
         }); },
         isDanger: true,
       ),
