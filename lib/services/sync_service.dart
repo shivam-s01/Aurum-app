@@ -236,56 +236,6 @@ class SyncService {
     }
   }
 
-  // ── Bulk remote clears (Settings ▸ Privacy ▸ "Clear All Data") ──────────
-  //
-  // Same reasoning as clearRemoteHistory() above, extended to every other
-  // synced table: FavoritesProvider/PlaylistProvider/etc.'s clearAll()
-  // only wipes the LOCAL Hive box. Without also deleting the corresponding
-  // Supabase rows here, a signed-in user's next syncAll() (next sign-in,
-  // app-resume, or the periodic sync in main.dart) would pull the
-  // "cleared" data right back down from the cloud — exactly the stale-undo
-  // bug clearRemoteHistory() already exists to prevent for history.
-
-  Future<void> clearRemoteFavorites() async {
-    if (!_canSync) return;
-    final uid = _uid!;
-    try {
-      await _client.from('favorites').delete().eq('user_id', uid);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SyncService] clearRemoteFavorites error: $e');
-    }
-  }
-
-  Future<void> clearRemotePlaylists() async {
-    if (!_canSync) return;
-    final uid = _uid!;
-    try {
-      await _client.from('playlists').delete().eq('user_id', uid);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SyncService] clearRemotePlaylists error: $e');
-    }
-  }
-
-  Future<void> clearRemoteFollowedArtists() async {
-    if (!_canSync) return;
-    final uid = _uid!;
-    try {
-      await _client.from('followed_artists').delete().eq('user_id', uid);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SyncService] clearRemoteFollowedArtists error: $e');
-    }
-  }
-
-  Future<void> clearRemoteFollowedAlbums() async {
-    if (!_canSync) return;
-    final uid = _uid!;
-    try {
-      await _client.from('followed_albums').delete().eq('user_id', uid);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SyncService] clearRemoteFollowedAlbums error: $e');
-    }
-  }
-
   /// Call right after a successful sign-in. Pulls remote data down, then
   /// pushes anything local-only up (merge, not overwrite).
   Future<void> syncAll({

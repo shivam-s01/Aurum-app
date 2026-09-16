@@ -1,5 +1,4 @@
 import 'package:aurum_music/widgets/aurum_loader.dart';
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +9,6 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../widgets/aurum_settings_tile.dart';
 import '../widgets/aurum_pressable.dart';
-import '../services/native_engine_bridge.dart';
 
 class SettingsStorageScreen extends StatefulWidget {
   const SettingsStorageScreen({super.key});
@@ -43,24 +41,21 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     final cacheDir = await getTemporaryDirectory();
 
     int downloadSize   = 0;
+    int songCacheSize  = 0;
     int imageCacheSize = 0;
 
     try {
       final downloadDir = Directory('${appDir.path}/downloads');
       if (await downloadDir.exists()) downloadSize = await _dirSize(downloadDir);
+      final songCache = Directory('${cacheDir.path}/song_cache');
+      if (await songCache.exists()) songCacheSize = await _dirSize(songCache);
       final imgCache = Directory('${cacheDir.path}/image_cache');
       if (await imgCache.exists()) imageCacheSize = await _dirSize(imgCache);
     } catch (_) {}
 
-    // Real on-disk usage of the native (Media3/ExoPlayer) stream cache —
-    // NOT a Dart-side 'song_cache' folder, which nothing in this app ever
-    // writes into. See AurumAudioEngine.getStreamCacheUsedBytes().
-    final songCacheSize = await NativeAudioEngine().getStreamCacheUsedBytes();
-
     if (!mounted) return;
-    final savedMaxSongCache = p.getDouble('max_song_cache') ?? 500.0;
     setState(() {
-      _maxSongCache        = savedMaxSongCache;
+      _maxSongCache        = p.getDouble('max_song_cache')   ?? 500.0;
       _maxImageCache       = p.getDouble('max_image_cache')  ?? 100.0;
       // MIGRATION: 96kbps/128kbps used to be valid choices here. An
       // existing install with one of those saved would no longer find a
@@ -79,13 +74,6 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       _imageCacheUsed  = imageCacheSize;
       _loading         = false;
     });
-    // Re-sync the native cache's cap to the saved setting every time this
-    // screen opens. Covers the case where the engine was constructed
-    // fresh this session (falls back to its own 500MB default — see
-    // AurumAudioEngine.streamCacheMaxBytes) before ever hearing about a
-    // previously-saved non-default value; a no-op (see
-    // setStreamCacheMaxBytes' early-return) if they already match.
-    unawaited(NativeAudioEngine().setStreamCacheMaxBytes((savedMaxSongCache * 1024 * 1024).toInt()));
   }
 
   Future<int> _dirSize(Directory dir) async {
@@ -109,20 +97,6 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     if (value is bool)   await p.setBool(key, value);
     if (value is double) await p.setDouble(key, value);
     if (value is String) await p.setString(key, value);
-  }
-
-  /// Clears the native (Media3/ExoPlayer) stream cache — see
-  /// AurumAudioEngine.clearStreamCache(). Unlike _clearDir (a plain
-  /// directory delete used for the Dart-managed image cache below), this
-  /// must go through the engine: the cache folder can have a live
-  /// SimpleCache holding an on-disk lock on it, and deleting files out
-  /// from under that would desync its index / crash on next use.
-  Future<void> _clearSongCache() async {
-    if (!mounted) return;
-    setState(() => _loading = true);
-    await NativeAudioEngine().clearStreamCache();
-    if (!mounted) return;
-    await _load();
   }
 
   Future<void> _clearDir(String subPath) async {
@@ -233,9 +207,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   onChanged: (v) async {
                     setState(() => _maxSongCache = v);
                     await _save('max_song_cache', v);
-                    unawaited(NativeAudioEngine().setStreamCacheMaxBytes((v * 1024 * 1024).toInt()));
                   },
-                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssSongCacheTitle, _clearSongCache); },
+                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssSongCacheTitle, () => _clearDir('song_cache')); },
                   clearLabel: l10n.ssClearSongCache,
                 ),
 

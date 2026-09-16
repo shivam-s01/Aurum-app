@@ -478,30 +478,6 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                         "supportsExplicitRouting" to engine.outputManager.supportsExplicitRouting(),
                     ))
                 }
-                // Settings ▸ Storage's "Max song cache size" / used-space
-                // display / "Clear song cache" — see AurumAudioEngine's
-                // matching stream-cache section for why these route
-                // through the engine instead of Dart touching any file
-                // path directly (a live SimpleCache holds an on-disk
-                // lock; deleting/reading around it from outside risks the
-                // same "Another SimpleCache instance uses the folder"
-                // crash release() guards against elsewhere in that file).
-                "setStreamCacheMaxBytes" -> {
-                    val maxBytes = call.argument<Number>("maxBytes")?.toLong()
-                    if (maxBytes == null || maxBytes <= 0) {
-                        result.error("BAD_ARGS", "maxBytes required (> 0)", null)
-                        return@onMethodCall
-                    }
-                    engine.setStreamCacheMaxBytes(maxBytes)
-                    result.success(null)
-                }
-                "getStreamCacheUsedBytes" -> {
-                    result.success(engine.getStreamCacheUsedBytes())
-                }
-                "clearStreamCache" -> {
-                    engine.clearStreamCache()
-                    result.success(null)
-                }
                 "selectAudioOutputDevice" -> {
                     val deviceId = call.argument<Int>("deviceId")
                     if (deviceId == null) {

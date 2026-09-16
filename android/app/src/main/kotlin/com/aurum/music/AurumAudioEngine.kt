@@ -205,28 +205,6 @@ class AurumAudioEngine(
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private var _streamCache: SimpleCache? = null
 
-    // User-configurable cap for the on-disk stream cache (Settings ▸
-    // Storage ▸ "Max song cache size"), in bytes. Deliberately NOT read
-    // directly off the raw "FlutterSharedPreferences" file the way
-    // high_refresh_rate is elsewhere in this codebase (see MainActivity's
-    // getBoolean("flutter.high_refresh_rate", ...)) — that pattern is safe
-    // for a bool (Android SharedPreferences has a real boolean type) but
-    // Flutter's shared_preferences plugin has no native "double" type on
-    // the Android side to mirror setDouble()'s value into; guessing its
-    // on-disk encoding here would be a silent-corruption risk for a value
-    // that directly sizes a LeastRecentlyUsedCacheEvictor. Instead this
-    // takes the same fully type-safe path as every other native-facing
-    // setting in the app: Dart sends the already-decoded value explicitly
-    // through setStreamCacheMaxBytes() below. Pushed once at cold start
-    // from main.dart (see the "sync native stream-cache cap" block placed
-    // alongside the app's other native syncs) and again every time
-    // Settings ▸ Storage is opened or the slider changes — see
-    // settings_storage_screen.dart. Defaults to 500MB — same default the
-    // Storage screen itself falls back to — until the first of those
-    // pushes arrives.
-    @Volatile
-    private var streamCacheMaxBytes: Long = 500L * 1024 * 1024
-
     // Tracks whether streamCache has actually been touched this session —
     // see release()'s matching comment for why release() needs this
     // instead of just reading `streamCache` directly (that would
@@ -248,7 +226,7 @@ class AurumAudioEngine(
     private val streamCache: SimpleCache?
         get() = _streamCache ?: synchronized(this) {
             _streamCache ?: run {
-                val evictor = LeastRecentlyUsedCacheEvictor(streamCacheMaxBytes)
+                val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
                 // SAFETY NET (crash log: "IllegalStateException: Another
                 // SimpleCache instance uses the folder"): the real fix is
                 // release() below now actually releasing streamCache, so
@@ -1356,29 +1334,6 @@ class AurumAudioEngine(
     // and lock screen show real metadata instead of a blank title — Media3
     // reads this straight off player.currentMediaItem.mediaMetadata, no
     // manual notification-builder wiring needed on our side.
-    //
-    // CACHE-KEY FIX (Spotify/YT Music parity — "same song re-streamed
-    // should hit the disk cache, not re-download"): without
-    // setCustomCacheKey, CacheDataSource keys every cached span by the
-    // raw request URL (DataSpec.key defaults to DataSpec.uri). JioSaavn/
-    // YouTube URLs are short-lived signed CDN links — see Dart's
-    // LightweightStreamCache (2h TTL, 30-entry cap) which already re-
-    // resolves a fresh URL for the same song once that expires. Without
-    // this, a song cached under today's URL would silently MISS on
-    // tomorrow's replay (new URL = new cache key) even though the exact
-    // same audio bytes are still sitting on disk under the old, now-
-    // unreachable key — the cache would slowly fill with orphaned
-    // duplicates until the LRU evictor trims them, and every "replay"
-    // outside that 2h/30-song window would re-hit the network for no
-    // reason. Keying on "source:id" instead — the same stable identity
-    // Dart's own resolveStreamUrl cache already uses (see
-    // ApiService.resolveStreamUrl's `cacheKey` local) — makes the disk
-    // cache genuinely content-addressed: the SAME song always maps to the
-    // SAME cache entry no matter how many times its upstream URL has been
-    // re-signed since it was first cached. Skipped for local/downloaded
-    // songs (isLocal) — those are file:// URIs served straight off disk
-    // already; there is nothing for the stream cache to usefully key.
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun buildMediaItem(song: NativeSong, url: String): MediaItem {
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(song.title)
@@ -1387,14 +1342,11 @@ class AurumAudioEngine(
         if (song.artworkUrl.isNotEmpty()) {
             metadataBuilder.setArtworkUri(android.net.Uri.parse(song.artworkUrl))
         }
-        val builder = MediaItem.Builder()
+        return MediaItem.Builder()
             .setMediaId(song.id)
             .setUri(url)
             .setMediaMetadata(metadataBuilder.build())
-        if (!song.isLocal) {
-            builder.setCustomCacheKey("${song.source}:${song.id}")
-        }
-        return builder.build()
+            .build()
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -3181,134 +3133,6 @@ class AurumAudioEngine(
      *  never come again if local `player` is now paused/idle because
      *  audio moved to the cast receiver). */
     fun refreshState() = pushState()
-
-    // ── STREAM CACHE (Settings ▸ Storage ▸ "Song cache") ────────────────────
-    // The disk cache wired into createCacheDataSourceFactory() above serves
-    // every song streamed through ExoPlayer (not the separate, permanent
-    // Downloads feature) — a normal replay of something already streamed
-    // this way is served straight off disk with no network hit. These three
-    // methods are what let Settings actually see/control it, replacing the
-    // old Storage screen's disconnected slider that pointed at a
-    // Dart-side "song_cache" folder nothing ever wrote into.
-
-    /** Applies a new max size (bytes) from Settings ▸ Storage. Media3's
-     *  LeastRecentlyUsedEvictor has no live "resize" call — its limit is
-     *  fixed at construction — so the only way to change it is to release
-     *  the current SimpleCache and let the lazy `streamCache` getter build
-     *  a fresh one against the same on-disk folder next time it's touched.
-     *  Existing cached bytes are NOT wiped: SimpleCache re-reads its
-     *  folder's index on construction, so a shrink just makes the new
-     *  evictor start trimming least-recently-used entries down to the new
-     *  cap the next time something is written, exactly like Spotify/YT
-     *  Music's own cache-size sliders behave. Safe to call with nothing
-     *  cached yet — release() below already no-ops in that case. */
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    fun setStreamCacheMaxBytes(maxBytes: Long) = synchronized(this) {
-        // RECHECK FIX (race with the `streamCache` getter's own
-        // synchronized(this) block below): this used to mutate
-        // streamCacheMaxBytes/_streamCache OUTSIDE any lock, only relying
-        // on @Volatile for visibility. @Volatile stops a torn/stale READ,
-        // but does nothing to stop this interleaving: getter thread reads
-        // the still-valid old `_streamCache` reference and is about to
-        // start using it -> this function's release()/`_streamCache =
-        // null` runs in between -> getter thread proceeds to read from
-        // (or write to) a SimpleCache instance that was just released,
-        // which can throw internally (a released SimpleCache rejects
-        // further reads/writes). Sharing the SAME monitor (`this`) as the
-        // getter below makes a full read-then-use of the cache and a
-        // release-then-rebuild here mutually exclusive, not just their
-        // individual field reads/writes.
-        if (maxBytes == streamCacheMaxBytes) return@synchronized
-        streamCacheMaxBytes = maxBytes
-        if (streamCacheInitialized) {
-            try {
-                _streamCache?.release()
-            } catch (e: Exception) {
-                // Best-effort, same as release()'s matching call — a
-                // failure here must not crash the setting change; the
-                // stale-limit cache instance below will still be replaced.
-            }
-            _streamCache = null
-        }
-        // NOTE: cachedMediaSourceFactory (used by `player`) was built once
-        // from createCacheDataSourceFactory() at construction time and
-        // holds a CacheDataSource.Factory closed over the OLD streamCache
-        // reference. Media3's CacheDataSource.Factory re-reads its
-        // DataSource.Factory fresh on every new MediaSource creation, so
-        // the next setMediaItem/playSong naturally goes through
-        // createCacheDataSourceFactory() again, which re-reads the
-        // now-null-then-rebuilt `streamCache` getter. No player restart or
-        // re-buffer of the CURRENTLY playing item is needed for this to
-        // take effect on the next song.
-    }
-
-    /** Bytes currently on disk in the stream cache. 0 if never
-     *  initialized this session (nothing streamed yet) rather than
-     *  force-creating one just to report a size.
-     *  RECHECK: reads `_streamCache` inside the same synchronized(this)
-     *  monitor as setStreamCacheMaxBytes/clearStreamCache/the getter —
-     *  without it, this could read a reference right as one of those
-     *  releases it underneath. `.cacheSpace` itself is a `synchronized`
-     *  method on SimpleCache, so a call that DOES land on a still-live
-     *  instance is already safe; this just protects against reading a
-     *  reference that's mid-release. */
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    fun getStreamCacheUsedBytes(): Long {
-        val cache = synchronized(this) { if (streamCacheInitialized) _streamCache else null }
-        return cache?.cacheSpace ?: run {
-            // Nothing touched this session, but a previous session may
-            // still have bytes on disk from before this process started —
-            // report the folder's real on-disk size in that case instead
-            // of a misleading 0.
-            try {
-                val dir = java.io.File(context.cacheDir, "aurum_stream_cache")
-                if (dir.exists()) dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } else 0L
-            } catch (e: Exception) {
-                0L
-            }
-        }
-    }
-
-    /** Wipes the stream cache — Settings ▸ Storage ▸ "Clear song cache".
-     *  Releases the live SimpleCache (if any) before deleting its folder:
-     *  deleting the files out from under a still-open SimpleCache/database
-     *  would desync its internal index from what's actually on disk and
-     *  risk the same "Another SimpleCache instance uses the folder" crash
-     *  release()'s comment above describes. The next stream after this
-     *  naturally rebuilds a fresh, empty cache via the lazy getter.
-     *  RECHECK FIX: the release()+null-out step is wrapped in the same
-     *  synchronized(this) monitor as `streamCache`'s getter and
-     *  setStreamCacheMaxBytes above, for the identical reason — without
-     *  it, a concurrent first-ever `streamCache` access could read the
-     *  live SimpleCache reference right as this releases it. The actual
-     *  folder delete below stays OUTSIDE that lock deliberately: it's
-     *  disk I/O that can take a while, and by the time it runs
-     *  `_streamCache` is already null (or was never set), so it isn't
-     *  racing that field — a getter invoked mid-delete just proceeds to
-     *  build a fresh SimpleCache in whatever the folder looks like at
-     *  that instant (a mostly-empty folder from the in-progress delete,
-     *  same as any other case where the folder was legitimately empty). */
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    fun clearStreamCache() {
-        synchronized(this) {
-            if (streamCacheInitialized) {
-                try {
-                    _streamCache?.release()
-                } catch (e: Exception) {
-                    // Best-effort; still proceed to delete the folder below.
-                }
-                _streamCache = null
-            }
-        }
-        try {
-            val dir = java.io.File(context.cacheDir, "aurum_stream_cache")
-            if (dir.exists()) dir.deleteRecursively()
-        } catch (e: Exception) {
-            // Best-effort — matches the rest of this file's stance that a
-            // cache-layer failure must never surface as a user-facing
-            // crash; playback still works with no cache either way.
-        }
-    }
 
     fun release() {
         fadeJob?.cancel()

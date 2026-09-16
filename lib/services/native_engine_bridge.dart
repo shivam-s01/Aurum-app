@@ -490,35 +490,6 @@ class NativeAudioEngine {
   Future<void> setRepeatMode(String mode) => _method.invokeMethod('setRepeatMode', {'mode': mode});
   Future<void> setShuffleMode(bool enabled) => _method.invokeMethod('setShuffleMode', {'enabled': enabled});
   Future<void> setSpeed(double speed) => _method.invokeMethod('setSpeed', {'speed': speed});
-
-  // ── Stream cache (Settings ▸ Storage ▸ "Song cache") ──
-  // Every song streamed through ExoPlayer is served through a Media3
-  // disk cache on the native side (see AurumAudioEngine's streamCache) —
-  // separate from the permanent Downloads feature. These three just
-  // expose that cache's controls to the Storage screen; best-effort like
-  // the rest of this bridge, since a failure here should never block
-  // Settings from rendering or the setting itself from being saved.
-  Future<void> setStreamCacheMaxBytes(int maxBytes) async {
-    try {
-      await _method.invokeMethod('setStreamCacheMaxBytes', {'maxBytes': maxBytes});
-    } catch (_) {}
-  }
-
-  Future<int> getStreamCacheUsedBytes() async {
-    try {
-      final raw = await _method.invokeMethod<Object?>('getStreamCacheUsedBytes');
-      if (raw is int) return raw;
-      if (raw is num) return raw.toInt();
-    } catch (_) {}
-    return 0;
-  }
-
-  Future<void> clearStreamCache() async {
-    try {
-      await _method.invokeMethod('clearStreamCache');
-    } catch (_) {}
-  }
-
   // Pushes Battery Saver Mode's active state down to the native pre-buffer
   // resolver — see AurumAudioEngine.priorityForwardWindow. Best-effort: if
   // this fails (very old platform build, channel not ready yet), native
