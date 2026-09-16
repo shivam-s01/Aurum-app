@@ -94,8 +94,8 @@ jobs:
           if ! [[ "$LAST_BUILD" =~ ^[0-9]+$ ]]; then
             LAST_BUILD=0
           fi
-          if [ "$LAST_BUILD" -lt 3129 ]; then
-            LAST_BUILD=3129
+          if [ "$LAST_BUILD" -lt 3130 ]; then
+            LAST_BUILD=3130
           fi
           NEW_BUILD=$((LAST_BUILD + 1))
           NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
@@ -106,12 +106,45 @@ jobs:
         # Runs before the actual APK build so a build failure never
         # leaves the bump uncommitted (which would silently repeat the
         # same +1 next run and desync from what actually shipped).
+        #
+        # FIX ("update popup stops firing after the first successful
+        # update"): `git push` here had no retry and no success check.
+        # If this branch got even one commit in between (another run,
+        # a manual push, anything), the plain push failed as a
+        # non-fast-forward — but the script had no `set -e` and no exit
+        # check, so it silently continued: the APK still built and
+        # shipped with the bumped build number baked in via
+        # --dart-define, but pubspec.yaml in the repo NEVER actually
+        # got that bump committed. The next CI run then reads the
+        # still-old number from pubspec.yaml and bumps from THERE,
+        # handing out a build number <= what's already installed on
+        # phones from the previous (successfully pushed) release —
+        # which reads as "already up to date" forever and kills the
+        # popup for exactly the users who just updated. Fix: fail loud
+        # (`set -e`) and retry the push against the latest remote HEAD
+        # (fetch + rebase) instead of silently limping on with an
+        # unpushed bump.
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pubspec.yaml
           git commit -m "chore: bump build number [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
+          for attempt in 1 2 3; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              echo "Pushed version bump successfully."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed (likely non-fast-forward) — fetching and rebasing."
+            git fetch origin ${{ github.ref_name }}
+            if ! git rebase origin/${{ github.ref_name }}; then
+              echo "::error::Rebase conflict while retrying the version-bump push — aborting rebase and failing the build rather than pushing a bad state."
+              git rebase --abort
+              exit 1
+            fi
+          done
+          echo "::error::Failed to push version bump after 3 attempts — aborting so the build number never silently desyncs from the repo."
+          exit 1
 
       - name: Build Release APK
         # FIX (build failures from transient upstream 429 "Too Many
@@ -136,6 +169,11 @@ jobs:
         env:
           GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
+          if [ -z "$GH_RELEASE_TOKEN" ]; then
+            echo "::warning::GH_RELEASE_TOKEN secret is EMPTY — update popup will run unauthenticated (60 req/hr shared, likely to 403 for users)."
+          else
+            echo "GH_RELEASE_TOKEN is set (length: ${#GH_RELEASE_TOKEN})"
+          fi
           for attempt in 1 2 3; do
             if flutter build apk --release --split-per-abi --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
               exit 0
