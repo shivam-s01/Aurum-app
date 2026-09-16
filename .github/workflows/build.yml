@@ -68,36 +68,34 @@ jobs:
         # name AND what ships inside the APK AND what's visible in the
         # repo, always in lockstep.
         #
-        # SECOND RESYNC (this one matters — the first floor of 1125
-        # undershot): Build 1126's *tag* said "1126", but the APK
-        # actually shipped inside it was compiled with versionCode=3126
-        # — confirmed via `aapt dump badging` against the real
-        # installed APK. That means some run before this fix landed
-        # already pushed pubspec.yaml (or fed flutter.versionCode) with
-        # a run_number in the 3100s, so the true high-water mark is
-        # 3126, not 1125. Floor at 3126 so every future build is
-        # guaranteed newer than every APK anyone could already have
-        # installed — this is the number that must never be undershot
-        # again, since UpdateService's "latestBuild <= currentBuild"
-        # check silently reports "up to date" (no error, no crash) for
-        # any release whose number doesn't clear the highest build ever
-        # actually shipped.
+        # THIRD RESYNC (floor raised 3126 -> 3129): the second resync's
+        # floor of 3126 has now itself been cleared by real releases —
+        # build3129 is live on GitHub (see releases page) with an APK
+        # asset already in users' hands. Floor must always sit at or
+        # above the highest build number ever actually shipped, or this
+        # step can hand out a "new" build number that's actually LOWER
+        # than what's already installed on phones — which silently
+        # reads as "up to date" forever on the higher-build devices and
+        # kills the update popup exactly the way the first two resyncs
+        # were written to prevent. Raise this floor again in the same
+        # way any time a manual/dispatch run or an out-of-band build
+        # pushes the true shipped high-water mark past it.
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
           LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
           # Defensive: if pubspec.yaml's version line is ever missing,
           # malformed, or has no "+build" suffix, LAST_BUILD would come
-          # out empty — `[ "" -lt 3126 ]` errors out ("integer expression
+          # out empty — `[ "" -lt 3129 ]` errors out ("integer expression
           # expected") and fails this step, blocking every future build
           # until someone notices and hand-fixes pubspec.yaml. Falling
           # back to 0 here means a malformed version line still floors
-          # correctly at 3126 and the pipeline keeps working instead of
+          # correctly at 3129 and the pipeline keeps working instead of
           # going red on something this step already exists to fix.
           if ! [[ "$LAST_BUILD" =~ ^[0-9]+$ ]]; then
             LAST_BUILD=0
           fi
-          if [ "$LAST_BUILD" -lt 3126 ]; then
-            LAST_BUILD=3126
+          if [ "$LAST_BUILD" -lt 3129 ]; then
+            LAST_BUILD=3129
           fi
           NEW_BUILD=$((LAST_BUILD + 1))
           NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
