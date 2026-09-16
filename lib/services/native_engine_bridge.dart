@@ -677,12 +677,22 @@ class NativeAudioEngine {
     return MediaVolume(
       level: m['volume'] as int? ?? 0,
       max: m['max'] as int? ?? 1,
+      boostPercent: m['boostPercent'] as int? ?? 100,
     );
   }
 
   /// Sets system media volume directly (0..max from [getMediaVolume]).
   Future<void> setMediaVolume(int level) =>
       _method.invokeMethod('setMediaVolume', {'volume': level});
+
+  /// Sets Volume Boost — electrical gain applied ON TOP of hardware max
+  /// volume, via a native LoudnessEnhancer. [percent] is 100..200 (100 =
+  /// off/hardware-only, 200 = full boost). Ramped smoothly on the native
+  /// side, so calling this repeatedly while dragging a slider is safe and
+  /// never produces a click/crackle. Fully independent of [setMediaVolume]
+  /// — only ever applies gain, never touches STREAM_MUSIC.
+  Future<void> setVolumeBoost(int percent) =>
+      _method.invokeMethod('setVolumeBoost', {'percent': percent});
 
   /// Live network throughput estimate in kbps, from ExoPlayer's shared
   /// BandwidthMeter (fed by every streamed-song read). Returns 0 if not
@@ -863,11 +873,19 @@ enum AudioOutputDeviceKind {
 /// Snapshot of the system media (STREAM_MUSIC) volume — [level] is the
 /// current step and [max] is the top of that stream's step range (varies
 /// by device/OEM, typically 15 or 25 — never assume a fixed value).
+/// [boostPercent] (100..200) is the separate electrical-gain Volume Boost
+/// slice layered on top once [level] is already at [max] — see
+/// NativeAudioEngine.setVolumeBoost.
 class MediaVolume {
   final int level;
   final int max;
+  final int boostPercent;
 
-  const MediaVolume({required this.level, required this.max});
+  const MediaVolume({
+    required this.level,
+    required this.max,
+    this.boostPercent = 100,
+  });
 }
 
 /// A single selectable audio output (the phone's own speaker, a connected

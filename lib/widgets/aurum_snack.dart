@@ -37,6 +37,24 @@ class AurumSnack {
   /// shown again within [dedupeWindow] is silently skipped — matching
   /// Echo's own dedupe — so a rapid double-tap never stacks the same
   /// toast twice.
+  ///
+  /// THEME FIX ("album save/unsave snackbar kabhi theme follow nahi
+  /// karta, kisi bhi theme pe awkward lagta hai"): this used to only
+  /// set `backgroundColor`, leaving `elevation`, `shape`, and — the
+  /// actual bug — the message `Text`'s color/weight completely unset.
+  /// With no app-wide SnackBarThemeData defined anywhere either,
+  /// Flutter's SnackBar falls back to its own hardcoded Material
+  /// defaults for everything else, which is a fixed dark scrim + white
+  /// text baked in regardless of the active theme. On light mode that
+  /// reads as a jarring dark bar that doesn't belong to the screen; on
+  /// dark mode it can end up nearly the same tone as the surface behind
+  /// it with washed-out contrast; and Material You dynamic theming
+  /// never touched it at all since nothing here read from
+  /// colorScheme. Now every visual property is pulled explicitly from
+  /// AurumTheme so the toast matches whichever of light / dark /
+  /// dynamic Material You is active, with a text color guaranteed to
+  /// contrast against that same surface (bgElevatedOf/textPrimaryOf are
+  /// already a matched pair everywhere else in the app).
   static void show(
     BuildContext context,
     String message, {
@@ -53,10 +71,29 @@ class AurumSnack {
     }
     _lastShown[messenger] = (message, now);
 
+    final surface = AurumTheme.bgElevatedOf(context);
+    final textColor = AurumTheme.textPrimaryOf(context);
+
     messenger.showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: AurumTheme.bgElevatedOf(context),
+      content: Text(
+        message,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      backgroundColor: surface,
+      elevation: 6,
       behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        // Faint themed border so the floating bar reads as a distinct
+        // surface even when its color sits close to the scaffold
+        // background behind it (e.g. bgElevated vs bg in light mode).
+        side: BorderSide(color: AurumTheme.dividerOf(context), width: 0.6),
+      ),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       duration: duration,
     ));
   }

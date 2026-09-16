@@ -61,6 +61,12 @@ class EdgeToEdgeFullPlayer extends StatefulWidget {
 class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   double _dragY = 0;
   bool _dragging = false;
+  // Toggled true for exactly the window the immersive lyrics screen is
+  // open (see _BottomIconRow.onLyricsOpenChanged / _openLyricsSheet's
+  // fix comment) — hides this screen's own artwork Hero below so it's
+  // never mounted at the same time as the lyrics screen's matching
+  // Hero, which is what makes sharing that tag safe.
+  bool _lyricsOpen = false;
 
   // Song-specific gradient stops — all four extracted from the current
   // artwork's palette (same ArtworkPaletteCache the Card layout's "Solid"
@@ -415,37 +421,59 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                             left: 0,
                             right: 0,
                             height: artHeight,
-                            child: Hero(
-                              tag: 'aurum_art_${song.id}',
-                              // FIX ("offline songs pe thumbnail load hi
-                              // nahi ho raha, online pe kabhi-kabhi"):
-                              // this used to call CachedNetworkImage
-                              // directly on song.artworkUrl (upgraded to
-                              // HD). CachedNetworkImage only understands
-                              // http(s) URLs — for an offline/downloaded
-                              // song artworkUrl is a content:// MediaStore
-                              // URI or a local file path, so it silently
-                              // failed every time (no fallback, straight
-                              // to the flat errorWidget). For online songs
-                              // it also had no retry: a slow connection or
-                              // a genuinely-missing HD tier just failed
-                              // once with no lower-quality fallback.
-                              // AurumArtwork already solves both — it
-                              // branches on content://, local file, and
-                              // network URL, and its network branch
-                              // (_RetryableNetworkImage) retries a failed
-                              // HD tier against a smaller guaranteed-to-
-                              // exist size instead of giving up. Passing
-                              // the HD-upgraded URL through it here gets
-                              // "try HD first" AND "gracefully degrade
-                              // instead of blank" for every song type.
-                              child: AurumArtwork(
-                                url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                                size: double.infinity,
-                                borderRadius: 0,
-                                fadeIn: true,
-                              ),
-                            ),
+                            // FIX (crash on lyrics open — full root-cause
+                            // writeup lives on _openLyricsSheet): this
+                            // Hero shares its tag with the lyrics
+                            // screen's small thumbnail Hero on purpose,
+                            // for a real two-way flight — but only one
+                            // of them can be mounted at a time. While
+                            // _lyricsOpen is true (that screen is
+                            // pushed on top with opaque:false, so this
+                            // whole screen stays mounted underneath),
+                            // this Hero is swapped for a plain,
+                            // non-Hero copy of the exact same artwork —
+                            // visually identical, just not registered
+                            // as a second Hero for the same tag.
+                            child: _lyricsOpen
+                                ? AurumArtwork(
+                                    url: AurumArtwork.upgradeForFullPlayer(
+                                        song.artworkUrl),
+                                    size: double.infinity,
+                                    borderRadius: 0,
+                                    fadeIn: true,
+                                  )
+                                : Hero(
+                                    tag: 'aurum_art_${song.id}',
+                                    // FIX ("offline songs pe thumbnail load hi
+                                    // nahi ho raha, online pe kabhi-kabhi"):
+                                    // this used to call CachedNetworkImage
+                                    // directly on song.artworkUrl (upgraded to
+                                    // HD). CachedNetworkImage only understands
+                                    // http(s) URLs — for an offline/downloaded
+                                    // song artworkUrl is a content:// MediaStore
+                                    // URI or a local file path, so it silently
+                                    // failed every time (no fallback, straight
+                                    // to the flat errorWidget). For online songs
+                                    // it also had no retry: a slow connection or
+                                    // a genuinely-missing HD tier just failed
+                                    // once with no lower-quality fallback.
+                                    // AurumArtwork already solves both — it
+                                    // branches on content://, local file, and
+                                    // network URL, and its network branch
+                                    // (_RetryableNetworkImage) retries a failed
+                                    // HD tier against a smaller guaranteed-to-
+                                    // exist size instead of giving up. Passing
+                                    // the HD-upgraded URL through it here gets
+                                    // "try HD first" AND "gracefully degrade
+                                    // instead of blank" for every song type.
+                                    child: AurumArtwork(
+                                      url: AurumArtwork.upgradeForFullPlayer(
+                                          song.artworkUrl),
+                                      size: double.infinity,
+                                      borderRadius: 0,
+                                      fadeIn: true,
+                                    ),
+                                  ),
                           ),
 
                           // ── Top status-bar scrim: artwork now runs
@@ -562,7 +590,24 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                                   const SizedBox(height: 26),
                                   _VolumeRow(player: player),
                                   const SizedBox(height: 32),
-                                  _BottomIconRow(player: player, song: song, panel: _panel),
+                                  _BottomIconRow(
+                                    player: player,
+                                    song: song,
+                                    panel: _panel,
+                                    // MOUNTED-SAFETY FIX: if this player
+                                    // screen itself gets popped (e.g. user
+                                    // backs out) while lyrics are still
+                                    // open on top, the lyrics route's
+                                    // .then() fires after this State is
+                                    // already disposed — calling setState
+                                    // on a dead State throws. Guard with
+                                    // mounted so that late callback is a
+                                    // harmless no-op instead of a crash.
+                                    onLyricsOpenChanged: (open) {
+                                      if (!mounted) return;
+                                      setState(() => _lyricsOpen = open);
+                                    },
+                                  ),
                                   const SizedBox(height: 20),
                                 ],
                               ),
@@ -1028,10 +1073,25 @@ class _VolumeRowState extends State<_VolumeRow> {
 }
 
 class _BottomIconRow extends StatefulWidget {
-  const _BottomIconRow({required this.player, required this.song, required this.panel});
+  const _BottomIconRow({
+    required this.player,
+    required this.song,
+    required this.panel,
+    required this.onLyricsOpenChanged,
+  });
   final PlayerProvider player;
   final Song song;
   final _PanelPalette panel;
+  // PROPER FIX for the Hero-tag-collision crash (see _openLyricsSheet's
+  // own comment below for the full root-cause writeup): rather than
+  // dropping the Hero from the lyrics screen, the main artwork's Hero is
+  // now toggled out of the tree for exactly as long as lyrics are open,
+  // via this callback up to _EdgeToEdgeFullPlayerState. That keeps BOTH
+  // Heroes sharing the same tag — a real two-way Hero flight on open
+  // AND on close — while guaranteeing only one of them is ever mounted
+  // at a time, which is what Flutter's "multiple heroes" rule actually
+  // requires.
+  final ValueChanged<bool> onLyricsOpenChanged;
 
   @override
   State<_BottomIconRow> createState() => _BottomIconRowState();
@@ -1220,6 +1280,28 @@ class _BottomIconRowState extends State<_BottomIconRow> {
     // close, blurred palette background, and synced lines that scroll/
     // highlight live with playback — not a drawer sliding up from the
     // bottom.
+    //
+    // BUG FIX ("crash jab lyrics khulte hain") — root cause and the
+    // PROPER fix (not just dropping the Hero):
+    // This route is pushed with `opaque: false`, which deliberately
+    // keeps EdgeToEdgeFullPlayer mounted underneath as a see-through
+    // background — that's the whole point of opaque:false. Both this
+    // screen's small thumbnail AND the main player's big artwork used
+    // the identical Hero tag ('aurum_art_${song.id}'), so with both
+    // routes alive at once, two Heroes shared one tag — Flutter's fatal
+    // "multiple heroes that share the same tag within a subtree"
+    // assertion, crashing the app the instant lyrics opened.
+    // A same-tag Hero flight is only safe between two routes shown
+    // SEQUENTIALLY (one fully gone before the other's Hero exists), so
+    // the actual fix is to make that true here too: onLyricsOpenChanged
+    // (wired from _BottomIconRowState up to _EdgeToEdgeFullPlayerState)
+    // removes the main player's Hero from the tree for exactly the
+    // window lyrics are open, then restores it the instant this pushed
+    // route is popped — via .then() below, which fires on every close
+    // path (X button, swipe-down, system back), not just one of them.
+    // Net effect: still a genuine two-way Hero flight (open AND close),
+    // just with the two Heroes never coexisting.
+    widget.onLyricsOpenChanged(true);
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -1235,7 +1317,7 @@ class _BottomIconRowState extends State<_BottomIconRow> {
           child: child,
         ),
       ),
-    );
+    ).then((_) => widget.onLyricsOpenChanged(false));
   }
 }
 
@@ -1353,10 +1435,19 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                             child: Row(
                               children: [
                                 // Small top-left artwork thumbnail — a
-                                // Hero back to the same tag the main
-                                // player's big artwork uses, so closing
-                                // this screen morphs it back smoothly
-                                // instead of a hard cut.
+                                // Hero back to the SAME tag the main
+                                // player's big artwork uses
+                                // ('aurum_art_${song.id}'), so this
+                                // screen closing morphs it back smoothly
+                                // instead of a hard cut. Safe to share
+                                // the tag because _openLyricsSheet (see
+                                // its own fix comment) now hides the
+                                // main player's Hero for exactly the
+                                // window this screen is open, so the two
+                                // are never mounted at the same time —
+                                // Flutter only ever sees one Hero per
+                                // tag, and gets a genuine two-way flight
+                                // out of it on both open and close.
                                 Hero(
                                   tag: 'aurum_art_${widget.song.id}',
                                   child: ClipRRect(
@@ -1463,11 +1554,17 @@ class _EdgeToEdgeQueueSheetBody extends StatefulWidget {
 }
 
 class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
-  // Lock icon in the reference toggles whether rows can be dragged to
-  // reorder at all — starts locked (matches the reference's default
-  // padlock-closed state) so an accidental touch on the drag handle
-  // doesn't reorder the queue.
-  bool _reorderLocked = true;
+  // REORDER-LOCK FIX ("upnext mai songs drag wala awkward hai"): this
+  // used to start locked, so dragging a row did nothing at all until
+  // the user first found and tapped the separate lock icon (or the
+  // swap_vert mode button) — an invisible extra step with zero
+  // feedback on why the drag handle wasn't working, easy to mistake
+  // for a bug. Spotify/YT Music never gate their queue drag behind a
+  // lock; the handle just works. Reorder is now always enabled — the
+  // drag handle drags on first touch, no unlock step. _reorderLocked
+  // stays (always false) purely so the existing lock-icon/proxyDecorator
+  // wiring below doesn't need to be re-plumbed.
+  final bool _reorderLocked = false;
 
   String _totalDuration(List<Song> queue) {
     final totalSeconds = queue.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
@@ -1573,17 +1670,6 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                 child: Row(
                   children: [
                     IconButton(
-                      icon: Icon(
-                        _reorderLocked ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      onPressed: () {
-                        AurumHaptics.light();
-                        setState(() => _reorderLocked = !_reorderLocked);
-                      },
-                    ),
-                    IconButton(
                       icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 20),
                       onPressed: () {
                         if (song != null) {
@@ -1659,7 +1745,13 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
               ),
             ),
             const SizedBox(height: 14),
-            // ── Mode row: shuffle / reorder-mode toggle / repeat ──
+            // ── Mode row: shuffle / repeat ──
+            // REORDER-LOCK FIX (cont'd): the middle button here used to
+            // be the swap_vert lock toggle. Now that reorder is always
+            // on (no lock to toggle), that button had nothing left to
+            // do — removed rather than left as a dead tap target, so
+            // the row is a clean 2-up shuffle/repeat pair instead of 3
+            // buttons where the middle one silently does nothing.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Selector<PlayerProvider, (bool, LoopMode)>(
@@ -1676,18 +1768,6 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                           onTap: () {
                             AurumHaptics.light();
                             context.read<PlayerProvider>().toggleShuffle();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _QueueModeButton(
-                          icon: Icons.swap_vert_rounded,
-                          active: !_reorderLocked,
-                          panel: panel,
-                          onTap: () {
-                            AurumHaptics.light();
-                            setState(() => _reorderLocked = !_reorderLocked);
                           },
                         ),
                       ),
@@ -1745,6 +1825,26 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       buildDefaultDragHandles: false,
                       itemCount: queue.length,
+                      // SMOOTHNESS FIX ("ekdam youtube level ka optimized
+                      // kro, koi bump na ho"): this list shares its
+                      // ScrollController with the enclosing
+                      // DraggableScrollableSheet (see _openQueueSheet),
+                      // and was still on Flutter's default
+                      // BouncingScrollPhysics. Bouncing/rubber-band
+                      // physics actively springs back against
+                      // ReorderableListView's own autoscroll-near-edge
+                      // behavior — dragging a row toward the top or
+                      // bottom of the visible list fights that bounce
+                      // instead of scrolling cleanly, which reads as a
+                      // stutter/bump right in the middle of a drag. This
+                      // is the exact same class of fix already applied
+                      // to full_player_screen.dart's own Up Next list
+                      // (see its ClampingScrollPhysics comment) — flat,
+                      // no-bounce physics so a reorder drag's autoscroll
+                      // near either edge is perfectly smooth, matching
+                      // native Android / YouTube Music behavior instead
+                      // of fighting an iOS-style spring.
+                      physics: const ClampingScrollPhysics(),
                       // FIX ("ekdam YouTube level chahiye, drag mein koi
                       // feedback nahi tha"): with no proxyDecorator, Flutter's
                       // default reorder renders the dragged row completely
@@ -1901,16 +2001,36 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                                   accentColor: panel.glow,
                                 ),
                               ),
-                              // Drag handle — only actually draggable when
-                              // unlocked, matching the reference's lock icon
-                              // gating whether the "=" handles do anything.
-                              ReorderableDragStartListener(
-                                index: i,
-                                enabled: !_reorderLocked,
-                                child: Icon(
-                                  Icons.drag_handle_rounded,
-                                  color: Colors.white.withOpacity(_reorderLocked ? 0.25 : 0.85),
-                                  size: 22,
+                              // GESTURE-ARENA FIX (same class of bug already
+                              // fixed in full_player_screen.dart's Card
+                              // layout — see its drag-handle comment): this
+                              // row is wrapped in a horizontal Dismissible
+                              // (swipe-to-delete) below, so a bare drag
+                              // handle here shares the same gesture arena
+                              // as that swipe. A press-and-drag starting on
+                              // the handle could get resolved as the row's
+                              // horizontal swipe instead of a reorder,
+                              // especially on a slightly diagonal first
+                              // movement from a thumb — exactly the
+                              // "bump"/misfire class of drag bug. Wrapping
+                              // the handle in its own opaque GestureDetector
+                              // gives it a private hit-test boundary so its
+                              // pan recognizer claims the touch before it
+                              // can ever reach Dismissible's recognizer —
+                              // the two gestures no longer compete at all.
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {},
+                                child: ReorderableDragStartListener(
+                                  index: i,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Icon(
+                                      Icons.drag_handle_rounded,
+                                      color: Colors.white.withOpacity(0.85),
+                                      size: 22,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],

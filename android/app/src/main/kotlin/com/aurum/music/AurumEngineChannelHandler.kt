@@ -525,6 +525,9 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     result.success(mapOf(
                         "volume" to current,
                         "max" to max,
+                        // Boost slice (100-200), independent of STREAM_MUSIC
+                        // above — see setVolumeBoost.
+                        "boostPercent" to engine.effects.currentVolumeBoostPercent(),
                     ))
                 }
                 "setMediaVolume" -> {
@@ -540,6 +543,21 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                         level,
                         0, // no UI flag — we render our own slider
                     )
+                    result.success(null)
+                }
+                // ── Volume Boost (100-200, output sheet slider past 100%) ──
+                // Electrical gain on top of hardware max, via
+                // LoudnessEnhancer — see AurumAudioEffects.setVolumeBoost
+                // for the smooth-ramp + shared-budget-clamp details. Fully
+                // isolated from setMediaVolume above; safe to call at any
+                // playback state (attaches effects on demand if needed).
+                "setVolumeBoost" -> {
+                    val percent = call.argument<Int>("percent")
+                    if (percent == null) {
+                        result.error("BAD_ARGS", "percent required", null)
+                        return@onMethodCall
+                    }
+                    engine.effects.setVolumeBoost(percent)
                     result.success(null)
                 }
                 // ── Chromecast ───────────────────────────────────────────
