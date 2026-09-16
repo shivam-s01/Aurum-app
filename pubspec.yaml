@@ -1,7 +1,7 @@
 name: aurum_music
 description: Astra Music - Premium Gold Music Experience
 publish_to: 'none'
-version: 2.3.2+3134
+version: 2.3.2+3135
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
