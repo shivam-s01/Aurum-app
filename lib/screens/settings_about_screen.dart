@@ -23,6 +23,7 @@ class SettingsAboutScreen extends StatefulWidget {
 
 class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   String _version = '';
+  String _buildNumber = '';
 
   @override
   void initState() {
@@ -35,6 +36,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     if (!mounted) return;
     setState(() {
       _version = info.version;
+      _buildNumber = info.buildNumber;
     });
   }
 
@@ -269,6 +271,17 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
               _version.isEmpty ? 'Loading...' : 'v$_version',
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
             ),
+            if (_buildNumber.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'Build $_buildNumber',
+                  style: TextStyle(
+                    color: AurumTheme.textMutedOf(context).withOpacity(0.6),
+                    fontSize: 11,
+                  ),
+                ),
+              ),
           ]),
         ]),
       ),
