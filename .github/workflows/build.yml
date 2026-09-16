@@ -68,36 +68,34 @@ jobs:
         # name AND what ships inside the APK AND what's visible in the
         # repo, always in lockstep.
         #
-        # SECOND RESYNC (this one matters — the first floor of 1125
-        # undershot): Build 1126's *tag* said "1126", but the APK
-        # actually shipped inside it was compiled with versionCode=3126
-        # — confirmed via `aapt dump badging` against the real
-        # installed APK. That means some run before this fix landed
-        # already pushed pubspec.yaml (or fed flutter.versionCode) with
-        # a run_number in the 3100s, so the true high-water mark is
-        # 3126, not 1125. Floor at 3126 so every future build is
-        # guaranteed newer than every APK anyone could already have
-        # installed — this is the number that must never be undershot
-        # again, since UpdateService's "latestBuild <= currentBuild"
-        # check silently reports "up to date" (no error, no crash) for
-        # any release whose number doesn't clear the highest build ever
-        # actually shipped.
+        # THIRD RESYNC (floor raised 3126 -> 3129): the second resync's
+        # floor of 3126 has now itself been cleared by real releases —
+        # build3129 is live on GitHub (see releases page) with an APK
+        # asset already in users' hands. Floor must always sit at or
+        # above the highest build number ever actually shipped, or this
+        # step can hand out a "new" build number that's actually LOWER
+        # than what's already installed on phones — which silently
+        # reads as "up to date" forever on the higher-build devices and
+        # kills the update popup exactly the way the first two resyncs
+        # were written to prevent. Raise this floor again in the same
+        # way any time a manual/dispatch run or an out-of-band build
+        # pushes the true shipped high-water mark past it.
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
           LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
           # Defensive: if pubspec.yaml's version line is ever missing,
           # malformed, or has no "+build" suffix, LAST_BUILD would come
-          # out empty — `[ "" -lt 3126 ]` errors out ("integer expression
+          # out empty — `[ "" -lt 3129 ]` errors out ("integer expression
           # expected") and fails this step, blocking every future build
           # until someone notices and hand-fixes pubspec.yaml. Falling
           # back to 0 here means a malformed version line still floors
-          # correctly at 3126 and the pipeline keeps working instead of
+          # correctly at 3129 and the pipeline keeps working instead of
           # going red on something this step already exists to fix.
           if ! [[ "$LAST_BUILD" =~ ^[0-9]+$ ]]; then
             LAST_BUILD=0
           fi
-          if [ "$LAST_BUILD" -lt 3126 ]; then
-            LAST_BUILD=3126
+          if [ "$LAST_BUILD" -lt 3130 ]; then
+            LAST_BUILD=3130
           fi
           NEW_BUILD=$((LAST_BUILD + 1))
           NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
@@ -108,12 +106,45 @@ jobs:
         # Runs before the actual APK build so a build failure never
         # leaves the bump uncommitted (which would silently repeat the
         # same +1 next run and desync from what actually shipped).
+        #
+        # FIX ("update popup stops firing after the first successful
+        # update"): `git push` here had no retry and no success check.
+        # If this branch got even one commit in between (another run,
+        # a manual push, anything), the plain push failed as a
+        # non-fast-forward — but the script had no `set -e` and no exit
+        # check, so it silently continued: the APK still built and
+        # shipped with the bumped build number baked in via
+        # --dart-define, but pubspec.yaml in the repo NEVER actually
+        # got that bump committed. The next CI run then reads the
+        # still-old number from pubspec.yaml and bumps from THERE,
+        # handing out a build number <= what's already installed on
+        # phones from the previous (successfully pushed) release —
+        # which reads as "already up to date" forever and kills the
+        # popup for exactly the users who just updated. Fix: fail loud
+        # (`set -e`) and retry the push against the latest remote HEAD
+        # (fetch + rebase) instead of silently limping on with an
+        # unpushed bump.
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pubspec.yaml
           git commit -m "chore: bump build number [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
+          for attempt in 1 2 3; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              echo "Pushed version bump successfully."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed (likely non-fast-forward) — fetching and rebasing."
+            git fetch origin ${{ github.ref_name }}
+            if ! git rebase origin/${{ github.ref_name }}; then
+              echo "::error::Rebase conflict while retrying the version-bump push — aborting rebase and failing the build rather than pushing a bad state."
+              git rebase --abort
+              exit 1
+            fi
+          done
+          echo "::error::Failed to push version bump after 3 attempts — aborting so the build number never silently desyncs from the repo."
+          exit 1
 
       - name: Build Release APK
         # FIX (build failures from transient upstream 429 "Too Many
@@ -138,6 +169,11 @@ jobs:
         env:
           GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
+          if [ -z "$GH_RELEASE_TOKEN" ]; then
+            echo "::warning::GH_RELEASE_TOKEN secret is EMPTY — update popup will run unauthenticated (60 req/hr shared, likely to 403 for users)."
+          else
+            echo "GH_RELEASE_TOKEN is set (length: ${#GH_RELEASE_TOKEN})"
+          fi
           for attempt in 1 2 3; do
             if flutter build apk --release --split-per-abi --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
               exit 0
@@ -300,6 +336,64 @@ jobs:
           body_path: /tmp/changelog_body.md
           files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish check.json to 'update' branch
+        # Drives the in-app update popup (UpdateService fetches this file
+        # from raw.githubusercontent.com — no GitHub API, no token, no
+        # rate limit). This step is what used to be missing: builds were
+        # shipping and releases were being created, but nothing told the
+        # app a new build existed, so every install kept reading a stale
+        # (or nonexistent) check.json forever and the popup never fired.
+        # Runs every successful build, automatically — no manual step.
+        #
+        # Format matches Musify's check.json exactly (just the version
+        # marker + download url) — the changelog body is NOT duplicated
+        # here; UpdateService fetches it separately from
+        # releases/latest, same two-call pattern Musify uses.
+        run: |
+          set -e
+          BUILD_NUM="${{ steps.ver.outputs.build }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/build${BUILD_NUM}/app-arm64-v8a-release.apk"
+
+          cat > /tmp/check.json <<EOF
+          {
+            "buildNumber": ${BUILD_NUM},
+            "url": "${DOWNLOAD_URL}"
+          }
+          EOF
+
+          echo "Generated check.json:"
+          cat /tmp/check.json
+
+          # Publish to the 'update' branch as an orphan-style single-file
+          # branch (create it if it doesn't exist yet), independent of
+          # main/master history.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin update >/dev/null 2>&1; then
+            git fetch origin update
+            git checkout -B update origin/update
+          else
+            git checkout --orphan update
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          cp /tmp/check.json ./check.json
+          git add check.json
+          git commit -m "chore: update check.json to build${BUILD_NUM} [skip ci]"
+
+          for attempt in 1 2 3; do
+            if git push origin update; then
+              echo "Pushed check.json successfully."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed — fetching and rebasing."
+            git fetch origin update
+            git rebase origin/update || { git rebase --abort; }
+          done
+          echo "::error::Failed to push check.json after 3 attempts."
+          exit 1
 
       - name: Notify users of new update (FCM push)
         # Runs on every release now (gate removed, see Create Release

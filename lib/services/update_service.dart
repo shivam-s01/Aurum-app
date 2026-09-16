@@ -22,19 +22,19 @@ class ChangelogSection {
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
-  static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
-  // Fine-grained PAT, Contents:Read-only on this repo only, 1yr expiry.
-  // Read from --dart-define at build time (see BUILD.md) — NEVER hardcode
-  // this, since Aurum-app is a public repo and a hardcoded token here
-  // would be visible to anyone browsing the source on GitHub within
-  // minutes (bots actively scan public repos for exactly this).
-  // Was unauthenticated (60 req/hour PER IP, shared across every Aurum
-  // user behind that IP/NAT/carrier) — once that shared budget ran out,
-  // GitHub returned 403 to everyone, and since the launch-time check
-  // runs with silent:true, a non-200 response is swallowed with zero UI
-  // (see the `!silent` guards below), so nobody ever saw the popup with
-  // no visible error either. Authenticated raises this to 5000/hour.
-  static const _githubToken = String.fromEnvironment('GH_RELEASE_TOKEN');
+  // Exact same two-call pattern Musify uses (gokadzev/Musify):
+  // 1) check.json on the 'update' branch via raw.githubusercontent.com
+  //    — no auth, no rate limit — just to compare version numbers.
+  // 2) Only if that shows a newer version, THEN call the GitHub
+  //    Releases API (unauthenticated, 60 req/hour shared per IP) to
+  //    fetch the changelog body. This second call only ever fires for
+  //    the (rare) subset of launches where an update actually exists,
+  //    not on every single launch — so it stays far under the limit
+  //    Musify itself has shipped at scale with.
+  static const _checkUrl =
+      'https://raw.githubusercontent.com/$_repo/update/check.json';
+  static const _releasesUrl =
+      'https://api.github.com/repos/$_repo/releases/latest';
   static const _channel = MethodChannel('com.aurum.music/media_store');
 
   // Persisted dismiss: "Later" hides the popup for 12 hours, tracked
@@ -56,87 +56,43 @@ class UpdateService {
       final info = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
 
-      // FIX ("update popup never shows"): if GH_RELEASE_TOKEN wasn't
-      // baked in at build time (e.g. the CI secret was never set, or a
-      // dev/sideloaded build skipped --dart-define), _githubToken is
-      // empty and 'Bearer ' is sent as the Authorization header. GitHub
-      // treats that as a malformed credential and returns 401 — not a
-      // graceful "unauthenticated" fallback — so the whole check died
-      // silently on every affected install. Now: only attach the header
-      // when a token actually exists, so a missing token degrades to a
-      // normal unauthenticated call (60 req/hr shared per IP) instead of
-      // an outright failure.
-      final response = await http
-          .get(Uri.parse(_apiUrl), headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            if (_githubToken.isNotEmpty) 'Authorization': 'Bearer $_githubToken',
-          })
-          .timeout(const Duration(seconds: 8));
+      // STEP 1 — same as Musify's checkAppUpdates(): cheap version check
+      // against check.json on the 'update' branch via
+      // raw.githubusercontent.com. No auth, no rate limit. Cache-busted
+      // so a just-pushed check.json is never served stale.
+      final bustedUrl = Uri.parse(_checkUrl).replace(
+        queryParameters: {'t': DateTime.now().millisecondsSinceEpoch.toString()},
+      );
+
+      final response = await http.get(bustedUrl).timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) {
-        // DIAGNOSTIC (was previously silent even for the common
-        // unauthenticated-GitHub-API-rate-limit case, 403, which meant
-        // a real-world "why didn't I get the popup" was undebuggable —
-        // this branch had zero visibility before). kDebugMode-gated so
-        // it costs nothing in release builds' normal operation.
         if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: releases/latest returned '
+          debugPrint('[Aurum] UpdateService: check.json fetch returned '
               '${response.statusCode} (silent=$silent): ${response.body}');
         }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
       }
 
-      final data = jsonDecode(response.body);
-      final latestTag = data['tag_name'] as String? ?? '';
-      final releaseName = data['name'] as String? ?? '';
-      final body = data['body'] as String? ?? '';
-      final assets = data['assets'] as List<dynamic>? ?? [];
-      if (assets.isEmpty) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no assets');
-        }
-        if (!silent && context.mounted) _showCheckFailed(context);
-        return;
-      }
+      final map = jsonDecode(response.body) as Map<String, dynamic>;
 
-      final apkAsset = assets.firstWhere(
-        (a) => (a['name'] as String).endsWith('.apk'),
-        orElse: () => null,
-      );
-      if (apkAsset == null) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: latest release "$latestTag" has no .apk asset');
-        }
-        if (!silent && context.mounted) _showCheckFailed(context);
-        return;
-      }
-
-      final downloadUrl = apkAsset['browser_download_url'] as String;
-      final buildMatch = RegExp(r'(?:build)?(\d+)').firstMatch(latestTag);
-      // FIX ("update popup fake / never showing even when a newer build
-      // exists"): a failed regex match used to fall back to '0' via
-      // `?? '0'`, which fed straight into `latestBuild <= currentBuild`
-      // as a real "0 <= currentBuild" comparison — always true, always
-      // silently reads as "you're up to date" with zero indication the
-      // tag didn't actually parse. Now a parse failure is tracked
-      // separately and treated as "can't determine — skip the up-to-date
-      // check" rather than "definitely not newer", so a tag-format
-      // change (or an unexpected non-numeric tag) can never masquerade
-      // as a real "no update available" result.
-      final latestBuild = buildMatch != null
-          ? int.tryParse(buildMatch.group(1)!)
-          : null;
+      // check.json is expected to look like:
+      // { "buildNumber": 3134, "url": "https://github.com/<repo>/releases/download/build3134/app-arm64-v8a-release.apk" }
+      final latestBuild = map['buildNumber'] is int
+          ? map['buildNumber'] as int
+          : int.tryParse(map['buildNumber']?.toString() ?? '');
+      final downloadUrl = map['url']?.toString() ?? '';
 
       if (kDebugMode) {
         debugPrint('[Aurum] UpdateService: currentBuild=$currentBuild '
-            'latestTag="$latestTag" latestBuild=$latestBuild');
+            'latestBuild=$latestBuild');
       }
 
       if (latestBuild == null) {
         if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: could not parse a build '
-              'number out of tag "$latestTag" — skipping.');
+          debugPrint('[Aurum] UpdateService: check.json missing/invalid '
+              'buildNumber — skipping.');
         }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
@@ -147,21 +103,50 @@ class UpdateService {
         return;
       }
 
-      if (!force && await _isSnoozed(latestTag)) {
+      if (downloadUrl.isEmpty) {
         if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: "$latestTag" is snoozed, skipping popup');
+          debugPrint('[Aurum] UpdateService: check.json missing url — skipping.');
+        }
+        if (!silent && context.mounted) _showCheckFailed(context);
+        return;
+      }
+
+      final versionLabel = 'build$latestBuild';
+
+      if (!force && await _isSnoozed(versionLabel)) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: "$versionLabel" is snoozed, skipping popup');
         }
         return;
       }
 
+      // STEP 2 — same as Musify: only reached when a newer version
+      // actually exists, so this hits the GitHub Releases API on a
+      // small fraction of launches, not every launch.
+      final releasesRequest =
+          await http.get(Uri.parse(_releasesUrl)).timeout(const Duration(seconds: 8));
 
-      final highlights = _parseHighlights(body);
+      if (releasesRequest.statusCode != 200) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] UpdateService: releases/latest returned '
+              '${releasesRequest.statusCode} (silent=$silent): ${releasesRequest.body}');
+        }
+        if (!silent && context.mounted) _showCheckFailed(context);
+        return;
+      }
+
+      final releasesResponse =
+          jsonDecode(releasesRequest.body) as Map<String, dynamic>;
+      final changelog = releasesResponse['body']?.toString() ?? '';
+      final releaseName = releasesResponse['name']?.toString() ?? '';
+
+      final highlights = _parseHighlights(changelog);
 
       if (context.mounted) {
         _showDialog(
           context,
-          version: latestTag,
-          displayName: releaseName,
+          version: versionLabel,
+          displayName: releaseName.isNotEmpty ? releaseName : versionLabel,
           url: downloadUrl,
           highlights: highlights,
         );
