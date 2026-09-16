@@ -15,9 +15,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # persist-credentials required (true) — the "Commit bumped
-          # version back to repo" step below now pushes a commit using
-          # this checkout's saved GITHUB_TOKEN credentials.
+          # persist-credentials required (true) — the "Publish check.json
+          # to 'update' branch" step later on still pushes a commit
+          # using this checkout's saved GITHUB_TOKEN credentials. (The
+          # old build-number bump-and-commit step no longer exists, so
+          # this is no longer needed for that — kept for check.json.)
           persist-credentials: true
           fetch-depth: 0
 
@@ -49,102 +51,30 @@ jobs:
       - name: Analyze (safety gate — stops here on real errors)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Bump build number (persisted in pubspec.yaml)
-        # FIX ("update popup fake/not showing — app is always 'up to
-        # date'"): this used to set the build number to
-        # github.run_number every run, WITHOUT ever committing that
-        # change back to the repo. Two problems from that: (1)
-        # pubspec.yaml in git stayed frozen at whatever it was last
-        # hand-edited to (2.3.2+345 here) forever, so UpdateService's
-        # comparison logic and any docs/checkouts reading the repo saw
-        # a stale number; (2) run_number counts EVERY workflow run
-        # (including failed/re-run/workflow_dispatch runs), so it can
-        # jump unpredictably and doesn't reflect "how many releases have
-        # actually shipped" — it's a CI counter, not a release counter.
-        # Fix: read the last committed build number from pubspec.yaml,
-        # increment it by exactly 1, write it back into pubspec.yaml,
-        # and commit+push that change (below) so it's the permanent,
-        # ever-increasing source of truth — matching the tag/release
-        # name AND what ships inside the APK AND what's visible in the
-        # repo, always in lockstep.
-        #
-        # THIRD RESYNC (floor raised 3126 -> 3129): the second resync's
-        # floor of 3126 has now itself been cleared by real releases —
-        # build3129 is live on GitHub (see releases page) with an APK
-        # asset already in users' hands. Floor must always sit at or
-        # above the highest build number ever actually shipped, or this
-        # step can hand out a "new" build number that's actually LOWER
-        # than what's already installed on phones — which silently
-        # reads as "up to date" forever on the higher-build devices and
-        # kills the update popup exactly the way the first two resyncs
-        # were written to prevent. Raise this floor again in the same
-        # way any time a manual/dispatch run or an out-of-band build
-        # pushes the true shipped high-water mark past it.
+      - name: Compute build number (timestamp-based — always increasing, zero maintenance)
+        # SIMPLEST POSSIBLE FIX — replaces the entire floor-tracking +
+        # git-commit + push-retry/rebase machinery above (four separate
+        # manual "resyncs" over time, and it STILL drifted — repo showed
+        # +3137 while build5137 was already on real phones) with
+        # something that structurally cannot drift again: the build
+        # number is just "seconds since a fixed reference date"
+        # (2024-01-01 UTC). Time only ever moves forward, on every
+        # machine, in every run — manual dispatch, retry, re-run,
+        # doesn't matter — so this number is *guaranteed* to always be
+        # higher than any previous build. No floor to track, no
+        # pubspec.yaml write-back, no git commit, no push race, no
+        # rebase retry logic, no GitHub API calls needed at all.
+        # Comfortably fits Android's versionCode ceiling (~2.1 billion)
+        # until roughly the year 2090.
+        id: build_number
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
-          LAST_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | tr -d '\r')
-          # Defensive: if pubspec.yaml's version line is ever missing,
-          # malformed, or has no "+build" suffix, LAST_BUILD would come
-          # out empty — `[ "" -lt 3129 ]` errors out ("integer expression
-          # expected") and fails this step, blocking every future build
-          # until someone notices and hand-fixes pubspec.yaml. Falling
-          # back to 0 here means a malformed version line still floors
-          # correctly at 3129 and the pipeline keeps working instead of
-          # going red on something this step already exists to fix.
-          if ! [[ "$LAST_BUILD" =~ ^[0-9]+$ ]]; then
-            LAST_BUILD=0
-          fi
-          if [ "$LAST_BUILD" -lt 3130 ]; then
-            LAST_BUILD=3130
-          fi
-          NEW_BUILD=$((LAST_BUILD + 1))
-          NEW_VERSION="${BASE_VERSION}+${NEW_BUILD}"
-          sed -i "s/^version:.*/version: ${NEW_VERSION}/" pubspec.yaml
-          echo "Bumped pubspec.yaml version ${LAST_BUILD} -> ${NEW_BUILD} (${NEW_VERSION})"
-
-      - name: Commit bumped version back to repo
-        # Runs before the actual APK build so a build failure never
-        # leaves the bump uncommitted (which would silently repeat the
-        # same +1 next run and desync from what actually shipped).
-        #
-        # FIX ("update popup stops firing after the first successful
-        # update"): `git push` here had no retry and no success check.
-        # If this branch got even one commit in between (another run,
-        # a manual push, anything), the plain push failed as a
-        # non-fast-forward — but the script had no `set -e` and no exit
-        # check, so it silently continued: the APK still built and
-        # shipped with the bumped build number baked in via
-        # --dart-define, but pubspec.yaml in the repo NEVER actually
-        # got that bump committed. The next CI run then reads the
-        # still-old number from pubspec.yaml and bumps from THERE,
-        # handing out a build number <= what's already installed on
-        # phones from the previous (successfully pushed) release —
-        # which reads as "already up to date" forever and kills the
-        # popup for exactly the users who just updated. Fix: fail loud
-        # (`set -e`) and retry the push against the latest remote HEAD
-        # (fetch + rebase) instead of silently limping on with an
-        # unpushed bump.
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pubspec.yaml
-          git commit -m "chore: bump build number [skip ci]"
-          for attempt in 1 2 3; do
-            if git push origin HEAD:${{ github.ref_name }}; then
-              echo "Pushed version bump successfully."
-              exit 0
-            fi
-            echo "Push attempt $attempt failed (likely non-fast-forward) — fetching and rebasing."
-            git fetch origin ${{ github.ref_name }}
-            if ! git rebase origin/${{ github.ref_name }}; then
-              echo "::error::Rebase conflict while retrying the version-bump push — aborting rebase and failing the build rather than pushing a bad state."
-              git rebase --abort
-              exit 1
-            fi
-          done
-          echo "::error::Failed to push version bump after 3 attempts — aborting so the build number never silently desyncs from the repo."
-          exit 1
+          EPOCH_BASE=1704067200   # 2024-01-01T00:00:00Z reference point
+          BUILD_NUMBER=$(( $(date -u +%s) - EPOCH_BASE ))
+          echo "BASE_VERSION=${BASE_VERSION}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${BUILD_NUMBER}" >> "$GITHUB_ENV"
+          echo "build=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "Building version ${BASE_VERSION}, build ${BUILD_NUMBER}"
 
       - name: Build Release APK
         # FIX (build failures from transient upstream 429 "Too Many
@@ -174,8 +104,14 @@ jobs:
           else
             echo "GH_RELEASE_TOKEN is set (length: ${#GH_RELEASE_TOKEN})"
           fi
+          # --build-name/--build-number override whatever's in
+          # pubspec.yaml with the values computed in "Compute build
+          # number" above, so pubspec.yaml never needs to be edited or
+          # committed for this at all.
           for attempt in 1 2 3; do
-            if flutter build apk --release --split-per-abi --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
+            if flutter build apk --release --split-per-abi \
+              --build-name="$BASE_VERSION" --build-number="$BUILD_NUMBER" \
+              --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
               exit 0
             fi
             echo "Build attempt $attempt failed."
@@ -187,13 +123,6 @@ jobs:
           done
           echo "Build failed after 3 attempts."
           exit 1
-
-      - name: Get version
-        id: ver
-        run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d '\r')
-          BUILD=$(echo $VERSION | cut -d'+' -f2)
-          echo "build=$BUILD" >> $GITHUB_OUTPUT
 
       - name: Generate polished changelog
         id: changelog
@@ -331,8 +260,8 @@ jobs:
         # a single flat bullet in the on-device "WHAT'S NEW" list.
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build${{ steps.ver.outputs.build }}
-          name: Build ${{ steps.ver.outputs.build }}
+          tag_name: build${{ steps.build_number.outputs.build }}
+          name: Build ${{ steps.build_number.outputs.build }}
           body_path: /tmp/changelog_body.md
           files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -352,7 +281,7 @@ jobs:
         # releases/latest, same two-call pattern Musify uses.
         run: |
           set -e
-          BUILD_NUM="${{ steps.ver.outputs.build }}"
+          BUILD_NUM="${{ steps.build_number.outputs.build }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/build${BUILD_NUM}/app-arm64-v8a-release.apk"
 
           cat > /tmp/check.json <<EOF
