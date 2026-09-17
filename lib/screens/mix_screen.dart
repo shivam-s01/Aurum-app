@@ -106,6 +106,13 @@ class MixScreen extends StatefulWidget {
 
 class _MixScreenState extends State<MixScreen>
     with SingleTickerProviderStateMixin {
+  // FIX (regression from an earlier edit — "Undefined name '_shuffle'"
+  // build error): this field existed before the animated-glow work below
+  // was added and got dropped when that class-header block was rewritten
+  // to add SingleTickerProviderStateMixin. Restored here, unchanged from
+  // its original declaration.
+  bool _shuffle = false;
+
   // FIX ("artwork palette kuch sec delay ke baad snap hoti hai — sab
   // jagah instant, ekdam smooth chahiye"): this used to always start on
   // the hardcoded fallback and wait for _extractGlow()'s await to land
