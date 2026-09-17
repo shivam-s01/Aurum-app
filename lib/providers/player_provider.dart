@@ -741,8 +741,28 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _isLoading = state.processingState == 'loading' ||
           state.processingState == 'buffering';
     }
-    _buffered  = state.bufferedPosition;
-    if (state.duration != null) _duration = state.duration!;
+    // BUG (found alongside the isStaleForLoading fix above, same root
+    // cause): position/duration/buffered were applied completely
+    // unconditionally here — no staleness check at all — even though
+    // they sit in the exact same "before the isConfirmedSwitch guard"
+    // spot that _isLoading used to. playSong()/skipNext()/skipToIndex()
+    // all optimistically zero out _position/_duration the instant the
+    // user acts, specifically so the seek bar doesn't show the old
+    // song's progress for even a beat. But a stale/in-flight event
+    // still describing the OLD song — the same kind isConfirmedSwitch
+    // exists to reject for title/artwork — landed here first and
+    // clobbered that optimistic reset right back to the old song's
+    // position/duration/buffered, which then briefly rendered under
+    // the NEW song's (correctly optimistic) title/artwork before the
+    // real new-song event corrected it a beat later. Same fix as
+    // isStaleForLoading: while an expectation is pending, only accept
+    // these fields from an event that actually reports the expected
+    // song id.
+    if (!isStaleForLoading) {
+      _onPosition(state.position);
+      _buffered = state.bufferedPosition;
+      if (state.duration != null) _duration = state.duration!;
+    }
 
     // Edge-triggered: only fire the "check your connection" callback the
     // moment this flips from not-stuck to stuck, not on every tick while
@@ -922,9 +942,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    // position handling shares the same behavior-tracking hooks the old
-    // positionStream listener had.
-    _onPosition(state.position);
+    // position handling (behavior-tracking hooks etc.) now happens above,
+    // guarded by isStaleForLoading alongside buffered/duration — see the
+    // FIX comment there for why it moved.
 
     // Song-change detection (replaces currentIndexStream + 150ms debounce).
     if (state.currentIndex != null && state.currentIndex != _lastHandledIndex) {
@@ -2008,11 +2028,29 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> seek(double ratio) async {
     if (_duration == Duration.zero) return;
     final pos = Duration(milliseconds: (_duration.inMilliseconds * ratio).round());
+    // FIX ("seek bar drag akward" — bar snapped back to the pre-drag spot
+    // for a beat, then jumped to the real spot): onChangeEnd clears the
+    // Slider's local _dragValue immediately, so the bar falls back to
+    // reading player.progress — which was still computed from the OLD
+    // _position, since _position previously only ever got updated later,
+    // from the native _onPosition event arriving after the seek()
+    // platform-channel call resolved. That gap is what read as "jumps to
+    // where I dragged from, then a moment later snaps to where I actually
+    // dragged to". Setting _position (and notifying) optimistically here,
+    // before awaiting the native call, closes that gap — the bar now
+    // stays exactly where the finger left it, and the later real
+    // _onPosition event just confirms the same value instead of visibly
+    // correcting it.
+    _position = pos;
+    notifyListeners();
     await _engine.seek(pos);
     unawaited(_engine.autoSleepGuardRecordActivity());
   }
 
   Future<void> seekTo(Duration pos) {
+    // Same optimistic-update fix as seek(ratio) above — see its comment.
+    _position = pos;
+    notifyListeners();
     unawaited(_engine.autoSleepGuardRecordActivity());
     return _engine.seek(pos);
   }

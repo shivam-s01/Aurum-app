@@ -17,10 +17,8 @@ class SettingsStorageScreen extends StatefulWidget {
 }
 
 class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
-  double _maxSongCache   = 500.0;
   double _maxImageCache  = 100.0;
   int _downloadedSize    = 0;
-  int _songCacheUsed     = 0;
   int _imageCacheUsed    = 0;
   bool _loading          = true;
 
@@ -41,21 +39,17 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     final cacheDir = await getTemporaryDirectory();
 
     int downloadSize   = 0;
-    int songCacheSize  = 0;
     int imageCacheSize = 0;
 
     try {
       final downloadDir = Directory('${appDir.path}/downloads');
       if (await downloadDir.exists()) downloadSize = await _dirSize(downloadDir);
-      final songCache = Directory('${cacheDir.path}/song_cache');
-      if (await songCache.exists()) songCacheSize = await _dirSize(songCache);
       final imgCache = Directory('${cacheDir.path}/image_cache');
       if (await imgCache.exists()) imageCacheSize = await _dirSize(imgCache);
     } catch (_) {}
 
     if (!mounted) return;
     setState(() {
-      _maxSongCache        = p.getDouble('max_song_cache')   ?? 500.0;
       _maxImageCache       = p.getDouble('max_image_cache')  ?? 100.0;
       // MIGRATION: 96kbps/128kbps used to be valid choices here. An
       // existing install with one of those saved would no longer find a
@@ -70,7 +64,6 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       _autoDownloadLiked   = p.getBool('auto_download_liked')  ?? false;
       _downloadWifiOnly    = p.getBool('download_wifi_only')   ?? true;
       _downloadedSize  = downloadSize;
-      _songCacheUsed   = songCacheSize;
       _imageCacheUsed  = imageCacheSize;
       _loading         = false;
     });
@@ -102,9 +95,24 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   Future<void> _clearDir(String subPath) async {
     if (!mounted) return;
     setState(() => _loading = true);
-    final cacheDir = await getTemporaryDirectory();
-    final dir = Directory('${cacheDir.path}/$subPath');
-    if (await dir.exists()) await dir.delete(recursive: true);
+    // BUG: delete()/exists() ran with no try/catch, unlike every other
+    // file-I/O path in this screen (_load, _dirSize both guard theirs).
+    // A locked file (e.g. an image mid-decode by CachedNetworkImage), a
+    // permission hiccup, or the directory vanishing between the exists()
+    // check and delete() (TOCTOU) throws here uncaught — Flutter surfaces
+    // that as an unhandled exception from the button's onTap, and because
+    // the throw happens before _load() runs, `_loading` never flips back
+    // to false: the screen is stuck on the loading spinner permanently
+    // until the user leaves and re-enters Settings > Storage.
+    try {
+      final cacheDir = await getTemporaryDirectory();
+      final dir = Directory('${cacheDir.path}/$subPath');
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {
+      // Best-effort clear — if it failed, _load() below will just report
+      // whatever size is actually still on disk instead of zero, so the
+      // UI stays honest rather than claiming a clear that didn't happen.
+    }
     if (!mounted) return;
     await _load();
   }
@@ -112,9 +120,16 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   Future<void> _clearDownloads() async {
     if (!mounted) return;
     setState(() => _loading = true);
-    final appDir = await getApplicationDocumentsDirectory();
-    final dir = Directory('${appDir.path}/downloads');
-    if (await dir.exists()) await dir.delete(recursive: true);
+    // Same fix as _clearDir above — guard the delete so a locked/in-use
+    // download (e.g. a song mid-playback from local storage) can't leave
+    // this screen stuck on the loading spinner forever.
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final dir = Directory('${appDir.path}/downloads');
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {
+      // Best-effort — _load() below reports the real remaining size.
+    }
     if (!mounted) return;
     await _load();
   }
@@ -192,24 +207,6 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   subtitle: l10n.ssWifiOnlySubtitle,
                   value: _downloadWifiOnly,
                   onChanged: (v) { setState(() => _downloadWifiOnly = v); _save('download_wifi_only', v); },
-                ),
-
-                // ── SONG CACHE ─────────────────────────────────────────────
-                _sectionLabel(context, l10n.ssSongCache),
-                _cacheSliderCard(context,
-                  title: l10n.ssMaxSongCacheSize,
-                  value: _maxSongCache,
-                  max: 2000,
-                  usedBytes: _songCacheUsed,
-                  displayMax: _maxSongCache >= 1000
-                      ? '${(_maxSongCache / 1024).toStringAsFixed(1)}GB'
-                      : '${_maxSongCache.toInt()}MB',
-                  onChanged: (v) async {
-                    setState(() => _maxSongCache = v);
-                    await _save('max_song_cache', v);
-                  },
-                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssSongCacheTitle, () => _clearDir('song_cache')); },
-                  clearLabel: l10n.ssClearSongCache,
                 ),
 
                 // ── IMAGE CACHE ────────────────────────────────────────────

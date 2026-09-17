@@ -123,6 +123,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _step = step);
   }
 
+  // FIX ("baar baar onboarding aana" — country/genre/artist re-prompted on
+  // a later app open despite having been skipped/completed already):
+  // the old version wrote 'onboarding_complete' inside a try/catch that
+  // silently swallowed any failure, then called widget.onDone()
+  // unconditionally right after — so if that single SharedPreferences
+  // write failed for any reason (a transient disk/IO hiccup, the OS
+  // reclaiming the process mid-write, etc.), the user still landed on
+  // Home for THIS session (nothing looked wrong), but the flag was never
+  // actually persisted — so _OnboardingGate's next-launch check read
+  // false again and replayed the whole flow from scratch. Root cause was
+  // "fire the write once, ignore whether it actually landed."
+  //
+  // Fix: retry the write a few times with a short backoff, then actually
+  // read the flag back to confirm it landed before treating onboarding as
+  // done. Only fails through to onDone() unconfirmed as an absolute last
+  // resort (never trap a user who has no working storage at all) — the
+  // common transient-failure case now self-heals instead of silently
+  // losing the flag.
   Future<void> _finish() async {
     try {
       if (_selectedGenres.isNotEmpty) {
@@ -140,14 +158,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       // case the user just gets a neutral, non-personalized feed.
     }
 
-    try {
-      final p = await SharedPreferences.getInstance();
-      if (_selectedCountry != null) {
-        await p.setString('onboarding_country_code', _selectedCountry!.code);
-        await p.setString('onboarding_country_name', _selectedCountry!.name);
+    var confirmed = false;
+    for (var attempt = 0; attempt < 3 && !confirmed; attempt++) {
+      try {
+        final p = await SharedPreferences.getInstance();
+        if (_selectedCountry != null) {
+          await p.setString('onboarding_country_code', _selectedCountry!.code);
+          await p.setString('onboarding_country_name', _selectedCountry!.name);
+        }
+        await p.setBool('onboarding_complete', true);
+        // Read it back rather than trusting setBool()'s return value —
+        // this is the actual check that would have caught the silent
+        // failure above.
+        confirmed = p.getBool('onboarding_complete') == true;
+      } catch (_) {
+        confirmed = false;
       }
-      await p.setBool('onboarding_complete', true);
-    } catch (_) {}
+      if (!confirmed && attempt < 2) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
 
     if (mounted) widget.onDone();
   }

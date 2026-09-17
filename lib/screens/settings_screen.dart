@@ -1,39 +1,43 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_transitions.dart';
 import '../providers/player_provider.dart';
+import '../providers/auth_provider.dart';
 import 'settings_player_screen.dart';
 import 'settings_appearance_screen.dart';
 import 'settings_storage_screen.dart';
-import 'settings_notifications_screen.dart';
-import 'settings_about_screen.dart';
 import 'settings_privacy_screen.dart';
+import 'settings_about_screen.dart';
 import 'settings_language_screen.dart';
 import 'settings_region_screen.dart';
+import 'profile_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
-// Settings — Spotify / Apple Music style.
-// Rebuilt from scratch. The old version leaned on per-row rainbow icon
-// tints, gradient chips, and a shader-masked title — the kind of thing
-// that reads as an amateur "cool effects" pass rather than a real
-// production settings screen. Neither Spotify nor Apple Music color-code
-// their settings icons or decorate their title; they rely on generous
-// whitespace, a single restrained icon treatment, and plain typography
-// to feel premium. This version does the same: one neutral icon style
-// throughout, a plain pinned title, flat grouped rows with hairline
-// dividers, no gradients, no glow, no per-item novelty.
+// Settings — production pass, Spotify / Apple Music tier.
+//
+// What separates a top-tier settings screen from a merely-clean one isn't
+// more decoration — it's the identity anchor, the collapse behavior, and
+// the icon treatment. Spotify and Apple Music both open Settings with the
+// signed-in account front and center (Spotify: avatar + name + "View
+// profile"; Apple Music/iOS: name + Apple ID summary), then a large title
+// that compresses into a small pinned one as you scroll — never a static
+// pinned title from frame one. Icons sit in a soft tonal container, not
+// bare glyphs in a muted color. This pass adds all three while keeping the
+// prior restraint: still no gradients, no per-item rainbow tinting, no
+// glow — the "premium" signal comes from spacing, motion, and the account
+// anchor, exactly like the references.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    // Get the native engine from PlayerProvider so we can pass it to player settings
     final engine = context.read<PlayerProvider>().handler;
 
     return Scaffold(
@@ -41,40 +45,42 @@ class SettingsScreen extends StatelessWidget {
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
-          SliverAppBar(
+          // Large-title-that-collapses, matching Apple Music/Spotify:
+          // big and bold while at rest, shrinks to a small pinned label
+          // once content scrolls under it — never a flat static bar.
+          //
+          // Built as a bare SliverPersistentHeader instead of
+          // SliverAppBar+FlexibleSpaceBar deliberately: FlexibleSpaceBar
+          // applies its OWN implicit title scale/fade/position animation
+          // on top of whatever the title widget already does, so a
+          // manually font-size-interpolated Text inside it double-
+          // animates — the title visibly shrinks twice at slightly
+          // different rates, reading as a stutter/jump rather than one
+          // clean collapse. A raw SliverPersistentHeader has no built-in
+          // title behavior to fight with, so the single manual
+          // interpolation below is the *only* thing moving the title —
+          // one continuous, glitch-free collapse.
+          SliverPersistentHeader(
             pinned: true,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            backgroundColor: AurumTheme.bgOf(context),
-            surfaceTintColor: Colors.transparent,
-            automaticallyImplyLeading: false,
-            titleSpacing: 20,
-            toolbarHeight: 56,
-            // Plain, pinned, sentence-weight title — no shader, no gradient,
-            // no oversized display font. Pinned to a fixed font (not the
-            // user's app-wide font choice) so it stays a consistent brand
-            // moment even when the reading font elsewhere is Mono/Serif.
-            title: Text(
-              l10n.settingsTitle,
-              style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: AurumTheme.textPrimaryOf(context),
-                letterSpacing: -0.2,
-              ),
+            delegate: _CollapsingTitleDelegate(
+              title: l10n.settingsTitle,
+              topPadding: MediaQuery.of(context).padding.top,
+              backgroundColor: AurumTheme.bgOf(context),
+              textColor: AurumTheme.textPrimaryOf(context),
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
+                // Account anchor card — the identity moment every
+                // top-tier settings screen opens with. Tapping it goes
+                // to the same ProfileScreen the rest of the app uses.
+                AurumStaggerItem(index: 0, child: _AccountCard()),
+                const SizedBox(height: 28),
+
                 _SectionHeader(l10n.settingsSectionGeneral),
-                // Same AurumStaggerItem entrance used by every other
-                // Settings screen (Privacy/Storage/Language/Notifications/
-                // About/Player) — one group per stagger slot keeps the
-                // cascade timing identical across the whole Settings
-                // section instead of this screen animating differently.
-                AurumStaggerItem(index: 0, child: _SettingsGroup(children: [
+                AurumStaggerItem(index: 1, child: _SettingsGroup(children: [
                   _SettingsRow(
                     icon: Icons.tune_rounded,
                     title: l10n.settingsAppearance,
@@ -101,30 +107,19 @@ class SettingsScreen extends StatelessWidget {
                       AurumHaptics.light();
                       AurumDepthRoute.to(context, const SettingsRegionScreen());
                     },
-                  ),
-                  _SettingsRow(
-                    icon: Icons.notifications_none_rounded,
-                    title: l10n.settingsNotifications,
-                    subtitle: l10n.settingsNotificationsSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsNotificationsScreen());
-                    },
                     isLast: true,
                   ),
                 ])),
                 const SizedBox(height: 28),
+
                 _SectionHeader(l10n.settingsSectionPlayback),
-                AurumStaggerItem(index: 1, child: _SettingsGroup(children: [
+                AurumStaggerItem(index: 2, child: _SettingsGroup(children: [
                   _SettingsRow(
                     icon: Icons.graphic_eq_rounded,
                     title: l10n.settingsPlayerAudio,
                     subtitle: l10n.settingsPlayerAudioSubtitle,
                     onTap: () {
                       AurumHaptics.light();
-                      // Matches the Liked/Playlist fade + slide-up push
-                      // (see aurum_transitions.dart's AurumDepthRoute) —
-                      // Settings' whole sub-navigation shares it.
                       AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
                     },
                   ),
@@ -140,8 +135,9 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ])),
                 const SizedBox(height: 28),
+
                 _SectionHeader(l10n.settingsSectionSystem),
-                AurumStaggerItem(index: 2, child: _SettingsGroup(children: [
+                AurumStaggerItem(index: 3, child: _SettingsGroup(children: [
                   _SettingsRow(
                     icon: Icons.shield_outlined,
                     title: l10n.settingsPrivacy,
@@ -171,9 +167,200 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-// Small caps section label above each group — quiet, muted, no
-// letter-spacing theatrics. Exactly the density Spotify/Apple Music use
-// between grouped rows.
+// ─────────────────────────────────────────────────────────────────────────
+// Collapsing title header. One manual interpolation drives font size,
+// bottom padding, and background — no FlexibleSpaceBar underneath to
+// double-animate against. minExtent/maxExtent match the small/large
+// title heights standard on both Apple Music and Spotify's own settings
+// bars (56 collapsed, 96 expanded, before the safe-area inset).
+// ─────────────────────────────────────────────────────────────────────────
+class _CollapsingTitleDelegate extends SliverPersistentHeaderDelegate {
+  final String title;
+  final double topPadding;
+  final Color backgroundColor;
+  final Color textColor;
+
+  static const double _collapsedH = 56;
+  static const double _expandedH = 96;
+
+  _CollapsingTitleDelegate({
+    required this.title,
+    required this.topPadding,
+    required this.backgroundColor,
+    required this.textColor,
+  });
+
+  @override
+  double get minExtent => _collapsedH + topPadding;
+
+  @override
+  double get maxExtent => _expandedH + topPadding;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final range = maxExtent - minExtent;
+    // t = 1 fully expanded (large title), t = 0 fully collapsed (small
+    // pinned title) — the single value every animated property below
+    // derives from, so nothing can drift out of sync with anything else.
+    final t = range == 0 ? 0.0 : (1 - (shrinkOffset / range)).clamp(0.0, 1.0);
+    final fontSize = 20 + (12 * t); // 20 -> 32
+    final bottomPadding = 14 + (2 * (1 - t));
+
+    return Container(
+      color: backgroundColor,
+      alignment: Alignment.bottomLeft,
+      padding: EdgeInsets.only(
+        top: topPadding,
+        left: 20,
+        right: 20,
+        bottom: bottomPadding,
+      ),
+      child: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.inter(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          color: textColor,
+          letterSpacing: -0.4,
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _CollapsingTitleDelegate oldDelegate) {
+    return oldDelegate.title != title ||
+        oldDelegate.topPadding != topPadding ||
+        oldDelegate.backgroundColor != backgroundColor ||
+        oldDelegate.textColor != textColor;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Account anchor card. Spotify opens Settings with avatar + name + "View
+// profile"; Apple Music/iOS opens with the signed-in Apple ID summary at
+// the very top. This is that same identity moment, built from the same
+// AuthProvider/ProfileScreen the rest of the app already uses — no new
+// data source, just surfaced here first.
+// ─────────────────────────────────────────────────────────────────────────
+class _AccountCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final signedIn = auth.isSignedIn;
+    final name = auth.displayName ?? 'Guest';
+    final email = auth.email;
+    final avatarUrl = auth.avatarUrl;
+
+    return AurumPressable(
+      onTap: () {
+        AurumHaptics.light();
+        AurumDepthRoute.to(context, const ProfileScreen());
+      },
+      scaleAmount: 0.98,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+        ),
+        child: Row(
+          children: [
+            _Avatar(url: avatarUrl, name: name, signedIn: signedIn),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    signedIn ? (email ?? 'View profile') : 'Tap to sign in',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AurumTheme.textMutedOf(context),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                color: AurumTheme.textMutedOf(context).withValues(alpha: 0.6), size: 22),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  final String? url;
+  final String name;
+  final bool signedIn;
+  const _Avatar({required this.url, required this.name, required this.signedIn});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+
+    Widget fallback() => Container(
+          width: 52,
+          height: 52,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: signedIn
+              ? Text(
+                  initial,
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                )
+              : Icon(Icons.person_rounded, color: accent, size: 26),
+        );
+
+    // Guard explicitly on signedIn rather than just url-presence — even
+    // if a stale avatarUrl were ever left around from a previous session,
+    // a signed-out state should never show it. Belt-and-suspenders: in
+    // practice AuthProvider only ever populates avatarUrl while signed
+    // in, but this keeps the widget correct even if that assumption
+    // ever changes elsewhere in the app.
+    if (!signedIn || url == null || url!.isEmpty) return fallback();
+
+    return ClipOval(
+      child: CachedNetworkImage(
+        imageUrl: url!,
+        width: 52,
+        height: 52,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => fallback(),
+        errorWidget: (_, __, ___) => fallback(),
+      ),
+    );
+  }
+}
+
+// Small caps section label above each group.
 class _SectionHeader extends StatelessWidget {
   final String label;
   const _SectionHeader(this.label);
@@ -181,14 +368,14 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
           color: AurumTheme.textMutedOf(context),
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          letterSpacing: 0.4,
+          letterSpacing: 0.6,
         ),
       ),
     );
@@ -196,8 +383,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // One flat card holding a related cluster of rows, hairline dividers
-// between them. Single hairline border, no elevated shadow, no heavy
-// corner radius — reads as a quiet grouping, not a decorated panel.
+// between them.
 class _SettingsGroup extends StatelessWidget {
   final List<Widget> children;
   const _SettingsGroup({required this.children});
@@ -207,7 +393,7 @@ class _SettingsGroup extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
       ),
       clipBehavior: Clip.antiAlias,
@@ -216,11 +402,9 @@ class _SettingsGroup extends StatelessWidget {
   }
 }
 
-// One row: a single neutral icon treatment (muted color, no per-item
-// tint, no gradient chip), title + subtitle, chevron. Press feedback is a
-// simple, quiet background tint — no scale-pump, no icon-brightening
-// theatrics. This restraint is exactly what separates Spotify/Apple
-// Music's settings rows from an "effects showcase".
+// One row: icon in a soft tonal container (the Spotify/Apple Music
+// treatment — never a bare glyph, never a per-item rainbow tint), title +
+// subtitle, chevron. Press feedback is a quiet background tint.
 class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -248,11 +432,20 @@ class _SettingsRow extends StatelessWidget {
             highlightColor: AurumTheme.textPrimaryOf(context).withValues(alpha: 0.04),
             hoverColor: Colors.transparent,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
               child: Row(
                 children: [
-                  Icon(icon, color: AurumTheme.textMutedOf(context), size: 22),
-                  const SizedBox(width: 16),
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AurumTheme.textMutedOf(context).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, color: AurumTheme.textSecondaryOf(context), size: 19),
+                  ),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,7 +476,7 @@ class _SettingsRow extends StatelessWidget {
         ),
         if (!isLast)
           Padding(
-            padding: const EdgeInsets.only(left: 54),
+            padding: const EdgeInsets.only(left: 62),
             child: Divider(
               height: 1,
               thickness: 0.5,

@@ -1236,17 +1236,45 @@ class _BottomIconRowState extends State<_BottomIconRow> {
     // open (matches the reference: the sheet carries the color of whatever
     // song was playing when it was opened).
     final panel = widget.panel;
+    // FIX ("drag to move wala set hokar turant apni jagah chala jata hai
+    // — YouTube wala"): the sheet used to hand its OWN ScrollController
+    // straight to the ReorderableListView inside it (see
+    // _EdgeToEdgeQueueSheetBody below). A ReorderableListView/ListView
+    // claims the vertical drag gesture for itself the instant a touch
+    // starts over its content — that's true regardless of whether it
+    // shares a controller with the enclosing sheet or not. So a drag
+    // that started over the list (which is most of the sheet's height)
+    // was being read as "scroll/reorder the list", never "resize the
+    // sheet" — the sheet's size briefly looked like it responded (a
+    // frame or two of visual settling as the drag released), then
+    // snapped straight back to initialChildSize because no real resize
+    // drag had ever actually been recognized.
+    //
+    // Fix: give the sheet its own explicit DraggableScrollableController
+    // instead of relying on the implicit one, and stop feeding that same
+    // controller into the list — the list now gets its own independent
+    // ScrollController (see _EdgeToEdgeQueueSheetBody). With the two
+    // decoupled, a drag that starts on the visible grab handle at the
+    // top resizes the sheet (handled below via a dedicated drag area),
+    // and a drag that starts over the list scrolls/reorders the list —
+    // exactly the YouTube/Spotify split between "grab the handle to
+    // resize" and "drag a row to reorder", with no gesture-arena race
+    // between the two.
+    final sheetController = DraggableScrollableController();
     showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       barrierColor: Colors.black.withAlpha(150),
       builder: (_) => DraggableScrollableSheet(
+        controller: sheetController,
         initialChildSize: 0.82,
         minChildSize: 0.5,
         maxChildSize: 0.94,
         expand: false,
-        builder: (context, scrollController) => ClipRRect(
+        snap: true,
+        snapSizes: const [0.5, 0.82, 0.94],
+        builder: (context, _) => ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: DecoratedBox(
             // Artwork-palette-tinted background — same top/mid/bottom mesh
@@ -1262,14 +1290,19 @@ class _BottomIconRowState extends State<_BottomIconRow> {
               ),
             ),
             child: _EdgeToEdgeQueueSheetBody(
-              scrollController: scrollController,
+              sheetController: sheetController,
               currentSong: song,
               panel: panel,
             ),
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      // Dispose the controller once the sheet is fully closed — it's a
+      // fresh one created per-open (see above), so nothing else can
+      // still be holding a reference to it after this.
+      sheetController.dispose();
+    });
   }
 
   void _openLyricsSheet(BuildContext context) {
@@ -1540,12 +1573,18 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
 /// action behind it.
 class _EdgeToEdgeQueueSheetBody extends StatefulWidget {
   const _EdgeToEdgeQueueSheetBody({
-    required this.scrollController,
+    required this.sheetController,
     required this.currentSong,
     required this.panel,
   });
 
-  final ScrollController scrollController;
+  // The sheet's OWN resize controller (see _openQueueSheet's fix comment
+  // above) — used only by the drag-handle area below to explicitly
+  // resize the sheet. Deliberately NOT handed to the list; the list gets
+  // its own independent ScrollController in State below so list-
+  // scrolling/reordering and sheet-resizing never compete for the same
+  // gesture.
+  final DraggableScrollableController sheetController;
   final Song? currentSong;
   final _PanelPalette panel;
 
@@ -1554,6 +1593,15 @@ class _EdgeToEdgeQueueSheetBody extends StatefulWidget {
 }
 
 class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
+  // The list's own scroll controller — independent from
+  // widget.sheetController (see class doc comment above for why).
+  final ScrollController _listScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _listScrollController.dispose();
+    super.dispose();
+  }
   // REORDER-LOCK FIX ("upnext mai songs drag wala awkward hai"): this
   // used to start locked, so dragging a row did nothing at all until
   // the user first found and tapped the separate lock icon (or the
@@ -1587,15 +1635,81 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
           children: [
             const SizedBox(height: 10),
             // ── Drag handle ──
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.35),
-                borderRadius: BorderRadius.circular(2),
+            // FIX (part of the "sheet snaps back to its old size" bug —
+            // see _openQueueSheet's comment): this used to be a bare,
+            // gesture-less Container — purely decorative. The ENTIRE
+            // sheet relied on Flutter's implicit whole-sheet drag-to-
+            // resize, which the list below was winning the gesture arena
+            // against (see that comment for the full explanation). Now
+            // this handle is the ONE deliberate, dedicated resize target:
+            // dragging it calls DraggableScrollableController.jumpTo()
+            // directly, so resizing the sheet no longer depends on
+            // winning a gesture-arena race with the list at all — it's
+            // driven explicitly, exactly like YouTube's own Up Next
+            // handle.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (details) {
+                // Guard: the controller only finishes attaching to the
+                // sheet after its first build/initState — calling .size
+                // or .jumpTo() before that (isAttached == false) throws
+                // an assertion. A drag starting in the very first frame
+                // the sheet opens (fast double-tap-and-drag) could hit
+                // this window; bail out silently rather than crash.
+                if (!widget.sheetController.isAttached) return;
+                final screenHeight = MediaQuery.of(context).size.height;
+                if (screenHeight <= 0) return;
+                final delta = -details.delta.dy / screenHeight;
+                final next = (widget.sheetController.size + delta).clamp(0.5, 0.94);
+                widget.sheetController.jumpTo(next);
+              },
+              onVerticalDragEnd: (details) {
+                // Same attachment guard as onVerticalDragUpdate above.
+                if (!widget.sheetController.isAttached) return;
+                // Snap to the nearest of the sheet's declared snapSizes
+                // (0.5 / 0.82 / 0.94) rather than leaving it wherever the
+                // finger happened to lift — same settle behavior YouTube's
+                // handle has, and it's what stops the size looking
+                // "stuck" at an arbitrary in-between value.
+                const stops = [0.5, 0.82, 0.94];
+                final current = widget.sheetController.size;
+                var nearest = stops.first;
+                var bestDist = (current - nearest).abs();
+                for (final s in stops.skip(1)) {
+                  final dist = (current - s).abs();
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    nearest = s;
+                  }
+                }
+                widget.sheetController.animateTo(
+                  nearest,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                );
+              },
+              child: Container(
+                // Generous invisible hit area around the visible bar so
+                // the handle is easy to grab with a thumb — the visible
+                // 4px bar alone would be an unrealistically thin target.
+                // Padding is sized so total vertical space here (10 +
+                // padding + 4px bar + 8) matches the original layout's
+                // 10 + 4px bar + 18 exactly — the extra hit area is
+                // absorbed into existing whitespace, not added on top of
+                // it, so nothing else in the sheet shifts down.
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                color: Colors.transparent,
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 8),
             // ── Header: artwork + title/artist + favorite ──
             if (song != null)
               Padding(
@@ -1821,16 +1935,19 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                       ),
                     )
                   : ReorderableListView.builder(
-                      scrollController: widget.scrollController,
+                      // FIX: independent from the sheet's own resize
+                      // controller now (see class doc comment + the
+                      // dedicated drag-handle above) — this list scrolls
+                      // and reorders completely on its own, with no
+                      // shared controller for a sheet-resize gesture to
+                      // race against.
+                      scrollController: _listScrollController,
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       buildDefaultDragHandles: false,
                       itemCount: queue.length,
                       // SMOOTHNESS FIX ("ekdam youtube level ka optimized
-                      // kro, koi bump na ho"): this list shares its
-                      // ScrollController with the enclosing
-                      // DraggableScrollableSheet (see _openQueueSheet),
-                      // and was still on Flutter's default
-                      // BouncingScrollPhysics. Bouncing/rubber-band
+                      // kro, koi bump na ho"): this list was on Flutter's
+                      // default BouncingScrollPhysics. Bouncing/rubber-band
                       // physics actively springs back against
                       // ReorderableListView's own autoscroll-near-edge
                       // behavior — dragging a row toward the top or
