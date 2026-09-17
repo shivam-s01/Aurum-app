@@ -8,6 +8,7 @@ import '../theme/aurum_theme.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/source_provider.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/auto_sleep_guard_tile.dart';
 import '../widgets/battery_saver_mode_tile.dart';
@@ -470,6 +471,22 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(context, l10n.spPlayback),
           _streamQualityTile(context),
+          // Offline Mode — Spotify-style data saver: reads live from
+          // SourceProvider (not local state like the switches below) so
+          // it always reflects the real current value, including when a
+          // real connectivity change elsewhere flips MusicSource while
+          // this screen is open.
+          Consumer<SourceProvider>(
+            builder: (context, sourceProvider, _) => _switchTile(context,
+                icon: Icons.wifi_off_rounded,
+                title: l10n.spOfflineMode,
+                subtitle: l10n.spOfflineModeSubtitle,
+                value: sourceProvider.isOfflineModeEnabled,
+                onChanged: (v) {
+                  AurumHaptics.selection();
+                  sourceProvider.setOfflineMode(v);
+                }),
+          ),
           _switchTile(context,
               icon: Icons.data_saver_on_rounded,
               title: l10n.spDataSaver,

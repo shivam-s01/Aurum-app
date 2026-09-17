@@ -49,7 +49,8 @@ class AlbumScreen extends StatefulWidget {
   State<AlbumScreen> createState() => _AlbumScreenState();
 }
 
-class _AlbumScreenState extends State<AlbumScreen> {
+class _AlbumScreenState extends State<AlbumScreen>
+    with SingleTickerProviderStateMixin {
   List<Song> _songs = [];
   bool _loading = true;
   bool _shuffle = false;
@@ -67,21 +68,93 @@ class _AlbumScreenState extends State<AlbumScreen> {
   // — no flat placeholder flash while _extractGlow's async lookup catches
   // up. Only a genuinely first-ever-seen album (fresh deep link, cold
   // cache) still falls through to the dark neutral default below.
-  late Color _glow = _peekInitialGlow();
+  //
+  // FIX ("palette kuch sec baad snap/pop hoti hai — ekdam smooth chahiye"):
+  // `_glow` is now an animated getter (see below), not a plain field —
+  // any change to `_glowTarget` after this first frame plays as a fade
+  // via _glowController instead of the old hard color snap.
+  late Color _glowTarget = _peekInitialGlow();
+
+  late final AnimationController _glowController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  late Animation<Color?> _glowAnimation = AlwaysStoppedAnimation(_glowTarget);
+
+  /// The value every widget in build() actually paints with — see
+  /// mix_screen.dart's identical getter for the full reasoning.
+  Color get _glow => _glowAnimation.value ?? _glowTarget;
+
+  void _setGlowTarget(Color next) {
+    final tween = ColorTween(begin: _glow, end: next);
+    _glowTarget = next;
+    _glowAnimation = tween.animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeOutCubic),
+    );
+    _glowController
+      ..reset()
+      ..forward();
+  }
 
   Color _peekInitialGlow() {
     final cached = ArtworkPaletteCache.peek(widget.artworkUrl);
-    if (cached != null) {
-      return ensureContrastSafe(cached.darkMuted, isLight: false);
-    }
-    return const Color(0xFF1A1630);
+    // FIX ("albums wala bhi problem" — light theme cache-hit color was
+    // off for a frame): `context` (needed for the real theme brightness)
+    // isn't available yet at field-initializer time, so this used to
+    // hardcode isLight: false — correct for dark theme, but wrong for a
+    // light-theme user on a cache hit, where the clamp target is
+    // different. This now returns the RAW cached tone unclamped instead
+    // of guessing a brightness, and didChangeDependencies (below, which
+    // does have `context`) applies the real, theme-correct clamp a
+    // moment later — same fix mix_screen.dart's _peekInitialGlow already
+    // uses, and that ~1-frame gap is invisible on a cache hit either way.
+    return cached?.darkMuted ?? const Color(0xFF1A1630);
   }
+
+  bool _contrastSafeApplied = false;
 
   @override
   void initState() {
     super.initState();
+    // Repaints on every animation tick while a glow fade is in flight —
+    // see mix_screen.dart's matching listener for the full reasoning.
+    _glowController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _load();
     _extractGlow(widget.artworkUrl);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Applies the real, theme-aware contrast clamp to whatever
+    // _peekInitialGlow seeded with the raw (unclamped) cached tone — see
+    // that method's doc comment for why this couldn't happen at
+    // construction time. Guarded to run once; didChangeDependencies can
+    // re-fire on any dependency change (e.g. a theme toggle), not just
+    // the first frame.
+    if (!_contrastSafeApplied) {
+      _contrastSafeApplied = true;
+      final safe = ensureContrastSafe(
+        _glowTarget,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      // Plain assign, not _setGlowTarget() — this runs before the very
+      // first build, so there's no "current" painted color on screen yet
+      // to fade FROM. Also re-seeds _glowAnimation itself (built in the
+      // field initializer from the pre-clamp _glowTarget, so it could
+      // otherwise briefly disagree with the now-clamped value) with an
+      // already-settled animation at the correct color.
+      _glowTarget = safe;
+      _glowAnimation = AlwaysStoppedAnimation(safe);
+    }
+  }
+
+  @override
+  void dispose() {
+    _glowController.dispose();
+    super.dispose();
   }
 
   Future<void> _extractGlow(String url) async {
@@ -92,7 +165,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
         c,
         isLight: Theme.of(context).brightness == Brightness.light,
       );
-      setState(() => _glow = safe);
+      // Cache-hit: _peekInitialGlow + didChangeDependencies above already
+      // painted this exact color before the first frame ever showed —
+      // this is a genuine no-op, skip the setState entirely instead of a
+      // harmless-but-wasted rebuild. Only a real cold-cache resolution
+      // actually moves the target, and _setGlowTarget fades `_glow`
+      // smoothly to it rather than snapping.
+      if (safe.value != _glowTarget.value) {
+        setState(() => _setGlowTarget(safe));
+      }
     }
   }
 

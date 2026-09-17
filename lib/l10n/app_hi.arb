@@ -140,6 +140,8 @@
   "spPlusBadge": "प्लस",
   "spDataSaver": "डेटा सेवर",
   "spDataSaverSubtitle": "मोबाइल डेटा पर लो क्वालिटी फोर्स करें",
+  "spOfflineMode": "ऑफ़लाइन मोड",
+  "spOfflineModeSubtitle": "इंटरनेट ऑन होने पर भी सिर्फ डाउनलोड किए गाने चलाएं",
   "spGaplessPlayback": "गैपलेस प्लेबैक",
   "spGaplessPlaybackSubtitle": "ट्रैक्स के बीच कोई साइलेंस नहीं",
   "spPlaybackSpeed": "प्लेबैक स्पीड",

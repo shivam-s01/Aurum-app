@@ -41,25 +41,85 @@ class ArtistScreen extends StatefulWidget {
   State<ArtistScreen> createState() => _ArtistScreenState();
 }
 
-class _ArtistScreenState extends State<ArtistScreen> {
+class _ArtistScreenState extends State<ArtistScreen>
+    with SingleTickerProviderStateMixin {
   Artist? _artist;
   bool _loading = true;
   bool _failed = false;
-  // Falls back to a dark neutral glow until (if) the palette resolves —
-  // matches mix_screen.dart's/album_screen.dart's fallback so all three
-  // detail screens look identical before their artwork/photo decodes.
-  Color _glow = const Color(0xFF1A1630);
+  // FIX ("2-3 sec mai aane wala artwork/glow akward lagta hai — sab jagah
+  // instant, ekdam smooth chahiye"): matches mix_screen.dart's /
+  // album_screen.dart's identical fix. _peekInitialGlow() below can't
+  // seed this field's initializer directly the way those two screens
+  // do, because the artist's image URL isn't known yet at construction
+  // time here — it only arrives once _loadStreaming's fetch resolves —
+  // so this still starts on the plain fallback. _extractGlow() then
+  // checks the cache synchronously the MOMENT the image URL becomes
+  // known (before ever awaiting the network extraction), so a warm
+  // cache still paints instantly rather than waiting on a full
+  // extraction round-trip. `_glow` is the animated getter every widget
+  // below actually paints with — see _glowAnimation/_setGlowTarget.
+  Color _glowTarget = const Color(0xFF1A1630);
   String? _glowExtractedFor;
+
+  late final AnimationController _glowController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  late Animation<Color?> _glowAnimation = AlwaysStoppedAnimation(_glowTarget);
+
+  /// The value every widget in build() actually paints with — see
+  /// mix_screen.dart's identical getter for the full reasoning.
+  Color get _glow => _glowAnimation.value ?? _glowTarget;
+
+  void _setGlowTarget(Color next) {
+    final tween = ColorTween(begin: _glow, end: next);
+    _glowTarget = next;
+    _glowAnimation = tween.animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeOutCubic),
+    );
+    _glowController
+      ..reset()
+      ..forward();
+  }
 
   @override
   void initState() {
     super.initState();
+    // Repaints on every animation tick while a glow fade is in flight —
+    // see mix_screen.dart's matching listener for the full reasoning.
+    _glowController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadStreaming();
+  }
+
+  @override
+  void dispose() {
+    _glowController.dispose();
+    super.dispose();
   }
 
   Future<void> _extractGlow(String imageUrl) async {
     if (imageUrl.isEmpty || _glowExtractedFor == imageUrl) return;
     _glowExtractedFor = imageUrl;
+    // Cache check FIRST, synchronously — if this artist's photo was
+    // already seen elsewhere (a search result, another screen), this
+    // resolves instantly instead of always waiting on the async
+    // extraction below, even though the URL itself only became known
+    // just now (see this field's own doc comment for why the
+    // field-initializer seed mix_screen/album_screen use isn't possible
+    // here).
+    final cached = ArtworkPaletteCache.peek(imageUrl);
+    if (cached != null && mounted) {
+      final safeCached = ensureContrastSafe(
+        cached.darkMuted,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      if (safeCached.value != _glowTarget.value) {
+        setState(() => _setGlowTarget(safeCached));
+      }
+      return;
+    }
     final c = await extractImmersiveColor(imageUrl);
     // Same contrast-safety clamp as mix_screen.dart's matching fix.
     if (c != null && mounted) {
@@ -67,7 +127,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
         c,
         isLight: Theme.of(context).brightness == Brightness.light,
       );
-      setState(() => _glow = safe);
+      if (safe.value != _glowTarget.value) {
+        setState(() => _setGlowTarget(safe));
+      }
     }
   }
 

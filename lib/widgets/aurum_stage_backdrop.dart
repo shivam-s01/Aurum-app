@@ -206,17 +206,43 @@ class _LiveBlur extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("thumbnail background akward lag raha hai, blob/border jaisa
+    // dikh raha hai"): two things were causing the visible patch/seam —
+    //   1. TileMode.clamp stretches the artwork's EDGE pixels outward to
+    //      fill the blur's spread. If the edge happened to land on a
+    //      bright or saturated part of the art, that stretched smear
+    //      showed up as an obvious, unnatural blob — exactly the round
+    //      patch visible in the reported screenshot.
+    //   2. The overscan (1.15x) wasn't nearly enough to absorb a sigma-30
+    //      blur's spread, so the blur's own soft-but-still-visible edge
+    //      sat close to the widget's actual bounds — reading as a faint
+    //      "border" around the backdrop instead of a seamless wash.
+    // Fix: mirror the edges instead of clamping them (TileMode.mirror —
+    // no stretched smear, since it reflects real image content instead
+    // of repeating a single edge pixel), scale up enough that the blur's
+    // spread is fully absorbed before it reaches the visible bounds, and
+    // radially fade the artwork's own alpha toward the edges so what
+    // little of the blur boundary remains dissolves into the base
+    // gradient rather than ending in a hard line.
     return Transform.scale(
-      scale: 1.15, // small overscan so the blur's soft edge never shows a hard boundary
+      scale: 1.6,
       child: ImageFiltered(
         imageFilter: ui.ImageFilter.blur(
           sigmaX: isLight ? 26 : 30,
           sigmaY: isLight ? 26 : 30,
-          tileMode: TileMode.clamp,
+          tileMode: TileMode.mirror,
         ),
         // Uses the existing cached artwork provider — no extra network
         // fetch, this is the same image the mini player/hero already hold.
-        child: _ArtworkFill(url: song.artworkUrl),
+        child: ShaderMask(
+          shaderCallback: (rect) => const RadialGradient(
+            radius: 0.85,
+            colors: [Colors.white, Colors.transparent],
+            stops: [0.55, 1.0],
+          ).createShader(rect),
+          blendMode: BlendMode.dstIn,
+          child: _ArtworkFill(url: song.artworkUrl),
+        ),
       ),
     );
   }

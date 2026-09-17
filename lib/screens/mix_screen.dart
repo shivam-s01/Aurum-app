@@ -104,11 +104,77 @@ class MixScreen extends StatefulWidget {
   State<MixScreen> createState() => _MixScreenState();
 }
 
-class _MixScreenState extends State<MixScreen> {
-  // Falls back to a dark neutral glow until (if) the palette resolves, so
-  // the header never looks broken while the network image decodes.
-  Color _glow = const Color(0xFF1A1630);
-  bool _shuffle = false;
+class _MixScreenState extends State<MixScreen>
+    with SingleTickerProviderStateMixin {
+  // FIX ("artwork palette kuch sec delay ke baad snap hoti hai — sab
+  // jagah instant, ekdam smooth chahiye"): this used to always start on
+  // the hardcoded fallback and wait for _extractGlow()'s await to land
+  // before ever painting the real color — even on a warm cache (this
+  // exact artwork already extracted elsewhere: Full Player, a playlist
+  // card, another detail screen just visited), which is the overwhelming
+  // common case since the user almost always arrives here from a tile
+  // that was already showing this same artwork. Seeding synchronously
+  // from ArtworkPaletteCache.peek() — a plain map lookup, no async gap —
+  // means the FIRST FRAME already paints the real color on a cache hit,
+  // with zero pop-in. Only a genuine cold cache (first-ever look at this
+  // artwork) still starts on the fallback and animates in once
+  // _extractGlow's extraction resolves — see _glow (the ANIMATED value
+  // every widget below actually paints with) vs this raw target.
+  late Color _glowTarget = _peekInitialGlow();
+
+  // Drives the smooth fade from whatever `_glow` currently reads to a
+  // new `_glowTarget` (see _setGlowTarget below), instead of every
+  // Container/BoxDecoration reading `_glow` directly snapping to the new
+  // color the instant setState runs. A cache-hit never actually animates
+  // anything (begin == end == the same seeded color from the very first
+  // frame — see _peekInitialGlow), so this only ever visibly plays on a
+  // genuine cold-cache resolution, which is exactly the one case that
+  // needs a fade instead of a pop.
+  late final AnimationController _glowController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  late Animation<Color?> _glowAnimation = AlwaysStoppedAnimation(_glowTarget);
+
+  /// The value every widget in build() actually paints with. Reads the
+  /// live animated color while a fade is in flight, and the settled
+  /// target once it's finished — callers never need to know the
+  /// difference between "still fading" and "already arrived".
+  Color get _glow => _glowAnimation.value ?? _glowTarget;
+
+  /// Moves `_glowTarget` to [next] and smoothly animates `_glow` from
+  /// its current value to it, instead of the old plain `_glowTarget =
+  /// next` snap. Safe to call with `next == _glowTarget` (a cache-hit's
+  /// no-op path in _extractGlow) — AnimationController.forward() on an
+  /// already-1.0 controller is a harmless no-op, so this never needs its
+  /// own "did it actually change" guard beyond what call sites already
+  /// do.
+  void _setGlowTarget(Color next) {
+    final tween = ColorTween(begin: _glow, end: next);
+    _glowTarget = next;
+    _glowAnimation = tween.animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeOutCubic),
+    );
+    _glowController
+      ..reset()
+      ..forward();
+  }
+
+  /// Synchronous cache-hit seed for `_glowTarget`'s initializer — see its
+  /// own doc comment above. `ensureContrastSafe` needs `context` (theme
+  /// brightness), which isn't available yet at field-initializer time,
+  /// so this intentionally returns the RAW cached tone unclamped; the
+  /// safe/clamped version is applied moments later in
+  /// didChangeDependencies, which the ~1-frame gap before that point
+  /// already fully hides for a cache hit.
+  Color _peekInitialGlow() {
+    final url = widget.artworkUrl;
+    if (url.isEmpty) return const Color(0xFF1A1630);
+    final cached = ArtworkPaletteCache.peek(url);
+    return cached?.darkMuted ?? const Color(0xFF1A1630);
+  }
+
+  bool _contrastSafeApplied = false;
 
   // Mutable working copy of widget.songs — only ever grows (append-only
   // on refresh, see _onRefresh), and only actually diverges from
@@ -133,6 +199,15 @@ class _MixScreenState extends State<MixScreen> {
   @override
   void initState() {
     super.initState();
+    // Repaints on every animation tick while a glow fade is in flight
+    // (see _setGlowTarget) — AnimationController itself doesn't trigger
+    // Flutter rebuilds on its own; something has to translate its
+    // ticks into setState calls so `_glow`'s getter (which reads
+    // `_glowAnimation.value`) actually produces a new frame each tick
+    // instead of only updating once the fade finishes.
+    _glowController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _extractGlow();
     // Fire-and-forget: see autoLoadMore's doc comment above. Deliberately
     // not awaited here — the screen must render immediately with
@@ -152,6 +227,12 @@ class _MixScreenState extends State<MixScreen> {
         if (mounted) setState(() => _awaitingFirstLoad = false);
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _glowController.dispose();
+    super.dispose();
   }
 
   bool _precachedHeaderArtwork = false;
@@ -177,6 +258,30 @@ class _MixScreenState extends State<MixScreen> {
     if (!_precachedHeaderArtwork) {
       _precachedHeaderArtwork = true;
       _precacheHeaderArtwork();
+    }
+    // Applies ensureContrastSafe's clamp to whatever `_glowTarget`
+    // currently holds — the synchronous cache-hit seed from
+    // _peekInitialGlow() above, or (on a cold cache) still the plain
+    // fallback until _extractGlow's await lands. Only needs `context`
+    // (theme brightness) once, since didChangeDependencies can re-fire
+    // on any dependency change (e.g. a theme toggle), not just the
+    // first frame.
+    if (!_contrastSafeApplied) {
+      _contrastSafeApplied = true;
+      final safe = ensureContrastSafe(
+        _glowTarget,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      // Plain assign, not _setGlowTarget() — this runs before the very
+      // first build, so there's no "current" painted color on screen yet
+      // to fade FROM. Also re-seeds _glowAnimation itself (built in the
+      // field initializer from the pre-contrast-clamp _glowTarget, so it
+      // could otherwise briefly disagree with the now-clamped value)
+      // with an already-settled animation at the correct color, so the
+      // very first frame is a clean paint, never a flash of the
+      // unclamped tone.
+      _glowTarget = safe;
+      _glowAnimation = AlwaysStoppedAnimation(safe);
     }
   }
 
@@ -250,7 +355,20 @@ class _MixScreenState extends State<MixScreen> {
         c,
         isLight: Theme.of(context).brightness == Brightness.light,
       );
-      setState(() => _glow = safe);
+      // FIX ("palette kuch sec baad snap/pop hoti hai"): on a cache hit,
+      // _peekInitialGlow() (see _glowTarget's field initializer) + the
+      // didChangeDependencies contrast-safe pass above already applied
+      // this exact same color before the first frame ever painted — so
+      // by the time this await lands, `safe` is identical to what's
+      // already showing, and moving the target again is a genuine
+      // no-op. Only a real cold-cache resolution — where `safe` differs
+      // from the fallback/seed already in `_glowTarget` — actually moves
+      // it, and _setGlowTarget animates `_glow` (what every widget
+      // below actually paints with) smoothly from its current value to
+      // the new one instead of a hard snap.
+      if (safe.value != _glowTarget.value) {
+        setState(() => _setGlowTarget(safe));
+      }
     }
   }
 

@@ -185,6 +185,8 @@
   "spPlusBadge": "PLUS",
   "spDataSaver": "Data Saver",
   "spDataSaverSubtitle": "Force low quality on mobile data",
+  "spOfflineMode": "Offline Mode",
+  "spOfflineModeSubtitle": "Only play downloaded songs, even with internet on",
   "spGaplessPlayback": "Gapless Playback",
   "spGaplessPlaybackSubtitle": "No silence between tracks",
   "spShowCastIcon": "Show Chromecast icon",

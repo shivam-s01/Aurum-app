@@ -1372,7 +1372,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       actions: [
-        _StatusPill(onTap: () => _showSourceSheet(context, src)),
+        _StatusPill(),
         if (kDebugMode)
           IconButton(
             icon: Icon(Icons.bug_report_outlined,
@@ -1418,17 +1418,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSourceSheet(BuildContext context, SourceProvider src) {
-    AurumHaptics.light();
-    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
-    // so the scrim always has an explicit barrierColor.
-    showAurumModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withOpacity(0.45),
-      builder: (_) => _SourceSheet(src: src),
-    );
-  }
 }
 
 
@@ -2358,12 +2347,13 @@ class _ProfileAvatarButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Status Pill — premium glass pill, taps open the source sheet
+// Status Pill — read-only glass pill; reflects real connectivity only.
+// Online/Offline is fully automatic now (see SourceProvider) — no manual
+// toggle, so this pill is display-only and no longer tappable.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _StatusPill extends StatefulWidget {
-  final VoidCallback onTap;
-  const _StatusPill({required this.onTap});
+  const _StatusPill();
 
   @override
   State<_StatusPill> createState() => _StatusPillState();
@@ -2384,331 +2374,69 @@ class _StatusPillState extends State<_StatusPill> {
     // of requiring the text to be read.
     final tint = isOnline ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context);
 
-    return AurumPressable(
-      scaleAmount: 0.94,
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-          curve: Curves.easeOut,
-          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-          padding: const EdgeInsets.only(left: 5, right: 12, top: 5, bottom: 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            color: AurumTheme.bgCardOf(context).withOpacity(0.65),
-            border: Border.all(
-              color: isOnline
-                  ? tint.withOpacity(0.35)
-                  : AurumTheme.dividerOf(context),
-              width: 1,
-            ),
-            boxShadow: isOnline
-                ? [
-                    BoxShadow(
-                      color: tint.withOpacity(0.25),
-                      blurRadius: 12,
-                      spreadRadius: -2,
-                    ),
-                  ]
-                : [],
+    return AnimatedContainer(
+        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+        curve: Curves.easeOut,
+        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        padding: const EdgeInsets.only(left: 5, right: 12, top: 5, bottom: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          color: AurumTheme.bgCardOf(context).withOpacity(0.65),
+          border: Border.all(
+            color: isOnline
+                ? tint.withOpacity(0.35)
+                : AurumTheme.dividerOf(context),
+            width: 1,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Icon chip — its own filled circle so the pill reads as a
-              // real control (like a switch's thumb) rather than a plain
-              // status dot next to a label.
-              AnimatedContainer(
-                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: isOnline ? AurumTheme.accentGradientOf(context) : null,
-                  color: isOnline ? null : AurumTheme.bgElevatedOf(context),
-                ),
-                child: AnimatedSwitcher(
-                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                  transitionBuilder: (child, anim) =>
-                      ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
-                  child: Icon(
-                    isOnline ? Icons.cloud_rounded : Icons.phone_iphone_rounded,
-                    key: ValueKey(isOnline),
-                    size: 13,
-                    color: isOnline ? Colors.black : AurumTheme.textSecondaryOf(context),
+          boxShadow: isOnline
+              ? [
+                  BoxShadow(
+                    color: tint.withOpacity(0.25),
+                    blurRadius: 12,
+                    spreadRadius: -2,
                   ),
-                ),
-              ),
-              const SizedBox(width: 7),
-              Text(
-                isOnline ? AppLocalizations.of(context)!.homeOnline : AppLocalizations.of(context)!.homeOffline,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ],
-          ),
+                ]
+              : [],
         ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Source Sheet — premium glass bottom sheet for switching source mode
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _SourceSheet extends StatefulWidget {
-  final SourceProvider src;
-  const _SourceSheet({required this.src});
-
-  @override
-  State<_SourceSheet> createState() => _SourceSheetState();
-}
-
-class _SourceSheetState extends State<_SourceSheet> {
-  // PREMIUM/PRODUCTION UPGRADE ("online pe click kre to google loading
-  // show kre aur internet na rhne pr check your internet connection
-  // likhe" — 2026-09-11): tapping Online used to call src.toggle() and
-  // pop instantly — if there was genuinely no network, toggle() silently
-  // did nothing (see SourceProvider.toggle's own doc comment) and the
-  // sheet just closed with zero feedback, looking broken/unresponsive.
-  // Now: a brief loading state shows on the tapped row itself (a real
-  // spinner, not a fake delay — this doubles as the "let connectivity
-  // settle" beat if the radio was flipped on a split-second ago), then
-  // either switches + closes, or shows an inline error and stays open so
-  // the user immediately understands why nothing happened.
-  bool _connecting = false;
-  String? _error;
-
-  Future<void> _selectOnline() async {
-    if (widget.src.isOnline) {
-      Navigator.pop(context);
-      return;
-    }
-    setState(() {
-      _connecting = true;
-      _error = null;
-    });
-    // Real connectivity re-check right before switching — covers the
-    // "user just turned WiFi back on and tapped Online immediately"
-    // case, where the OS/plugin's cached state can lag a moment behind
-    // reality.
-    await Future.delayed(const Duration(milliseconds: 450));
-    if (!mounted) return;
-    final ok = widget.src.toggle();
-    if (!mounted) return;
-    if (!ok) {
-      setState(() {
-        _connecting = false;
-        _error = AppLocalizations.of(context)!.homeCheckYourInternet;
-      });
-      return;
-    }
-    Navigator.pop(context);
-  }
-
-  void _selectOffline() {
-    if (!widget.src.isOnline) {
-      Navigator.pop(context);
-      return;
-    }
-    widget.src.toggle();
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final src = widget.src;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final bg = AurumTheme.bgCardOf(context);
-    final border = AurumTheme.dividerOf(context);
-
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-      curve: Curves.easeOut,
-      builder: (_, v, child) => Opacity(
-        opacity: v,
-        child: Transform.translate(
-          offset: Offset(0, (1 - v) * 16),
-          child: child,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            decoration: BoxDecoration(
-              color: bg.withOpacity(isLight ? 0.92 : 0.95),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border(top: BorderSide(color: border, width: 0.5)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 14, 12, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 32, height: 4,
-                        margin: const EdgeInsets.only(bottom: 18),
-                        decoration: BoxDecoration(
-                          color: AurumTheme.textMutedOf(context).withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    Text(
-                      AppLocalizations.of(context)!.homePlaybackSource,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppLocalizations.of(context)!.homePlaybackSourceSubtitle,
-                      style: TextStyle(
-                        color: AurumTheme.textSecondaryOf(context),
-                        fontSize: 12.5,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SourceOption(
-                      icon: Icons.cloud_outlined,
-                      label: AppLocalizations.of(context)!.homeOnlineStreaming,
-                      subtitle: AppLocalizations.of(context)!.homeStreamOnlineDesc,
-                      selected: src.isOnline,
-                      loading: _connecting,
-                      onTap: _connecting ? () {} : _selectOnline,
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(Icons.wifi_off_rounded,
-                              size: 14, color: const Color(0xFFE0A030)),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              style: const TextStyle(
-                                color: Color(0xFFE0A030),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    _SourceOption(
-                      icon: Icons.phone_iphone_rounded,
-                      label: AppLocalizations.of(context)!.homeOfflineLibrary,
-                      subtitle: AppLocalizations.of(context)!.homeOfflineLibraryDesc,
-                      selected: !src.isOnline,
-                      onTap: _connecting ? () {} : _selectOffline,
-                    ),
-                  ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon chip — its own filled circle, purely decorative now
+            // (no longer doubling as a tappable switch thumb).
+            AnimatedContainer(
+              duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: isOnline ? AurumTheme.accentGradientOf(context) : null,
+                color: isOnline ? null : AurumTheme.bgElevatedOf(context),
+              ),
+              child: AnimatedSwitcher(
+                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                transitionBuilder: (child, anim) =>
+                    ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
+                child: Icon(
+                  isOnline ? Icons.cloud_rounded : Icons.phone_iphone_rounded,
+                  key: ValueKey(isOnline),
+                  size: 13,
+                  color: isOnline ? Colors.black : AurumTheme.textSecondaryOf(context),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SourceOption extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-  final bool loading;
-  const _SourceOption({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.selected,
-    required this.onTap,
-    this.loading = false,
-  });
-
-  @override
-  State<_SourceOption> createState() => _SourceOptionState();
-}
-
-class _SourceOptionState extends State<_SourceOption> {
-  @override
-  Widget build(BuildContext context) {
-    return AurumPressable(
-      scaleAmount: 0.98,
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? AurumTheme.accentOf(context).withOpacity(0.12)
-                : AurumTheme.bgElevatedOf(context),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: widget.selected
-                  ? AurumTheme.accentOf(context).withOpacity(0.5)
-                  : AurumTheme.dividerOf(context),
-              width: 1,
-            ),
-          ),
-          child: Row(children: [
-            Icon(widget.icon,
-                size: 20,
-                color: widget.selected
-                    ? AurumTheme.accentOf(context)
-                    : AurumTheme.textSecondaryOf(context)),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.label,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      )),
-                  const SizedBox(height: 2),
-                  Text(widget.subtitle,
-                      style: TextStyle(
-                        color: AurumTheme.textSecondaryOf(context),
-                        fontSize: 11.5,
-                      )),
-                ],
+            const SizedBox(width: 7),
+            Text(
+              isOnline ? AppLocalizations.of(context)!.homeOnline : AppLocalizations.of(context)!.homeOffline,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.1,
               ),
             ),
-            if (widget.selected)
-              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context))
-            else if (widget.loading)
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
-                  color: AurumTheme.accentOf(context),
-                ),
-              ),
-          ]),
+          ],
         ),
-    );
+      );
   }
 }
 
