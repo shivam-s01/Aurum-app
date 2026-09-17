@@ -103,12 +103,25 @@ class SleepTimerService {
 // =============================================================================
 class SettingsPlayerScreen extends StatefulWidget {
   final NativeAudioEngine? audioEngine;
-  const SettingsPlayerScreen({super.key, this.audioEngine});
+  // FIX ("Quality tile ab auto-scroll + glow-pulse highlight kar sakta
+  // hai"): lets a caller (the Bluetooth output sheet's now-tappable
+  // Quality row, see audio_output_sheet.dart) land the user directly on
+  // this setting instead of a plain scroll-to-top open — the screen
+  // auto-scrolls the Stream Quality tile into view and gives it a
+  // couple of soft glow pulses so it's unmistakable which setting was
+  // being pointed to.
+  final bool highlightQuality;
+  const SettingsPlayerScreen({
+    super.key,
+    this.audioEngine,
+    this.highlightQuality = false,
+  });
   @override
   State<SettingsPlayerScreen> createState() => _SettingsPlayerScreenState();
 }
 
-class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
+class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
+    with SingleTickerProviderStateMixin {
   String _streamQuality = 'Auto';
   bool _dataSaver = false;
   bool _gapless = true;
@@ -142,12 +155,84 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   // brief loader until the real values are ready, so it only paints once.
   bool _loaded = false;
 
+  // FIX ("Quality tile ab auto-scroll + glow-pulse highlight kar sakta
+  // hai"): plain ScrollController on the settings ListView (previously
+  // uncontrolled) plus a GlobalKey on the Quality tile so we can measure
+  // its real on-screen position and scroll straight to it, and a small
+  // AnimationController driving a couple of soft opacity pulses on its
+  // border/glow once it's in view — the same "look here" pattern as the
+  // lyrics active-line glow elsewhere in the app, just for a settings
+  // tile a deep-link (the Bluetooth sheet's Quality row) jumped to.
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _qualityTileKey = GlobalKey();
+  late final AnimationController _qualityPulseCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
+  late final Animation<double> _qualityPulse = CurvedAnimation(
+    parent: _qualityPulseCtrl,
+    curve: Curves.easeInOut,
+  );
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadPremiumSoundCaps();
     SleepTimerService.instance.addListener(_onTimerTick);
+    // FIX (caught on final recheck): the previous version scheduled the
+    // highlight off a single postFrameCallback plus a fixed 50ms guess-
+    // delay — but _load() awaits SharedPreferences.getInstance(), an
+    // async gap of UNKNOWN length (can be well over 50ms on a slow/cold
+    // device). If that gap outlasts the guess, _loaded is still false
+    // when we look, the Quality tile's loading-spinner branch is on
+    // screen instead of the real list, _qualityTileKey has no
+    // currentContext yet, and the whole highlight silently no-ops with
+    // no error and no retry. Polling for _loaded to actually flip true
+    // (checked every short tick, not guessed once) removes the race
+    // entirely — this waits exactly as long as it needs to, no more, no
+    // less, on any device speed.
+    if (widget.highlightQuality) {
+      _waitForLoadThenHighlight();
+    }
+  }
+
+  Future<void> _waitForLoadThenHighlight() async {
+    while (mounted && !_loaded) {
+      await Future.delayed(const Duration(milliseconds: 16));
+    }
+    if (!mounted) return;
+    // One more frame so the now-real Quality tile has actually been
+    // laid out (setState from _load() just landed; the tile's RenderBox
+    // exists only after the NEXT build/layout pass completes).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _highlightQualityTile());
+  }
+
+  /// Scrolls the Stream Quality tile into view (measuring its real
+  /// position via GlobalKey, same precise-measurement approach as the
+  /// lyrics scroll fix — no estimation, no bounce/overshoot), then plays
+  /// two gentle glow pulses once it's settled so it's clear which
+  /// setting the user was sent here for.
+  Future<void> _highlightQualityTile() async {
+    if (!mounted) return;
+    final tileContext = _qualityTileKey.currentContext;
+    if (tileContext == null || !_scrollController.hasClients) return;
+    await Scrollable.ensureVisible(
+      tileContext,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      alignment: 0.1,
+    );
+    if (!mounted) return;
+    // Two soft pulses (forward-reverse twice) — enough to draw the eye
+    // without looping forever and becoming an annoyance.
+    await _qualityPulseCtrl.forward();
+    if (!mounted) return;
+    await _qualityPulseCtrl.reverse();
+    if (!mounted) return;
+    await _qualityPulseCtrl.forward();
+    if (!mounted) return;
+    await _qualityPulseCtrl.reverse();
   }
 
   Future<void> _loadPremiumSoundCaps() async {
@@ -158,6 +243,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   @override
   void dispose() {
     SleepTimerService.instance.removeListener(_onTimerTick);
+    _scrollController.dispose();
+    _qualityPulseCtrl.dispose();
     super.dispose();
   }
 
@@ -220,13 +307,42 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   Widget _streamQualityTile(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-      ),
+    return AnimatedBuilder(
+      key: _qualityTileKey,
+      animation: _qualityPulse,
+      builder: (context, child) {
+        // FIX ("Quality tile glow-pulse highlight kar sakta hai"): a
+        // soft accent-colored glow that breathes in/out around the
+        // tile's border when this screen was opened via the deep-link
+        // flag — 0 opacity (invisible, matches the normal border) at
+        // rest, so a normal Settings visit looks exactly as before.
+        final pulseColor = AurumTheme.accentOf(context);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Color.lerp(
+                AurumTheme.dividerOf(context),
+                pulseColor,
+                _qualityPulse.value,
+              )!,
+              width: 0.5 + _qualityPulse.value * 1.2,
+            ),
+            boxShadow: _qualityPulse.value > 0
+                ? [
+                    BoxShadow(
+                      color: pulseColor.withOpacity(0.35 * _qualityPulse.value),
+                      blurRadius: 20,
+                      spreadRadius: -2,
+                    ),
+                  ]
+                : null,
+          ),
+          child: child,
+        );
+      },
       child: Column(
         children: [
           Padding(
@@ -328,7 +444,6 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       ),
     );
   }
-
   // Pushes current Bass Boost / Volume Normalization / EQ band settings to
   // the native AurumAudioEffects. Replaces the old
   // `audioHandler?.customAction('reloadSettings')` call — the Kotlin side
@@ -455,6 +570,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsPlayerAudio),
       body: ListView(
+        controller: _scrollController,
         // Was missing the BouncingScrollPhysics every other settings
         // screen uses — without it this list fell back to Android's
         // default ClampingScrollPhysics (hard-stops at the edges, no

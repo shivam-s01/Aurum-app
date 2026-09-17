@@ -49,7 +49,6 @@ dependencies:
   youtube_explode_dart: ^3.1.0
 
   # UI
-  scrollable_positioned_list: ^0.3.8
   cached_network_image: ^3.3.1
   # Explicit dependency (was already pulled in transitively by
   # cached_network_image) so we can cap its disk cache — see main.dart's

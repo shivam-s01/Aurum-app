@@ -32,6 +32,8 @@ import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../screens/settings_player_screen.dart' show SettingsPlayerScreen;
+import '../utils/aurum_transitions.dart';
 import 'aurum_artwork.dart';
 
 /// Opens the audio output picker as a bottom sheet. Call this from any
@@ -473,6 +475,41 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                   icon: Icons.high_quality_rounded,
                   label: 'Quality',
                   value: _qualityLabel,
+                  // FIX ("Bluetooth sheet ki Quality row tappable honi
+                  // chahiye, seedha Settings > Player mein le jaaye"):
+                  // this row used to be purely informational (see the
+                  // class doc comment above, now stale). Close this
+                  // sheet first (Navigator.pop, same as the device-
+                  // select flow just above), then push
+                  // SettingsPlayerScreen with the app's own premium
+                  // AurumDepthRoute transition — same route class every
+                  // other settings navigation in the app already uses,
+                  // so this doesn't introduce a different-feeling push.
+                  onTap: () {
+                    AurumHaptics.selection();
+                    // FIX (potential crash risk caught on final recheck):
+                    // calling Navigator.push(context, ...) right after
+                    // Navigator.pop(context) on the SAME context is a
+                    // known Flutter footgun — this context belongs to the
+                    // sheet's own element, which pop() immediately starts
+                    // deactivating, so a push on it a statement later can
+                    // throw "Looking up a deactivated widget's ancestor is
+                    // unsafe" or target the wrong navigator depending on
+                    // timing. Capturing the root Navigator's own state
+                    // BEFORE popping, then calling push on that captured
+                    // reference, sidesteps the issue entirely — this
+                    // reference stays valid regardless of what happens to
+                    // the sheet's own context afterward.
+                    final rootNavigator =
+                        Navigator.of(context, rootNavigator: true);
+                    Navigator.pop(context);
+                    rootNavigator.push(
+                      AurumDepthRoute(
+                        builder: (_) =>
+                            const SettingsPlayerScreen(highlightQuality: true),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
               ],
@@ -606,25 +643,26 @@ class _VolumeRow extends StatelessWidget {
 }
 
 /// Compact icon + label + value row — used for the "Quality" line.
-/// Purely informational (no tap target), matching the reference sheet's
-/// "Equalizer / Quality" rows but restyled and reduced to just the one
-/// row Aurum actually needs.
+/// Optionally tappable (see onTap) — the Quality row uses this to jump
+/// straight into Settings > Player & Audio for the underlying setting.
 class _SheetInfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   const _SheetInfoRow({
     required this.icon,
     required this.label,
     required this.value,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final primary = AurumTheme.textPrimaryOf(context);
     final muted = AurumTheme.textMutedOf(context);
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
       child: Row(
         children: [
@@ -642,8 +680,18 @@ class _SheetInfoRow extends StatelessWidget {
                   color: AurumTheme.accentOf(context),
                   fontSize: 13,
                   fontWeight: FontWeight.w700)),
+          if (onTap != null) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, color: muted, size: 18),
+          ],
         ],
       ),
+    );
+    if (onTap == null) return row;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: row,
     );
   }
 }

@@ -1561,14 +1561,19 @@ class ApiService {
     return queries[genre] ?? '$genre top songs';
   }
 
-  // How many of hop 1's own top results get used as extra seeds for a
-  // second hop. Kept tiny on purpose: each extra seed costs one more
-  // /next + /browse round-trip. 2 seeds is enough to roughly double
-  // pool diversity (confirmed via probe: hop 2 on a fresh seed returns
-  // a mostly-disjoint related set) without turning Up Next generation
-  // into a multi-second chain of sequential network calls on a
-  // low-end/slow-network device.
-  static const int _autoQueueHop2SeedCount = 2;
+  // How many of hop 1's own top results get used as extra seeds for
+  // hop 2 (and, if still short, hop 3 — see _buildAutoQueue). TUNED
+  // 2 -> 4 as part of the "Up Next sirf 12-20 songs pe atak jaata hai"
+  // fix: with hop1/hop2 results now actually surviving isPremiumQuality
+  // (see addToPool's `trusted` flag), the old value of 2 became the
+  // real limiting factor on reaching a full ~80-song pool fast. All
+  // seeds within one hop still fire in parallel via Future.wait, so
+  // widening this doesn't turn generation into a sequential chain of
+  // calls — total latency stays roughly one extra request-time
+  // regardless of seed count, same as before, just with each of those
+  // requests now actually contributing songs instead of being filtered
+  // out afterward.
+  static const int _autoQueueHop2SeedCount = 4;
 
   // In-flight/completed Up Next builds, keyed by the seed song's id.
   // This is what makes Up Next feel "instant" like the real YT Music
@@ -1698,13 +1703,34 @@ class ApiService {
     final mergedRawTitles = <String>[];
     final pool         = <Song>[];
 
-    bool addToPool(Song song) {
+    // FIX ("Up Next sirf 12-20 songs pe atak jaata hai, category-wise
+    // poore related songs nahi aate — ekdam fast, top-level, kam se kam
+    // 80 songs chahiye"): `trusted` marks a song as coming from YT
+    // Music's own curated "Related" graph (hop1/hop2 below) rather than
+    // a raw keyword search — see isPremiumQuality's trustedRelatedGraph
+    // doc for why this source needs it (no view count OR duration in
+    // that endpoint's response at all, by format, not by parse failure).
+    // Before this, addToPool always called isPremiumQuality with its
+    // default (untrusted) check, so isPremiumQuality's very first line —
+    // `if (song.viewCount == null) return false` — rejected literally
+    // every hop1/hop2 result outright. hop1/hop2 together are meant to
+    // supply the vast majority of a fast, broad, ~80-song pool; with
+    // both silently emptied, `pool` fell straight to the "pool.isEmpty"
+    // keyword-search safety net below on nearly every call — a single
+    // narrow query for one song's own title+artist, which naturally
+    // returns only a small, same-song-flavored batch (further thinned
+    // by the variant/dedup checks already in this function) — exactly
+    // the 12-20 ceiling being reported, instead of the broad top-level
+    // related fan-out this function exists to build.
+    bool addToPool(Song song, {bool trusted = false}) {
       if (mergedIds.contains(song.id)) return false;
       if (song.id.isEmpty || song.title.isEmpty) return false;
       if (RecommendationEngine.isInherentVariant(song.title)) return false;
       if (RecommendationEngine.isLowQualityUpload(song.title)) return false;
       if (RecommendationEngine.isNonMusicContent(song)) return false;
-      if (!RecommendationEngine.isPremiumQuality(song)) return false;
+      if (!RecommendationEngine.isPremiumQuality(song, trustedRelatedGraph: trusted)) {
+        return false;
+      }
       final tk = _normTitle(song.title);
       if (mergedTitles.contains(tk)) return false;
       for (final seenRaw in mergedRawTitles) {
@@ -1727,28 +1753,54 @@ class ApiService {
     final hop1 = await fetchYouMightAlsoLike(seedYtId,
             timeout: const Duration(seconds: 6))
         .catchError((_) => <Song>[]);
-    for (final s in hop1) addToPool(s);
+    for (final s in hop1) addToPool(s, trusted: true);
     _log('[autoQueue] hop1 (real YT Music related): ${pool.length}');
 
-    // Hop 2: only fan out if hop 1 didn't already cover the requested
-    // limit, and only from a couple of hop 1's own top (already-ranked)
-    // hits — keeps this to at most _autoQueueHop2SeedCount extra
-    // network round-trips, run in parallel, so total latency stays
-    // roughly one extra request-time regardless of seed count.
+    // Hop 2: fan out from hop 1's own top (already-ranked) hits so the
+    // pool keeps growing toward a full ~80-song Up Next instead of
+    // stopping at whatever a single hop returns. TUNED (same fix as
+    // above): widened from a fixed 2-seed cap to as many of hop 1's
+    // results as it takes to comfortably clear `limit`, since hop1
+    // alone (now that its results actually survive the quality filter)
+    // is usually not quite enough on its own for the larger ~80-song
+    // initial-build limit — still bounded (_autoQueueHop2SeedCount is
+    // now a ceiling, not a fixed count) so a single call never fires
+    // an unbounded number of parallel network round-trips.
     if (pool.length < limit && hop1.isNotEmpty) {
       final hop2Seeds = hop1.take(_autoQueueHop2SeedCount).toList();
       final hop2Results = await Future.wait(hop2Seeds.map((s) =>
           fetchYouMightAlsoLike(s.id, timeout: const Duration(seconds: 6))
               .catchError((_) => <Song>[])));
       for (final list in hop2Results) {
-        for (final s in list) addToPool(s);
+        for (final s in list) addToPool(s, trusted: true);
       }
       _log('[autoQueue] hop2 (chained real related): ${pool.length}');
     }
 
+    // Hop 3: only reached if hop1+hop2 genuinely still fall short of a
+    // full pool (rare now that hop1/hop2 aren't silently discarded) —
+    // fans out one more level from hop 2's fresh (not-yet-seeded) top
+    // hits, same trusted related-graph source, so a thin niche seed
+    // still reaches the ~80-song target instead of dropping to the
+    // narrow keyword fallback below.
+    if (pool.length < limit && hop1.length > _autoQueueHop2SeedCount) {
+      final hop3Seeds = hop1.skip(_autoQueueHop2SeedCount).take(_autoQueueHop2SeedCount).toList();
+      if (hop3Seeds.isNotEmpty) {
+        final hop3Results = await Future.wait(hop3Seeds.map((s) =>
+            fetchYouMightAlsoLike(s.id, timeout: const Duration(seconds: 6))
+                .catchError((_) => <Song>[])));
+        for (final list in hop3Results) {
+          for (final s in list) addToPool(s, trusted: true);
+        }
+        _log('[autoQueue] hop3 (extra related fan-out): ${pool.length}');
+      }
+    }
+
     // Safety net only — real related graph coming back completely dry
     // (rare: brand-new/obscure upload) falls back to a single
-    // keyword search rather than leaving Up Next empty.
+    // keyword search rather than leaving Up Next empty. Kept untrusted
+    // (default isPremiumQuality check) since these are raw search hits,
+    // not YT Music's own curated recommendation graph.
     if (pool.isEmpty) {
       final fallback = await _searchYt(
               '${currentSong.title} ${currentSong.artist}', limit: limit)
@@ -3725,7 +3777,29 @@ class ApiService {
             album: '',
             artworkUrl: it.artworkUrl,
             source: SongSource.youtube,
-
+            // FIX ("Up Next sirf 12-20 songs pe atak jaata hai, category-
+            // wise poore related songs nahi aate"): this "Related"/"You
+            // might also like" browse endpoint is YT Music's OWN curated
+            // recommendation graph for this exact video — the same trust
+            // tier as the sentinel used for _searchYtMusic's curated
+            // catalog results (see viewCount: 1000000 elsewhere in this
+            // file) — but its response format never carries a real view
+            // count or duration at all (that data simply isn't part of
+            // this endpoint's payload, unlike search results). Leaving
+            // viewCount null here meant EVERY song from this hop failed
+            // isPremiumQuality's "no view count = don't trust it" check
+            // outright, so addToPool silently dropped the entire related
+            // graph — hop1 and hop2 together contributed ~0 songs to the
+            // pool, and getAutoQueue fell through to its keyword-search
+            // safety net, which only ever returns a small, narrow batch
+            // for one song's title+artist (exactly the 12-20 ceiling
+            // being reported) instead of the broad, fast related-graph
+            // fan-out this function exists to provide. Same sentinel used
+            // elsewhere marks this as trusted-by-construction so the real
+            // quality bar (isNonMusicContent, isLowQualityUpload, variant/
+            // dedup checks) still applies — only the not-available view/
+            // duration signal is skipped.
+            viewCount: 1000000,
           ));
         }
       }

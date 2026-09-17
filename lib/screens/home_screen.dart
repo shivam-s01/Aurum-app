@@ -1091,7 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // paint/decode cost of the wider window cheap.
               cacheExtent: 1200,
               slivers: [
-                _buildAppBar(context, src),
+                _buildAppBar(context),
                 // REMOVED ("vo hero hata do complete vo sahi nhi lg raha
                 // hai") — the _HeroNowPlaying floating glass card used to
                 // render here, directly under the app bar. Widget class
@@ -1261,7 +1261,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAppBar(BuildContext context, SourceProvider src) {
+  Widget _buildAppBar(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SliverAppBar(
       backgroundColor: Colors.transparent,
@@ -1372,7 +1372,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       actions: [
-        _StatusPill(),
         if (kDebugMode)
           IconButton(
             icon: Icon(Icons.bug_report_outlined,
@@ -2344,100 +2343,6 @@ class _ProfileAvatarButton extends StatelessWidget {
         child: Icon(Icons.person_rounded,
             color: AurumTheme.textSecondaryOf(context), size: 20),
       );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Status Pill — read-only glass pill; reflects real connectivity only.
-// Online/Offline is fully automatic now (see SourceProvider) — no manual
-// toggle, so this pill is display-only and no longer tappable.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _StatusPill extends StatefulWidget {
-  const _StatusPill();
-
-  @override
-  State<_StatusPill> createState() => _StatusPillState();
-}
-
-class _StatusPillState extends State<_StatusPill> {
-  @override
-  Widget build(BuildContext context) {
-    final isOnline = context.watch<SourceProvider>().isOnline;
-    // PREMIUM UPGRADE ("toggle akward lag raha hai" — 2026-09-11): the
-    // pill previously showed only a plain colored dot + text label, which
-    // read as a passive status readout rather than something tappable —
-    // nothing about it visually said "control". Redesigned as a proper
-    // two-state pill: a filled icon chip (cloud when online, phone when
-    // offline) that itself changes shape/color, animated cross-fade
-    // between icons rather than an instant swap, and a stronger online
-    // glow so the tappable affordance reads clearly at a glance instead
-    // of requiring the text to be read.
-    final tint = isOnline ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context);
-
-    return AnimatedContainer(
-        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-        curve: Curves.easeOut,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        padding: const EdgeInsets.only(left: 5, right: 12, top: 5, bottom: 5),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          color: AurumTheme.bgCardOf(context).withOpacity(0.65),
-          border: Border.all(
-            color: isOnline
-                ? tint.withOpacity(0.35)
-                : AurumTheme.dividerOf(context),
-            width: 1,
-          ),
-          boxShadow: isOnline
-              ? [
-                  BoxShadow(
-                    color: tint.withOpacity(0.25),
-                    blurRadius: 12,
-                    spreadRadius: -2,
-                  ),
-                ]
-              : [],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon chip — its own filled circle, purely decorative now
-            // (no longer doubling as a tappable switch thumb).
-            AnimatedContainer(
-              duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: isOnline ? AurumTheme.accentGradientOf(context) : null,
-                color: isOnline ? null : AurumTheme.bgElevatedOf(context),
-              ),
-              child: AnimatedSwitcher(
-                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                transitionBuilder: (child, anim) =>
-                    ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
-                child: Icon(
-                  isOnline ? Icons.cloud_rounded : Icons.phone_iphone_rounded,
-                  key: ValueKey(isOnline),
-                  size: 13,
-                  color: isOnline ? Colors.black : AurumTheme.textSecondaryOf(context),
-                ),
-              ),
-            ),
-            const SizedBox(width: 7),
-            Text(
-              isOnline ? AppLocalizations.of(context)!.homeOnline : AppLocalizations.of(context)!.homeOffline,
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.1,
-              ),
-            ),
-          ],
-        ),
-      );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

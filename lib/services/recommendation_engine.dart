@@ -1522,7 +1522,20 @@ class RecommendationEngine {
   /// tolerated since Saavn's own catalog doesn't always expose it — a
   /// missing duration on Saavn isn't a red flag the way it is on YouTube
   /// (a real API/parse gap, not evidence of a live stream or short clip).
-  static bool isPremiumQuality(Song song) {
+  /// [trustedRelatedGraph]: true when `song` came from YT Music's own
+  /// "Related"/"You might also like" browse endpoint (see
+  /// ApiService.fetchYouMightAlsoLike) — a curated recommendation graph
+  /// for a specific seed video, the same trust tier as the official
+  /// "Songs" catalog search (both use the viewCount: 1000000 sentinel).
+  /// FIX ("Up Next sirf 12-20 songs pe atak jaata hai"): that endpoint's
+  /// response format never carries a real duration (missing entirely,
+  /// not a parse gap), unlike a normal official-channel search result
+  /// which always has one — so this source needs its own explicit skip
+  /// for the missing-duration check below rather than being folded into
+  /// isKnownOfficialChannel, which means something different (a known
+  /// label/publisher channel name) and would otherwise never match a
+  /// real artist's name.
+  static bool isPremiumQuality(Song song, {bool trustedRelatedGraph = false}) {
     if (song.source == SongSource.youtube) {
       // No view count at all (fetch failed/hidden) — don't trust it blind.
       if (song.viewCount == null) return false;
@@ -1544,8 +1557,12 @@ class RecommendationEngine {
       // normal response; an official-channel result missing duration here
       // is far more likely a rare worker-side parse gap than an actual
       // live stream, so it isn't penalized the same way an unverified
-      // channel's missing duration is.
-      if (song.duration == null && !isKnownOfficialChannel(song.artist)) {
+      // channel's missing duration is. The related-graph source (see
+      // trustedRelatedGraph doc above) gets the same pass for a different
+      // reason — its response format simply never includes duration.
+      if (song.duration == null &&
+          !isKnownOfficialChannel(song.artist) &&
+          !trustedRelatedGraph) {
         return false;
       }
     }
