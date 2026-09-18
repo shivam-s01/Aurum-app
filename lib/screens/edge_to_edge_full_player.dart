@@ -22,6 +22,7 @@
 // layout can be maintained, tweaked, or removed independently without
 // any risk to the Card layout's own drag-to-dismiss/animation logic.
 
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -1597,6 +1598,39 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
   // widget.sheetController (see class doc comment above for why).
   final ScrollController _listScrollController = ScrollController();
 
+  // FIX ("Up Next drag ekdam YouTube Music level smooth chahiye — abhi
+  // set hone se pehle idhar-udhar bump karta hai"): same root cause and
+  // same fix as full_player_screen.dart's _QueuePageState — see that
+  // class's doc comment for the full writeup. onReorder used to call
+  // PlayerProvider.moveQueueItem() directly, whose synchronous
+  // notifyListeners() rebuilt this Selector with the new order while
+  // ReorderableListView was still mid-flight animating the drop for the
+  // OLD order — two competing sources of truth landing across different
+  // frames is exactly the "bump before it settles" artifact. A local
+  // optimistic copy means the list always sees one single, already-final
+  // order the instant the drop happens.
+  List<Song> _localQueue = const [];
+  int? _localCurrent;
+  bool _awaitingOwnReorderEcho = false;
+
+  void _syncFromProvider(List<Song> queue, int? current) {
+    if (_awaitingOwnReorderEcho) {
+      final sameIds = queue.length == _localQueue.length &&
+          List.generate(queue.length, (i) => queue[i].id).join(',') ==
+              _localQueue.map((s) => s.id).join(',');
+      _awaitingOwnReorderEcho = false;
+      if (sameIds) {
+        _localCurrent = current;
+        return;
+      }
+    }
+    // PlayerProvider.queue returns its internal list BY REFERENCE — see
+    // the identical defensive-copy comment in _QueuePageState for why
+    // this must never be assigned directly.
+    _localQueue = List<Song>.of(queue);
+    _localCurrent = current;
+  }
+
   @override
   void dispose() {
     _listScrollController.dispose();
@@ -1630,7 +1664,8 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
     return Selector<PlayerProvider, ({List<Song> queue, int? current})>(
       selector: (_, p) => (queue: p.queue, current: p.currentIndex),
       builder: (context, data, _) {
-        final queue = data.queue;
+        _syncFromProvider(data.queue, data.current);
+        final queue = _localQueue;
         return Column(
           children: [
             const SizedBox(height: 10),
@@ -2019,11 +2054,33 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                         if (_reorderLocked) return;
                         AurumHaptics.light();
                         if (newIndex > oldIndex) newIndex -= 1;
-                        context.read<PlayerProvider>().moveQueueItem(oldIndex, newIndex);
+                        // FIX (see State class doc comment): local
+                        // optimistic reorder first, real provider update
+                        // fire-and-forget second — same pattern and same
+                        // reasoning as full_player_screen.dart's Up Next.
+                        setState(() {
+                          final item = _localQueue.removeAt(oldIndex);
+                          final clampedTo =
+                              newIndex.clamp(0, _localQueue.length);
+                          _localQueue.insert(clampedTo, item);
+                          if (oldIndex == _localCurrent) {
+                            _localCurrent = clampedTo;
+                          } else if (oldIndex < (_localCurrent ?? -1) &&
+                              clampedTo >= (_localCurrent ?? -1)) {
+                            _localCurrent = (_localCurrent ?? 0) - 1;
+                          } else if (oldIndex > (_localCurrent ?? -1) &&
+                              clampedTo <= (_localCurrent ?? -1)) {
+                            _localCurrent = (_localCurrent ?? 0) + 1;
+                          }
+                        });
+                        _awaitingOwnReorderEcho = true;
+                        unawaited(context
+                            .read<PlayerProvider>()
+                            .moveQueueItem(oldIndex, newIndex));
                       },
                       itemBuilder: (context, i) {
                         final s = queue[i];
-                        final isCurrent = i == data.current;
+                        final isCurrent = i == _localCurrent;
                         final row = Container(
                           // FIX: keying by index (`queue_${s.id}_$i`) gave
                           // every item a NEW key on every reorder (since its

@@ -19,19 +19,22 @@ import '../utils/aurum_haptics.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
-// Settings — production pass, Spotify / Apple Music tier.
+// Settings — Spotify-classic pass.
 //
-// What separates a top-tier settings screen from a merely-clean one isn't
-// more decoration — it's the identity anchor, the collapse behavior, and
-// the icon treatment. Spotify and Apple Music both open Settings with the
-// signed-in account front and center (Spotify: avatar + name + "View
-// profile"; Apple Music/iOS: name + Apple ID summary), then a large title
-// that compresses into a small pinned one as you scroll — never a static
-// pinned title from frame one. Icons sit in a soft tonal container, not
-// bare glyphs in a muted color. This pass adds all three while keeping the
-// prior restraint: still no gradients, no per-item rainbow tinting, no
-// glow — the "premium" signal comes from spacing, motion, and the account
-// anchor, exactly like the references.
+// The rule this file follows throughout: exactly ONE accent color on the
+// entire screen, and it lives in exactly one place — the avatar. Every
+// icon container, every card border, every chevron, every section is the
+// same neutral grey. No per-section color-coding, no accent borders, no
+// tinted card fills — that's the "chapri" rainbow-icons trap this was
+// rewritten out of. Spotify's own settings page is almost entirely
+// grayscale text and icons on a flat background; the identity/brand color
+// shows up once, on the profile photo, and nowhere else. This file mirrors
+// that discipline exactly.
+//
+// Structure carried over from the original pass and still correct: a
+// large title that collapses to a small pinned one on scroll (never a
+// flat static bar), an account row at the top as the identity anchor, and
+// three grouped card sections below it (General / Playback / System).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -70,94 +73,100 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // Account anchor card — the identity moment every
-                // top-tier settings screen opens with. Tapping it goes
-                // to the same ProfileScreen the rest of the app uses.
+                // Account anchor — the identity moment every top-tier
+                // settings screen opens with. Tapping it goes to the same
+                // ProfileScreen the rest of the app uses.
                 AurumStaggerItem(index: 0, child: _AccountCard()),
-                const SizedBox(height: 28),
+                const SizedBox(height: 32),
 
                 _SectionHeader(l10n.settingsSectionGeneral),
-                AurumStaggerItem(index: 1, child: _SettingsGroup(children: [
-                  _SettingsRow(
-                    icon: Icons.tune_rounded,
-                    title: l10n.settingsAppearance,
-                    subtitle: l10n.settingsAppearanceSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsAppearanceScreen());
-                    },
-                  ),
-                  _SettingsRow(
-                    icon: Icons.language_rounded,
-                    title: l10n.settingsLanguage,
-                    subtitle: l10n.settingsLanguageSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsLanguageScreen());
-                    },
-                  ),
-                  _SettingsRow(
-                    icon: Icons.public_rounded,
-                    title: 'Region & Music Preferences',
-                    subtitle: 'Country, genres, and followed artists',
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsRegionScreen());
-                    },
-                    isLast: true,
-                  ),
-                ])),
+                AurumStaggerItem(index: 1, child: _SettingsGroup(
+                  children: [
+                    _SettingsRow(
+                      icon: Icons.tune_rounded,
+                      title: l10n.settingsAppearance,
+                      subtitle: l10n.settingsAppearanceSubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsAppearanceScreen());
+                      },
+                    ),
+                    _SettingsRow(
+                      icon: Icons.language_rounded,
+                      title: l10n.settingsLanguage,
+                      subtitle: l10n.settingsLanguageSubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsLanguageScreen());
+                      },
+                    ),
+                    _SettingsRow(
+                      icon: Icons.public_rounded,
+                      title: 'Region & Music Preferences',
+                      subtitle: 'Country, genres, and followed artists',
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsRegionScreen());
+                      },
+                      isLast: true,
+                    ),
+                  ],
+                )),
                 const SizedBox(height: 28),
 
                 _SectionHeader(l10n.settingsSectionPlayback),
-                AurumStaggerItem(index: 2, child: _SettingsGroup(children: [
-                  _SettingsRow(
-                    icon: Icons.graphic_eq_rounded,
-                    title: l10n.settingsPlayerAudio,
-                    subtitle: l10n.settingsPlayerAudioSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
-                    },
-                  ),
-                  _SettingsRow(
-                    icon: Icons.folder_outlined,
-                    title: l10n.settingsStorage,
-                    subtitle: l10n.settingsStorageSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsStorageScreen());
-                    },
-                    isLast: true,
-                  ),
-                ])),
+                AurumStaggerItem(index: 2, child: _SettingsGroup(
+                  children: [
+                    _SettingsRow(
+                      icon: Icons.graphic_eq_rounded,
+                      title: l10n.settingsPlayerAudio,
+                      subtitle: l10n.settingsPlayerAudioSubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
+                      },
+                    ),
+                    _SettingsRow(
+                      icon: Icons.folder_rounded,
+                      title: l10n.settingsStorage,
+                      subtitle: l10n.settingsStorageSubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsStorageScreen());
+                      },
+                      isLast: true,
+                    ),
+                  ],
+                )),
                 const SizedBox(height: 28),
 
                 _SectionHeader(l10n.settingsSectionSystem),
-                AurumStaggerItem(index: 3, child: _SettingsGroup(children: [
-                  _SettingsRow(
-                    icon: Icons.shield_outlined,
-                    title: l10n.settingsPrivacy,
-                    subtitle: l10n.settingsPrivacySubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsPrivacyScreen());
-                    },
-                  ),
-                  _SettingsRow(
-                    icon: Icons.info_outline_rounded,
-                    title: l10n.settingsAbout,
-                    subtitle: l10n.settingsAboutSubtitle,
-                    onTap: () {
-                      AurumHaptics.light();
-                      AurumDepthRoute.to(context, const SettingsAboutScreen());
-                    },
-                    isLast: true,
-                  ),
-                ])),
+                AurumStaggerItem(index: 3, child: _SettingsGroup(
+                  children: [
+                    _SettingsRow(
+                      icon: Icons.shield_rounded,
+                      title: l10n.settingsPrivacy,
+                      subtitle: l10n.settingsPrivacySubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsPrivacyScreen());
+                      },
+                    ),
+                    _SettingsRow(
+                      icon: Icons.info_rounded,
+                      title: l10n.settingsAbout,
+                      subtitle: l10n.settingsAboutSubtitle,
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SettingsAboutScreen());
+                      },
+                      isLast: true,
+                    ),
+                  ],
+                )),
               ]),
             ),
           ),
@@ -221,9 +230,10 @@ class _CollapsingTitleDelegate extends SliverPersistentHeaderDelegate {
         overflow: TextOverflow.ellipsis,
         style: GoogleFonts.inter(
           fontSize: fontSize,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w800,
           color: textColor,
-          letterSpacing: -0.4,
+          letterSpacing: -0.6,
+          height: 1.0,
         ),
       ),
     );
@@ -239,11 +249,13 @@ class _CollapsingTitleDelegate extends SliverPersistentHeaderDelegate {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Account anchor card. Spotify opens Settings with avatar + name + "View
+// Account anchor row. Spotify opens Settings with avatar + name + "View
 // profile"; Apple Music/iOS opens with the signed-in Apple ID summary at
 // the very top. This is that same identity moment, built from the same
 // AuthProvider/ProfileScreen the rest of the app already uses — no new
-// data source, just surfaced here first.
+// data source, just surfaced here first. Kept flat and neutral like every
+// other card on the page — the accent color lives on the avatar alone,
+// not on the border, the subtitle, or the chevron.
 // ─────────────────────────────────────────────────────────────────────────
 class _AccountCard extends StatelessWidget {
   @override
@@ -264,13 +276,13 @@ class _AccountCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
         ),
         child: Row(
           children: [
             _Avatar(url: avatarUrl, name: name, signedIn: signedIn),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,7 +312,7 @@ class _AccountCard extends StatelessWidget {
               ),
             ),
             Icon(Icons.chevron_right_rounded,
-                color: AurumTheme.textMutedOf(context).withValues(alpha: 0.6), size: 22),
+                color: AurumTheme.textMutedOf(context).withValues(alpha: 0.7), size: 20),
           ],
         ),
       ),
@@ -324,8 +336,9 @@ class _Avatar extends StatelessWidget {
           height: 52,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.14),
+            color: accent.withValues(alpha: 0.16),
             shape: BoxShape.circle,
+            border: Border.all(color: accent.withValues(alpha: 0.25), width: 1.5),
           ),
           child: signedIn
               ? Text(
@@ -382,8 +395,10 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// One flat card holding a related cluster of rows, hairline dividers
-// between them.
+// One card holding a related cluster of rows, hairline dividers between
+// them. Spotify-classic: a flat neutral card, no colored border — the
+// only accent color on the whole screen lives on the avatar circle, and
+// nowhere else, including this group's chrome.
 class _SettingsGroup extends StatelessWidget {
   final List<Widget> children;
   const _SettingsGroup({required this.children});
@@ -393,8 +408,15 @@ class _SettingsGroup extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+        boxShadow: [
+          BoxShadow(
+            color: AurumTheme.textPrimaryOf(context).withValues(alpha: 0.03),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -402,9 +424,10 @@ class _SettingsGroup extends StatelessWidget {
   }
 }
 
-// One row: icon in a soft tonal container (the Spotify/Apple Music
-// treatment — never a bare glyph, never a per-item rainbow tint), title +
-// subtitle, chevron. Press feedback is a quiet background tint.
+// One row: icon in a flat neutral tonal container — Spotify-classic,
+// every icon the same muted grey regardless of section, no per-row or
+// per-section color coding. Title + subtitle, quiet chevron. Press
+// feedback is a subtle neutral highlight, not an accent tint.
 class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -422,6 +445,8 @@ class _SettingsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iconBg = AurumTheme.textMutedOf(context).withValues(alpha: 0.10);
+    final iconColor = AurumTheme.textSecondaryOf(context);
     return Column(
       children: [
         Material(
@@ -432,18 +457,18 @@ class _SettingsRow extends StatelessWidget {
             highlightColor: AurumTheme.textPrimaryOf(context).withValues(alpha: 0.04),
             hoverColor: Colors.transparent,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   Container(
-                    width: 34,
-                    height: 34,
+                    width: 36,
+                    height: 36,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: AurumTheme.textMutedOf(context).withValues(alpha: 0.10),
+                      color: iconBg,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(icon, color: AurumTheme.textSecondaryOf(context), size: 19),
+                    child: Icon(icon, color: iconColor, size: 19),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -468,7 +493,7 @@ class _SettingsRow extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Icon(Icons.chevron_right_rounded,
-                      color: AurumTheme.textMutedOf(context).withValues(alpha: 0.6), size: 20),
+                      color: AurumTheme.textMutedOf(context).withValues(alpha: 0.7), size: 20),
                 ],
               ),
             ),
@@ -476,7 +501,7 @@ class _SettingsRow extends StatelessWidget {
         ),
         if (!isLast)
           Padding(
-            padding: const EdgeInsets.only(left: 62),
+            padding: const EdgeInsets.only(left: 68),
             child: Divider(
               height: 1,
               thickness: 0.5,

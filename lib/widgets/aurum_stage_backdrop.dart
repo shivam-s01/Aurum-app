@@ -49,6 +49,25 @@ class AurumStageBackdrop extends StatelessWidget {
     // it — Dark, Light, or wallpaper-derived — instead of a fixed guess.
     final pageBg = AurumTheme.bgOf(context);
 
+    // PREMIUM UPGRADE ("Spotify-level top glow, light mode mein bahut
+    // awkward/hard dikh raha tha"): a plain 2-stop linear fade from
+    // accent@opacity straight to pageBg reads fine in dark mode (a dark
+    // page forgives a visible color wash) but in light mode the same
+    // technique shows as a hard, saturated color band that cuts sharply
+    // into the white page — exactly the teal patch in the reported
+    // screenshot, made worse whenever Dynamic Color resolves the accent
+    // to a punchier light-theme primary. Real premium references
+    // (Spotify's own home glow) never do a flat 2-stop fade — they ease
+    // through several stops so the color visibly THINS before it
+    // dissolves, and they deliberately run the glow softer and shorter
+    // in light mode than in dark mode rather than reusing one curve for
+    // both. Home feed CONTENT is untouched by this — purely the backdrop
+    // visual behind it.
+    final glowOpacity = isLight ? 0.07 : 0.20;
+    final glowStops = isLight
+        ? const [0.0, 0.22, 0.48, 0.72, 1.0]
+        : const [0.0, 0.30, 0.58, 0.80, 1.0];
+
     return RepaintBoundary(
       child: SizedBox(
         height: height,
@@ -62,7 +81,17 @@ class AurumStageBackdrop extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [AurumTheme.accentOf(context).withOpacity(isLight ? 0.14 : 0.20), pageBg],
+                  colors: [
+                    AurumTheme.accentOf(context).withOpacity(glowOpacity),
+                    AurumTheme.accentOf(context)
+                        .withOpacity(glowOpacity * 0.55),
+                    AurumTheme.accentOf(context)
+                        .withOpacity(glowOpacity * 0.22),
+                    AurumTheme.accentOf(context)
+                        .withOpacity(glowOpacity * 0.06),
+                    pageBg,
+                  ],
+                  stops: glowStops,
                 ),
               ),
             ),
@@ -77,7 +106,11 @@ class AurumStageBackdrop extends StatelessWidget {
             // reading as a flat gradient. Multiplied on top, cheap tile. ──
             const _GrainOverlay(),
             // ── Readability scrim: fades this stage into the flat page
-            // background underneath the scroll content. ──
+            // background underneath the scroll content. Same multi-stop
+            // easing as the base gradient above — a single 0→0.55 jump
+            // (the old middle stop) was itself a visible seam once the
+            // base gradient was smoothed, so this needed the same
+            // treatment to stay seam-free end to end.
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -85,10 +118,12 @@ class AurumStageBackdrop extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    pageBg.withOpacity(0.55),
+                    pageBg.withOpacity(0.18),
+                    pageBg.withOpacity(0.45),
+                    pageBg.withOpacity(0.78),
                     pageBg,
                   ],
-                  stops: const [0.0, 0.72, 1.0],
+                  stops: const [0.0, 0.55, 0.72, 0.86, 1.0],
                 ),
               ),
             ),

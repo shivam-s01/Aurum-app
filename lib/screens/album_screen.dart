@@ -187,8 +187,26 @@ class _AlbumScreenState extends State<AlbumScreen>
     // artwork keeps working exactly as before for them.
     final result = await ApiService.fetchAlbumSongsWithArtwork(widget.albumId);
     if (!mounted) return;
+    final resolvedHeaderArt =
+        result.headerArtworkUrl.isNotEmpty ? result.headerArtworkUrl : widget.artworkUrl;
+    // FIX ("full player kabhi bina thumbnail ke na rahe"): a per-song
+    // thumbnail can legitimately come back empty (many older Saavn album
+    // tracks have no individual art, and the Saavn branch of
+    // fetchAlbumSongsWithArtwork never stamps one the way the YT branch
+    // does). The song list itself is fine showing a plain note icon for
+    // those rows — but once tapped, the full player must never show blank
+    // art, so every song missing its own artworkUrl here is stamped with
+    // the album's cover (its real header art if resolved, else the
+    // thumbnail this screen was opened with) as a guaranteed fallback.
+    final stampedSongs = resolvedHeaderArt.isEmpty
+        ? result.songs
+        : result.songs
+            .map((s) => s.artworkUrl.isEmpty
+                ? s.copyWith(artworkUrl: resolvedHeaderArt)
+                : s)
+            .toList();
     setState(() {
-      _songs = result.songs;
+      _songs = stampedSongs;
       if (result.headerArtworkUrl.isNotEmpty) _artworkUrl = result.headerArtworkUrl;
       _relatedShelves = result.relatedShelves;
       _loading = false;

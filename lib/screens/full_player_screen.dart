@@ -5415,8 +5415,76 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 // ─────────────────────────────────────────────────────────────────────────────
 // Queue Page — Echo Nightly style
 // ─────────────────────────────────────────────────────────────────────────────
-class _QueuePage extends StatelessWidget {
+class _QueuePage extends StatefulWidget {
   const _QueuePage();
+
+  @override
+  State<_QueuePage> createState() => _QueuePageState();
+}
+
+class _QueuePageState extends State<_QueuePage> {
+  // FIX ("Up Next drag ekdam YouTube Music level smooth chahiye — abhi
+  // set hone se pehle idhar-udhar bump karta hai"): the old build was a
+  // StatelessWidget reading queue order straight from PlayerProvider via
+  // Selector. onReorder called moveQueueItem(), which calls
+  // notifyListeners() SYNCHRONOUSLY at the end of the same call —
+  // Selector rebuilds this whole page with the new order literally the
+  // same/next frame, while SliverReorderableList is still mid-flight
+  // running ITS OWN internal drop animation for the old order. Two
+  // separate sources of truth (the list's own transient reorder
+  // animation vs. the provider's already-updated queue) fighting over
+  // the same frames is exactly what reads as "bumps around before it
+  // settles" — a well-known ReorderableListView pitfall, and the same
+  // root cause an app has to solve to get an actually smooth, YouTube-
+  // Music-grade drag.
+  //
+  // Fix: keep a LOCAL optimistic copy of the queue's song order in this
+  // State. onReorder updates ONLY this local list, instantly and
+  // synchronously, in the exact same frame the drop happens — so
+  // SliverReorderableList always sees a single, already-final order and
+  // has nothing left to fight. The real PlayerProvider.moveQueueItem()
+  // call still happens right after, but fire-and-forget: whatever
+  // rebuild it triggers now finds this widget's local order already
+  // matching the provider's real order, so there's nothing left to
+  // visibly change — no second jump.
+  List<Song> _localQueue = const [];
+  int? _localCurrent;
+
+  // True for the few frames between an optimistic local reorder and the
+  // provider's own notifyListeners() catching up to match it — used to
+  // skip exactly one incoming "echo" sync so the local order we just set
+  // is never clobbered by the very update we ourselves triggered.
+  bool _awaitingOwnReorderEcho = false;
+
+  void _syncFromProvider(List<Song> queue, int? current) {
+    if (_awaitingOwnReorderEcho) {
+      // This is almost certainly the echo of our own moveQueueItem() call
+      // landing — compare by id sequence rather than trusting a single
+      // flag flip, so a genuinely different change (song added/removed by
+      // something else) arriving in this same window still gets applied
+      // instead of silently dropped.
+      final sameIds = queue.length == _localQueue.length &&
+          List.generate(queue.length, (i) => queue[i].id)
+              .join(',') ==
+              _localQueue.map((s) => s.id).join(',');
+      _awaitingOwnReorderEcho = false;
+      if (sameIds) {
+        _localCurrent = current;
+        return;
+      }
+    }
+    // PlayerProvider.queue returns its internal _queue list BY REFERENCE,
+    // not a copy — assigning it directly would make _localQueue and the
+    // provider's own live list the same object, so onReorder's
+    // removeAt/insert below would mutate PlayerProvider's real queue
+    // directly (bypassing moveQueueItem()'s own currentIndex/debounce
+    // bookkeeping), and moveQueueItem() would then reorder an
+    // already-reordered list a second time. A defensive copy keeps this
+    // widget's optimistic order fully independent until moveQueueItem()
+    // deliberately reconciles them.
+    _localQueue = List<Song>.of(queue);
+    _localCurrent = current;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5431,8 +5499,9 @@ class _QueuePage extends StatelessWidget {
       selector: (_, player) =>
           (queue: player.queue, current: player.currentIndex, building: player.isBuildingQueue),
       builder: (context, data, _) {
-        final queue = data.queue;
-        final current = data.current;
+        _syncFromProvider(data.queue, data.current);
+        final queue = _localQueue;
+        final current = _localCurrent;
 
         if (queue.isEmpty) {
           return Center(
@@ -5593,7 +5662,33 @@ class _QueuePage extends StatelessWidget {
                   var toListIdx = newListIdx;
                   if (oldListIdx < newListIdx) toListIdx -= 1;
                   final toQueueIdx = upNext[toListIdx];
-                  context.read<PlayerProvider>().moveQueueItem(fromQueueIdx, toQueueIdx);
+                  // FIX (see _QueuePageState's class doc comment for the
+                  // full root-cause writeup): update the LOCAL optimistic
+                  // queue order synchronously, in this same frame, BEFORE
+                  // the real PlayerProvider call — so SliverReorderableList
+                  // never sees a second, different order arrive mid-flight
+                  // from the provider's own notifyListeners(). The provider
+                  // call still happens (queue order must actually persist),
+                  // just as a fire-and-forget background update instead of
+                  // something this frame waits on or reacts to.
+                  setState(() {
+                    final item = _localQueue.removeAt(fromQueueIdx);
+                    final clampedTo = toQueueIdx.clamp(0, _localQueue.length);
+                    _localQueue.insert(clampedTo, item);
+                    if (fromQueueIdx == _localCurrent) {
+                      _localCurrent = clampedTo;
+                    } else if (fromQueueIdx < (_localCurrent ?? -1) &&
+                        clampedTo >= (_localCurrent ?? -1)) {
+                      _localCurrent = (_localCurrent ?? 0) - 1;
+                    } else if (fromQueueIdx > (_localCurrent ?? -1) &&
+                        clampedTo <= (_localCurrent ?? -1)) {
+                      _localCurrent = (_localCurrent ?? 0) + 1;
+                    }
+                  });
+                  _awaitingOwnReorderEcho = true;
+                  unawaited(context
+                      .read<PlayerProvider>()
+                      .moveQueueItem(fromQueueIdx, toQueueIdx));
                 },
                 itemBuilder: (context, listIdx) {
                   final queueIdx = upNext[listIdx];
@@ -6457,7 +6552,7 @@ class _PositionListenerBridge extends StatelessWidget {
   }
 }
 
-class _SyncedLyricsView extends StatelessWidget {
+class _SyncedLyricsView extends StatefulWidget {
   final List<LyricLine> lines;
   final int activeIndex;
   final ScrollController scrollController;
@@ -6476,7 +6571,36 @@ class _SyncedLyricsView extends StatelessWidget {
   });
 
   @override
+  State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
+}
+
+class _SyncedLyricsViewState extends State<_SyncedLyricsView>
+    with SingleTickerProviderStateMixin {
+  // FIX ("white line dead jaisa lagta hai, live chahiye"): one shared,
+  // continuously-repeating controller for the active line's breathing
+  // glow — owned here (once, for the whole visible list) rather than per
+  // line, so there's a single ticker driving the effect no matter how
+  // many lines exist, and it survives line-to-line active-index changes
+  // without restarting (the breathing rhythm itself never resets, only
+  // which line's Opacity wrapper is currently letting it show through).
+  late final AnimationController _breathController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _breathController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final lines = widget.lines;
+    final activeIndex = widget.activeIndex;
+    final scrollController = widget.scrollController;
+    final listKey = widget.listKey;
+    final lineKeyFor = widget.lineKeyFor;
     final isLight = Theme.of(context).brightness == Brightness.light;
 
     return ValueListenableBuilder<LyricsStyle>(
@@ -6521,14 +6645,23 @@ class _SyncedLyricsView extends StatelessWidget {
             if (line.text.isEmpty) {
               return SizedBox(key: lineKeyFor(index), height: 22);
             }
-            // FIX ("full lyrics panel is bigger than the Settings →
-            // Player & Audio lyrics size slider says"): the base line
-            // genuinely IS style.textSize, so the slider stays truthful
-            // at every setting. The active line gets a proportional
-            // (not flat) bump so it stays the clear focal point at any
-            // chosen size.
+            // FIX ("lyrics ka change awkward hai, niche bump karta hai,
+            // kabhi kabhi scroll sahi se nahi hota — ekdam smooth aur cool
+            // chahiye"): the ONE remaining piece of this reveal that still
+            // changed real LAYOUT size was `size` below (fontSize
+            // baseSize→activeSize over the same 420ms as the scroll-to
+            // animation). A scroll's target offset is computed once, but
+            // this line's actual RenderBox height kept growing for the
+            // next 420ms underneath that already-locked target — the
+            // exact "bump then settle" symptom. Every other property here
+            // (blur, rise, scale, glow, color, weight) already lived
+            // safely in the paint layer and never caused this. Font size
+            // now stays fixed at baseSize for every line, active or not —
+            // the "bigger" read comes entirely from the Transform.scale
+            // below (paint-only, zero layout impact), so this line's
+            // height genuinely never changes and a scroll's target can
+            // never move out from under it again.
             final baseSize = style.textSize;
-            final activeSize = baseSize * 1.12;
             return Padding(
               key: lineKeyFor(index),
               padding: const EdgeInsets.symmetric(vertical: 3),
@@ -6560,8 +6693,10 @@ class _SyncedLyricsView extends StatelessWidget {
                     final blurT = Curves.easeOutQuart.transform(t);
                     final blurSigma = (1 - blurT) * 2.4;
                     final rise = (1 - t) * 3.0; // px, settles to 0
-                    final scale = 1.0 + (0.05 * t);
-                    final size = baseSize + (activeSize - baseSize) * t;
+                    // Paint-only "bigger" emphasis — Transform never
+                    // participates in layout, so this line's real extent
+                    // (what the scroll list measures) never moves.
+                    final scale = 1.0 + (0.10 * t);
                     final color = Color.lerp(inactiveColor, activeColor, t)!;
                     final weight = t > 0.5 ? FontWeight.w800 : FontWeight.w500;
                     final glowOpacity = t;
@@ -6576,30 +6711,77 @@ class _SyncedLyricsView extends StatelessWidget {
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
-                            // Glow pill behind the line — opacity-only
-                            // animated (never a null↔non-null decoration
-                            // swap) so both outgoing and incoming lines
-                            // fade in perfect lockstep with no snap.
+                            // FIX ("white line aata hai, dead jaisa lagta
+                            // hai — live/attractive chahiye"): the old glow
+                            // was a flat rectangular pill — a hard-edged
+                            // BoxDecoration box with rounded corners behind
+                            // the whole line, same shape and intensity
+                            // everywhere inside it. A uniform flat-color
+                            // rectangle reads exactly as "a white bar/line"
+                            // because it visually IS one — no light source,
+                            // no falloff, nothing to suggest it's coming
+                            // FROM the text rather than sitting flatly
+                            // behind it. Real "alive" light — a stage
+                            // spotlight, a phone flashlight, Apple Music's
+                            // own current-line glow — always falls off
+                            // radially from a source and gently breathes
+                            // rather than holding one constant intensity.
+                            // Replaced with a RadialGradient centered on
+                            // the text (soft hotspot in the middle,
+                            // dissolving to fully transparent at the
+                            // edges — no rectangle edge exists to read as
+                            // a "line" at all) plus a slow continuous
+                            // breathing pulse for as long as the line
+                            // stays active, layered on top of the existing
+                            // one-shot reveal fade — so it doesn't just
+                            // flash on and go static, it keeps gently
+                            // living while it's the focus, exactly the
+                            // "not dead" quality being asked for.
                             Positioned.fill(
                               child: Opacity(
                                 opacity: glowOpacity,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    color: isLight
-                                        ? activeColor.withAlpha(22)
-                                        : glowColor.withAlpha(
-                                            (glowColor.alpha * 0.5).round()),
-                                    boxShadow: isLight
-                                        ? null
-                                        : [
-                                            BoxShadow(
-                                              color: glowColor,
-                                              blurRadius: 28,
-                                              spreadRadius: -6,
-                                            ),
+                                child: AnimatedBuilder(
+                                  animation: _breathController,
+                                  builder: (context, _) {
+                                    final breathe =
+                                        0.85 + 0.15 * _breathController.value;
+                                    // FIX ("light aur dark dono theme pe
+                                    // ekdam perfect"): the app's own accent
+                                    // (theme-reactive — see the same
+                                    // AurumTheme.accentOf() already used
+                                    // for the lyrics shimmer highlight)
+                                    // reads as genuine colored light on
+                                    // BOTH themes, rather than the old
+                                    // convention of a plain white tint in
+                                    // dark mode and a dark/muddy tint in
+                                    // light mode — two visually different
+                                    // treatments for what should be one
+                                    // consistent "alive" glow. Light mode
+                                    // gets a lower peak alpha than dark
+                                    // (same asymmetry the rest of this
+                                    // screen already uses for glows/scrims)
+                                    // since the same absolute alpha reads
+                                    // far more strongly against a light
+                                    // background than a dark one.
+                                    final accent = AurumTheme.accentOf(context);
+                                    final peakAlpha = isLight ? 30 : 70;
+                                    return DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: RadialGradient(
+                                          center: style.position == 'Left'
+                                              ? const Alignment(-0.6, 0)
+                                              : Alignment.center,
+                                          radius: 1.3,
+                                          colors: [
+                                            accent.withAlpha(
+                                                (peakAlpha * breathe).round()),
+                                            accent.withAlpha(0),
                                           ],
-                                  ),
+                                          stops: const [0.0, 1.0],
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ),
@@ -6618,7 +6800,7 @@ class _SyncedLyricsView extends StatelessWidget {
                                       : TextAlign.center,
                                   style: TextStyle(
                                     color: color,
-                                    fontSize: size,
+                                    fontSize: baseSize,
                                     height: style.lineSpacing,
                                     fontWeight: weight,
                                     letterSpacing: 0.1,

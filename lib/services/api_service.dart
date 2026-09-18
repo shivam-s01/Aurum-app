@@ -7228,7 +7228,33 @@ class ApiService {
   static Future<({List<Song> songs, String headerArtworkUrl, List<AlbumRelatedShelf> relatedShelves})>
       fetchAlbumSongsWithArtwork(String albumId) async {
     if (!albumId.startsWith('MPRE')) {
-      return (songs: await fetchAlbumSongs(albumId), headerArtworkUrl: '', relatedShelves: <AlbumRelatedShelf>[]);
+      final songs = await fetchAlbumSongs(albumId);
+      // FIX ("full player kabhi bina thumbnail ke na rahe"): Saavn's own
+      // per-track data is missing artwork for some older/obscure album
+      // entries (the track exists but Saavn never attached an image to
+      // that specific song row) — that's fine for the song LIST, which
+      // just shows a plain note icon for those rows, but the full player
+      // must never render blank. Since this function is the one place
+      // that knows "these songs all belong to album X," resolve one
+      // fallback image for the whole batch — the first song that DOES
+      // carry real artwork — and stamp every artwork-less song with it.
+      // Stamping here (the shared fetch, not just album_screen.dart)
+      // means every current and future caller of fetchAlbumSongsWithArtwork
+      // gets the guarantee, not just one screen.
+      if (songs.isNotEmpty) {
+        final fallbackArt = songs
+            .map((s) => s.artworkUrl)
+            .firstWhere((a) => a.isNotEmpty, orElse: () => '');
+        if (fallbackArt.isNotEmpty) {
+          final stamped = songs
+              .map((s) => s.artworkUrl.isEmpty
+                  ? s.copyWith(artworkUrl: fallbackArt)
+                  : s)
+              .toList();
+          return (songs: stamped, headerArtworkUrl: fallbackArt, relatedShelves: <AlbumRelatedShelf>[]);
+        }
+      }
+      return (songs: songs, headerArtworkUrl: '', relatedShelves: <AlbumRelatedShelf>[]);
     }
     return _fetchYtAlbumSongsWithArtwork(albumId);
   }
@@ -7292,12 +7318,29 @@ class ApiService {
           final songs = await fetchYtPlaylistSongs(audioPlaylistId, limit: 2000)
               .timeout(const Duration(seconds: 12));
           if (songs.isNotEmpty) {
-
-            final stampedSongs = headerArtworkUrl.isEmpty
+            // FIX ("full player kabhi bina thumbnail ke na rahe" — YT-only
+            // usage): headerArtworkUrl normally covers this (every song
+            // gets stamped with it below), but if the album header's own
+            // thumbnail parse came back empty, previously NO fallback ran
+            // at all and any song whose own playlist entry lacked artwork
+            // (rare — e.g. an unlisted/removed video still present in the
+            // audio playlist) would reach the full player blank. Falling
+            // back to the first song that DOES carry real artwork closes
+            // that gap without touching the normal case at all.
+            final resolvedHeaderArt = headerArtworkUrl.isNotEmpty
+                ? headerArtworkUrl
+                : songs.map((s) => s.artworkUrl).firstWhere(
+                    (a) => a.isNotEmpty, orElse: () => '');
+            final stampedSongs = resolvedHeaderArt.isEmpty
                 ? songs
-                : songs.map((s) => s.copyWith(artworkUrl: headerArtworkUrl)).toList();
+                : songs
+                    .map((s) => s.copyWith(
+                        artworkUrl: headerArtworkUrl.isNotEmpty
+                            ? resolvedHeaderArt
+                            : (s.artworkUrl.isEmpty ? resolvedHeaderArt : s.artworkUrl)))
+                    .toList();
             if (albumTitle.isEmpty) {
-              return (songs: stampedSongs, headerArtworkUrl: headerArtworkUrl, relatedShelves: relatedShelves);
+              return (songs: stampedSongs, headerArtworkUrl: resolvedHeaderArt, relatedShelves: relatedShelves);
             }
 
             return (
@@ -7315,7 +7358,7 @@ class ApiService {
                         artistChannelId: s.artistChannelId,
                       ))
                   .toList(),
-              headerArtworkUrl: headerArtworkUrl,
+              headerArtworkUrl: resolvedHeaderArt,
               relatedShelves: relatedShelves,
             );
           }
