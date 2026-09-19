@@ -382,7 +382,14 @@ class AurumAudioEngine(
                 androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
             )
             .setIsGaplessSupportRequired(true)
-            .setIsSpeedChangeSupportRequired(true)
+            // FIX (start-of-song glitch): was setIsSpeedChangeSupportRequired(true).
+            // Requiring speed-change support makes Media3 re-evaluate/renegotiate the
+            // offload AudioTrack config whenever playback parameters are touched --
+            // and reapplySpeed() runs right before EVERY player.play() at song start.
+            // That renegotiation lands inside the first seconds of the track and shows up
+            // as a hiccup. With false, Media3 still falls back to normal decode on its own
+            // if the user actually changes speed, so speed control keeps working.
+            .setIsSpeedChangeSupportRequired(false)
             .build()
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -463,7 +470,21 @@ class AurumAudioEngine(
             // boundary. TIME_UNSET here means "no artificial delay before
             // starting to preload" — start as early as ExoPlayer's own
             // internal heuristics allow.
-            p.preloadConfiguration = ExoPlayer.PreloadConfiguration(androidx.media3.common.C.TIME_UNSET)
+            // FIX (glitch/stall in the first seconds of a song): this used to be
+            // PreloadConfiguration(C.TIME_UNSET) = "start preparing the NEXT item as soon
+            // as ExoPlayer likes" -- in practice within the first second of the CURRENT
+            // song. That opens a second HTTP connection + downloads next-song bytes
+            // WHILE the current song is still building its very first buffer, so the two
+            // fight for the same bandwidth/CPU/decoder init. On a normal or slow
+            // connection the current song's own buffer gets starved right at its
+            // start -> stutter/awkward glitch in the first 1-5s. Spotify/YT Music only
+            // preload the next track once the current one is comfortably buffered.
+            // 20s before the end of the current item is plenty for gapless/instant
+            // next (the immediate-next MediaItem is already resolved & in the
+            // timeline by ensureNextResolved(), so this only delays the BYTE
+            // prefetch, never the URL resolve), and it keeps the first seconds of every
+            // song fully dedicated to that song.
+            p.preloadConfiguration = ExoPlayer.PreloadConfiguration(20_000_000L)
 
             // Trims silence at the start/end of tracks during playback.
             // Same effect Spotify/YT Music apply — back-to-back songs
@@ -471,7 +492,17 @@ class AurumAudioEngine(
             // perceived tap-to-sound delay on tracks that have a silent
             // lead-in. Safe no-op on tracks that don't have any silence
             // to trim.
-            p.skipSilenceEnabled = true
+            // FIX ("har song ke start ke 1-5 sec me idhar-udhar/awkward glitch"):
+            // skipSilenceEnabled = true was REMOVED. It inserts a SilenceSkippingAudioProcessor
+            // into the audio pipeline that rewrites the PCM stream in real time. For the first
+            // few seconds of a track (while it is still deciding what counts as "silence" and
+            // while the sink is being (re)configured for the new format), it drops/shortens
+            // chunks of audio -> audible jumps, skips and stutter right at song start. It also
+            // forces the sink onto the CPU-side PCM path, which conflicts with the audio
+            // OFFLOAD request made above (offload needs untouched compressed audio), so
+            // Media3 keeps flipping the AudioTrack between offload/non-offload configs.
+            // Default is false; we make it explicit so it can never regress.
+            p.skipSilenceEnabled = false
 
             // Explicit false (matches ExoPlayer's own default, made
             // explicit here so it can never regress): without this, some
@@ -775,7 +806,15 @@ class AurumAudioEngine(
         // function at all.
         if (isFreshFocusGrab) {
             focusPreHandledForThisStart = true
-            fadeVolumeTo(1f, durationMs = 180L)
+            // FIX (audible "swell" at song start): this used to launch a 180ms 0->1
+            // ramp and then player.play() ran IMMEDIATELY after. ExoPlayer's first
+            // rendered audio frames land within ~50-150ms of play(), i.e. squarely INSIDE
+            // that ramp, so every fresh start began at 0-60% volume and swelled up --
+            // heard as a soft/awkward start (and worse on slow devices where the ramp
+            // coroutine itself is delayed by main-thread load). A short 60ms ramp
+            // still masks the OEM focus-chime/route pop but finishes before the first
+            // real samples are typically audible.
+            fadeVolumeTo(1f, durationMs = 60L)
         }
     }
 
@@ -790,6 +829,69 @@ class AurumAudioEngine(
     // orphaned). Same self-healing/one-way-dependency guarantees, attached
     // to this ExoPlayer's audioSessionId instead of built into the
     // AudioPipeline at construction time.
+    // ── Premium Sound / effects <-> audio offload ───────────────────────
+    // See AurumAudioEffects.onEffectsAboutToAttach for the full reasoning. One-way
+    // on purpose: once effects have been attached in this process the offload path is
+    // already unusable for the session, so re-enabling it later would only bring the
+    // offload<->PCM renegotiation back. Offload returns on the next app start when no
+    // effect is wanted.
+    private var offloadDisabledForEffects = false
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun disableOffloadForEffects() {
+        if (offloadDisabledForEffects) return
+        offloadDisabledForEffects = true
+        try {
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setAudioOffloadPreferences(
+                    androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
+                        .setAudioOffloadMode(
+                            androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
+                        )
+                        .build()
+                )
+                .build()
+        } catch (e: Exception) {
+            _log("disableOffloadForEffects failed: ${e.message}")
+        }
+    }
+
+    // ── Per-song source bitrate for Premium Sound's low-bitrate EQ tilt ──
+    // FIX (Premium Sound -> glitch every few seconds): Dart reports the bitrate of
+    // EVERY stream it resolves -- including the background prewarm of queue songs
+    // (resolveQueueInBackground walks the queue every ~5s) -- through one shared static
+    // (AudioPrefs.lastResolvedKbps), with no song id. Each such report re-tuned the
+    // LIVE Equalizer bands + LoudnessEnhancer of the song that was playing, based on
+    // some OTHER song's bitrate. With mixed sources (320/160/96/opus) the gains flipped
+    // back and forth again and again during normal playback, and every band write on
+    // a live equalizer can click/zipper. Now each report is stored under its song id
+    // and only ever applied for the CURRENT song -- at song start (player still
+    // silent) or at a real track change -- and only if it actually differs.
+    private val bitrateBySongId = LinkedHashMap<String, Int>()
+    private var bitrateAppliedForSongId: String? = null
+
+    fun reportResolvedBitrate(songId: String?, kbps: Int?) {
+        if (songId == null) {
+            // Older Dart build that doesn't send the id -- keep the old behavior.
+            effects.reportSourceBitrate(kbps)
+            return
+        }
+        bitrateBySongId[songId] = kbps ?: 0
+        while (bitrateBySongId.size > 64) {
+            bitrateBySongId.remove(bitrateBySongId.keys.first())
+        }
+        if (songId == currentSong()?.id) applyBitrateForCurrentSong(force = true)
+    }
+
+    private fun applyBitrateForCurrentSong(force: Boolean = false) {
+        val id = currentSong()?.id
+        if (!force && id == bitrateAppliedForSongId) return
+        bitrateAppliedForSongId = id
+        val kbps = id?.let { bitrateBySongId[it] }?.takeIf { it > 0 }
+        effects.reportSourceBitrate(kbps)
+    }
+
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     val effects: AurumAudioEffects = AurumAudioEffects(player, context)
 
@@ -1049,6 +1151,7 @@ class AurumAudioEngine(
     }
 
     init {
+        effects.onEffectsAboutToAttach = { disableOffloadForEffects() }
         registerReconnectListener()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1132,7 +1235,7 @@ class AurumAudioEngine(
                         }
                         requestAudioFocus()
                         if (isFreshFocusGrab) {
-                            fadeVolumeTo(1f, durationMs = 180L)
+                            fadeVolumeTo(1f, durationMs = 60L)
                         }
                     }
                 } else if (!pausedForTransientFocusLoss && !pausedForSustainedFocusLoss) {
@@ -1147,6 +1250,31 @@ class AurumAudioEngine(
             ) {
                 if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
                     handleCurrentIndexChanged(newPosition.mediaItemIndex)
+                }
+                // FIX (seek-bar bump, see markSeekPending()/
+                // startPositionTicker() above): DISCONTINUITY_REASON_SEEK is
+                // ExoPlayer's own confirmation that a seek has genuinely
+                // landed — a much more precise signal than waiting for the
+                // ticker to poll and notice currentPosition finally moved.
+                // Push the real, now-correct position immediately.
+                //
+                // Only clear the pending-seek flag if THIS discontinuity's
+                // reported position actually matches the most recent
+                // pending target. Without that check, a rapid re-drag
+                // (user releases, drags again before the first seek's
+                // discontinuity callback has even arrived) could let the
+                // FIRST seek's late-arriving confirmation clear the flag
+                // that actually belongs to the SECOND, still-in-flight
+                // seek — the ticker would then resume normal 1s polling
+                // and could push a position that's stale relative to the
+                // second seek, reintroducing the exact bug this fixes.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    val reportedPos = newPosition.positionMs
+                    if (pendingSeekTargetMs < 0 ||
+                        kotlin.math.abs(reportedPos - pendingSeekTargetMs) <= seekSettleToleranceMs) {
+                        pendingSeekTargetMs = -1L
+                    }
+                    pushState()
                 }
             }
             // FIX — "notification/lock-screen skip plays the new song
@@ -1193,6 +1321,35 @@ class AurumAudioEngine(
     // That was the single biggest battery/CPU drain in the app.
     private var tickerJob: Job? = null
 
+    // FIX ("seek bar bumps back a beat after releasing a drag, then jumps
+    // forward again a second or two later"): the ticker below runs on its
+    // own fixed 1s clock, completely unaware of when a manual seek()
+    // happens. ExoPlayer's seekTo() is asynchronous — player.currentPosition
+    // doesn't reflect the new position the instant seekTo() is called, it
+    // takes the player a short moment to actually land there. If the
+    // ticker's delay(1000) happened to elapse in that small window, it read
+    // player.currentPosition BEFORE the seek had landed, pushed that stale
+    // pre-seek value to Dart, and Dart's _onPosition() had no way to tell
+    // it apart from a real position update — so it overwrote the correct,
+    // optimistically-set position with the stale one. The bar visibly
+    // snapped back, then corrected itself on the ticker's NEXT tick once
+    // ExoPlayer had genuinely caught up — exactly "bumps back, then jumps
+    // forward a beat later".
+    //
+    // Fix: stamp every seek() call with a monotonically increasing
+    // "generation" + the target position. While a seek is the most recent
+    // op and ExoPlayer hasn't yet reported a position close to that target,
+    // the ticker skips pushing (rather than pushing a value it knows is
+    // stale) and re-checks on a much shorter delay until it catches up or a
+    // small timeout elapses — so a slow/unusual seek can never wedge the
+    // ticker silently.
+    private var seekGeneration = 0L
+    private var pendingSeekGeneration = 0L
+    private var pendingSeekTargetMs = -1L
+    private var pendingSeekIssuedAt = 0L
+    private val seekSettleToleranceMs = 350L
+    private val seekSettleTimeoutMs = 1500L
+
     private fun updateTickerState(isPlaying: Boolean) {
         if (isPlaying) {
             startPositionTicker()
@@ -1214,11 +1371,47 @@ class AurumAudioEngine(
         tickerJob = scope.launch {
             var last = -1L
             while (isActive) {
-                delay(1000)
+                // Normally 1000ms between ticks. But while a manual seek is
+                // still settling, poll much faster (100ms) so we push the
+                // real post-seek position as soon as it's available instead
+                // of leaving Dart on its optimistic value for up to a full
+                // second — and, crucially, never push a pre-seek value in
+                // between.
+                val awaitingSeek = pendingSeekTargetMs >= 0 &&
+                    pendingSeekGeneration == seekGeneration
+                delay(if (awaitingSeek) 100 else 1000)
+
                 val pos = player.currentPosition
+
+                if (pendingSeekTargetMs >= 0 && pendingSeekGeneration == seekGeneration) {
+                    val settled = kotlin.math.abs(pos - pendingSeekTargetMs) <= seekSettleToleranceMs
+                    val timedOut = System.currentTimeMillis() - pendingSeekIssuedAt > seekSettleTimeoutMs
+                    if (!settled && !timedOut) {
+                        // ExoPlayer hasn't caught up to the seek yet — this
+                        // currentPosition read is exactly the stale value
+                        // that used to get pushed and snap the bar back.
+                        // Skip this tick entirely rather than push it.
+                        continue
+                    }
+                    // Either it settled at (or past) the target, or we gave
+                    // up waiting — either way, stop treating it as pending
+                    // so normal 1s ticking resumes.
+                    pendingSeekTargetMs = -1L
+                }
+
                 if (pos != last) { last = pos; pushState() }
             }
         }
+    }
+
+    /** Called by seek() below so the ticker knows a manual seek is in
+     *  flight and must not report a stale pre-seek position while it
+     *  settles. */
+    private fun markSeekPending(targetMs: Long) {
+        seekGeneration++
+        pendingSeekGeneration = seekGeneration
+        pendingSeekTargetMs = targetMs
+        pendingSeekIssuedAt = System.currentTimeMillis()
     }
 
     // FIX (root cause of "isPlaying=true but isLoading stays true forever,
@@ -1404,6 +1597,7 @@ class AurumAudioEngine(
         if (!stillCurrent()) return true
         player.clearMediaItems()
         liveMediaIds.clear()
+        lastHandledMediaId = null
         return true
     }
 
@@ -1899,8 +2093,19 @@ class AurumAudioEngine(
         pushState()
     }
 
+    // FIX (start-of-song glitch): this used to call setPlaybackSpeed() with the
+    // player's OWN current speed on every song start (right before player.play()).
+    // ExoPlayer treats any setPlaybackParameters call as a real parameter change:
+    // it flushes/reconfigures the audio processor chain (SonicAudioProcessor) and,
+    // with offload requested, can renegotiate the AudioTrack -- all of that lands in
+    // the first seconds of playback. A no-op re-apply at 1.0x buys nothing, so skip it
+    // entirely unless a non-default speed genuinely needs to persist across the
+    // stop()/clearMediaItems() teardown.
     private suspend fun reapplySpeed() {
-        player.setPlaybackSpeed(player.playbackParameters.speed)
+        val current = player.playbackParameters
+        if (current.speed != 1f || current.pitch != 1f) {
+            player.setPlaybackSpeed(current.speed)
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -2365,6 +2570,18 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // I4: current-index sync (prevents UI/notification desync)
     // ─────────────────────────────────────────────────────────────────
+    // FIX (start-of-song glitch): the id of the song the player was on the last time
+    // handleCurrentIndexChanged() ran. Comparing IDs (not indices) is what tells a REAL
+    // track change apart from ExoPlayer's timeline merely SHIFTING because
+    // resolveQueueInBackground() spliced a song in at position 0 (backward prewarm) or
+    // appended one at the end. `index` here is an ExoPlayer timeline index while
+    // `currentIndex` is a queueSongs index -- two different numbering systems -- so
+    // `index != currentIndex` fired for pure splice shifts, and (with crossfade > 0)
+    // applyCrossfadeFadeIn() then ramped/overwrote player.volume in the middle of a song
+    // that never changed -> the dip/jump heard in the first seconds of playback, exactly
+    // when the background splice runs.
+    private var lastHandledMediaId: String? = null
+
     private fun handleCurrentIndexChanged(index: Int?) {
         if (index == null) return
 
@@ -2402,7 +2619,17 @@ class AurumAudioEngine(
             return
         }
 
-        if (crossfadeSecs > 0 && index != currentIndex && !isLoadingNewSong) {
+        val incomingMediaId = liveMediaIds.getOrNull(index)
+        // A "real" track change = we previously acted on a DIFFERENT song id and now
+        // see another one. The very first call for a fresh queue (lastHandledMediaId
+        // == null, reset in hardStopAndMute) is the song just starting, not a
+        // transition, so it must never trigger a crossfade fade-in.
+        val previousId = lastHandledMediaId
+        val isRealTrackChange =
+            incomingMediaId != null && previousId != null && incomingMediaId != previousId
+        if (incomingMediaId != null) lastHandledMediaId = incomingMediaId
+
+        if (crossfadeSecs > 0 && isRealTrackChange && !isLoadingNewSong) {
             applyCrossfadeFadeIn()
         }
 
@@ -2414,6 +2641,7 @@ class AurumAudioEngine(
             }
             maybeAutoExtendQueue()
             ensureNextResolved(playSessionId)
+            applyBitrateForCurrentSong()
             pushState()
             return
         }
@@ -2423,6 +2651,7 @@ class AurumAudioEngine(
         }
         maybeAutoExtendQueue()
         ensureNextResolved(playSessionId)
+        applyBitrateForCurrentSong()
         pushState()
     }
 
@@ -2757,6 +2986,12 @@ class AurumAudioEngine(
     }
     fun seek(positionMs: Long) {
         activeCastPlayer?.let { it.seekTo(positionMs); return }
+        // See markSeekPending()/startPositionTicker() above — tells the
+        // ticker not to push a stale pre-seek currentPosition while
+        // ExoPlayer's async seekTo() is still catching up, which is what
+        // caused the seek bar to visibly snap back after a drag before
+        // jumping to the real position a beat later.
+        markSeekPending(positionMs)
         player.seekTo(positionMs)
     }
 
@@ -2794,11 +3029,21 @@ class AurumAudioEngine(
                 val liveLen = player.mediaItemCount
                 val livePos = player.currentMediaItemIndex
                 if (livePos < liveLen - 1) {
+                    userPaused = false
                     player.seekToNext(); player.play()
                 } else if (player.repeatMode == Player.REPEAT_MODE_ALL && liveLen > 0) {
+                    userPaused = false
                     player.seekTo(0, 0); player.play()
-                } else if (!splicingInProgress && currentIndex < queueSongs.size - 1) {
-                    playQueueInternal(queueSongs, currentIndex + 1)
+                } else if (currentIndex < queueSongs.size - 1) {
+                    // FIX ("Next kabhi kabhi kaam hi nahi karta"): this branch used to
+                    // be gated on `!splicingInProgress`. splicingInProgress stays true
+                    // for the ENTIRE background queue walk (one song every 5s, 60s in
+                    // Data Saver) -- i.e. minutes on a normal queue. Whenever the next
+                    // song wasn't spliced into ExoPlayer's timeline yet (fast taps, slow
+                    // resolve, a failed resolve), the tap fell through every branch and
+                    // did NOTHING, silently. Now it always falls back to a proper
+                    // restart at the next song.
+                    restartQueueAt(currentIndex + 1)
                 }
             }
         }
@@ -2820,9 +3065,11 @@ class AurumAudioEngine(
                 } else {
                     val livePos = player.currentMediaItemIndex
                     if (livePos > 0) {
+                        userPaused = false
                         player.seekToPrevious()
+                        player.play()
                     } else if (currentIndex > 0) {
-                        playQueueInternal(queueSongs, currentIndex - 1)
+                        restartQueueAt(currentIndex - 1)
                     }
                 }
             }
@@ -2899,18 +3146,57 @@ class AurumAudioEngine(
                 // instead of seeking to a wrong/unrelated media item.
                 val targetSong = queueSongs[index]
                 val livePos = liveMediaIds.indexOf(targetSong.id)
-                if (livePos != -1 && livePos < player.mediaItemCount && !splicingInProgress) {
+                // FIX: `&& !splicingInProgress` removed. That flag is true for the whole
+                // paced background walk (minutes), which forced EVERY Up-Next/Next tap
+                // during that time down the slow full-restart path below. The id-based
+                // livePos lookup is already exact, and this whole block runs under
+                // queueMutex -- the same lock every splice step takes -- so the seek
+                // can never see a half-updated timeline. Direct seek is safe and instant.
+                if (livePos != -1 && livePos < player.mediaItemCount) {
                     currentIndex = index
                     pushState()
                     player.seekTo(livePos, 0)
                     userPaused = false
                     player.play()
                 } else {
-                    playQueueInternal(queueSongs, index)
+                    restartQueueAt(index)
                 }
             }
         }
     }
+
+    // FIX ("Next/Prev stop responding after a slow song, notification too"):
+    // skipToNext/skipToPrevious/skipToQueueItemAwaitable used to call
+    // playQueueInternal() INLINE while holding skipMutex (and queueMutex). A full
+    // restart can legitimately take a long time (resolveWithPatience() retries with no
+    // upper bound on a slow-but-alive connection), so the lock was held that whole
+    // time and every later Next/Prev/queue tap just queued up behind it -- dead
+    // buttons -- while the only thing that could supersede it (a new playSessionId)
+    // needed a tap that could never get through the lock.
+    // Now the restart is launched UNDISPATCHED: it runs synchronously up to its first
+    // suspension point (which is where playSessionId is bumped and the old track is
+    // hard-stopped -- exactly what must be visible immediately), then the caller
+    // returns and releases the locks. A later tap can always take over, because
+    // playQueueInternal's own session checks make the older restart abandon itself.
+    private fun restartQueueAt(index: Int) {
+        val snapshot = queueSongs
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            playQueueInternal(snapshot, index)
+        }
+    }
+
+    /** Whether a Next action can do anything right now -- used by the MediaSession
+     *  wrapper (AurumMediaSessionService) so the notification/lock-screen/Bluetooth
+     *  Next button is offered based on the REAL queue, not just on how many songs
+     *  happen to be spliced into ExoPlayer's timeline yet. */
+    fun canSkipNext(): Boolean {
+        val cp = activeCastPlayer
+        if (cp != null) return cp.hasNextMediaItem() || cp.mediaItemCount > 0 && cp.repeatMode == Player.REPEAT_MODE_ALL
+        return currentIndex < queueSongs.size - 1 ||
+            (player.repeatMode == Player.REPEAT_MODE_ALL && queueSongs.isNotEmpty())
+    }
+
+    fun canSkipPrevious(): Boolean = queueSongs.isNotEmpty()
 
     fun setRepeatMode(mode: String) { // "none" | "one" | "all"
         val repeatMode = when (mode) {

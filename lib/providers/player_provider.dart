@@ -163,6 +163,27 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // guarantees the seek bar is never simply stuck at zero.
   Timer? _localPositionTicker;
 
+  // FIX ("seek bar bumps back a beat after releasing a drag, then jumps
+  // forward again a second or two later"): the root cause lived on the
+  // native/Kotlin side (see AurumAudioEngine's markSeekPending/
+  // startPositionTicker comments — ExoPlayer's seekTo() is async, and its
+  // 1s position ticker could occasionally read+push currentPosition in the
+  // small window before the seek had actually landed, sending a stale
+  // pre-seek value here). That's now fixed at the source. This is a
+  // matching Dart-side safety net: while _onPosition is otherwise
+  // unconditional (see the FIX BUG comment near its call site above), it
+  // has no way to tell "genuine new position" apart from "stale position
+  // that predates a seek I just issued" on its own. For a short window
+  // right after seek()/seekTo(), ignore an incoming native position that's
+  // suspiciously close to where the user seeked FROM (i.e. clearly a
+  // pre-seek event) rather than accepting it as ground truth — so even a
+  // stale event from an older/unpatched native build, or any other future
+  // position source, can't visibly regress the bar.
+  Duration? _justSeekedFromPosition;
+  Duration? _justSeekedToPosition;
+  DateTime? _justSeekedAt;
+  static const _seekGuardWindow = Duration(milliseconds: 900);
+
   // FIX (root cause of the permanent "stuck UI, audio plays fine"
   // symptom — confirmed via on-device debug overlay: expectedSongId ==
   // currentSongId, so the switch WAS confirmed, but isPlaying stayed
@@ -1058,6 +1079,38 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // position — that check was removed (see REPLAY detection comment
     // below) in favor of a current-position-only check, which made this
     // variable dead. Removed to avoid an unused-variable lint warning.
+
+    // FIX ("seek bar bumps back after releasing a drag") — see
+    // _justSeekedFromPosition's declaration above. While inside the short
+    // guard window after a manual seek, reject an incoming position that's
+    // clearly still the stale pre-seek value — i.e. close to where we
+    // seeked FROM *and* still far from where we seeked TO — instead of
+    // letting it clobber the correct optimistic _position. Checking
+    // distance-from-target as well as distance-from-origin (rather than
+    // just the latter) matters for small drags: seeking just 1-2s away
+    // from the current position must never get mistaken for "still the
+    // stale pre-seek value" and suppressed — a genuine, already-arrived
+    // update near the seek target is always accepted immediately.
+    final seekedFrom = _justSeekedFromPosition;
+    final seekedTo = _justSeekedToPosition;
+    final seekedAt = _justSeekedAt;
+    if (seekedFrom != null && seekedTo != null && seekedAt != null) {
+      final withinGuardWindow =
+          DateTime.now().difference(seekedAt) <= _seekGuardWindow;
+      if (withinGuardWindow) {
+        final closeToOrigin = (pos - seekedFrom).inMilliseconds.abs() <= 400;
+        final farFromTarget = (pos - seekedTo).inMilliseconds.abs() > 400;
+        if (closeToOrigin && farFromTarget) {
+          return; // drop the stale event, keep the optimistic position
+        }
+      } else {
+        // Guard window elapsed — stop checking until the next seek.
+        _justSeekedFromPosition = null;
+        _justSeekedToPosition = null;
+        _justSeekedAt = null;
+      }
+    }
+
     _position = pos;
 
     final song = _lastTrackedSong;
@@ -2041,6 +2094,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // stays exactly where the finger left it, and the later real
     // _onPosition event just confirms the same value instead of visibly
     // correcting it.
+    //
+    // See _justSeekedFromPosition's declaration for the matching fix that
+    // closes the remaining gap: a stale native position event arriving
+    // shortly after this, still describing roughly where we seeked FROM.
+    _justSeekedFromPosition = _position;
+    _justSeekedToPosition = pos;
+    _justSeekedAt = DateTime.now();
     _position = pos;
     notifyListeners();
     await _engine.seek(pos);
@@ -2049,6 +2109,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> seekTo(Duration pos) {
     // Same optimistic-update fix as seek(ratio) above — see its comment.
+    _justSeekedFromPosition = _position;
+    _justSeekedToPosition = pos;
+    _justSeekedAt = DateTime.now();
     _position = pos;
     notifyListeners();
     unawaited(_engine.autoSleepGuardRecordActivity());

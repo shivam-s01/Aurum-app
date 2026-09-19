@@ -221,6 +221,19 @@ class AurumAudioEffects(
     private var lastVolNorm = false
     private var lastBandGains: List<Int>? = null
     private var lastPremiumSound = false
+
+    // FIX (Premium Sound -> constant glitching): platform AudioEffects (Equalizer/
+    // LoudnessEnhancer/Virtualizer/BassBoost/DynamicsProcessing) cannot run on an
+    // AUDIO-OFFLOAD output, but AurumAudioEngine keeps REQUESTING offload for every
+    // track. With effects attached, the OS keeps re-routing the track between the
+    // offload and the normal PCM path (track invalidation/restore = audible gap or
+    // crackle), and effects attached to an offloaded session may not even be applied
+    // cleanly. The engine sets this callback so that the moment effects are actually
+    // about to be attached, it switches the player to PCM-only (offload disabled) --
+    // ONE clean renegotiation instead of repeated ones. Not invoked when nothing is
+    // wanted, so users who never touch EQ/Bass/Premium/Volume Boost keep offload
+    // (cool + low power) exactly as before.
+    var onEffectsAboutToAttach: (() -> Unit)? = null
     private var lastKnownSourceKbps: Int? = null
 
     // ── Volume Boost state ──────────────────────────────────────────────
@@ -427,6 +440,10 @@ class AurumAudioEffects(
             currentFadeFraction = 0f
             return
         }
+
+        // Nothing above returned, so at least one effect is genuinely wanted --
+        // let the engine drop offload BEFORE the effect objects are created.
+        try { onEffectsAboutToAttach?.invoke() } catch (_: Exception) {}
 
         try {
             equalizer = Equalizer(0, sessionId)
@@ -710,9 +727,19 @@ class AurumAudioEffects(
         val effectiveFraction = (fraction * ceiling).coerceIn(0f, 1f)
         val active = effectiveFraction > 0.001f
 
-        if (lastAppliedLimiterEnabled != active) {
-            _lm2(active)
-            lastAppliedLimiterEnabled = active
+        // FIX (limiter on/off churn -> click): this used to arm the limiter from
+        // Premium's `active` alone, while _ap2() (called a few lines below) arms it
+        // whenever Bass Boost OR low-bitrate compensation is active. With Premium
+        // fading/off but either of those on, every _ap3() call switched the
+        // DynamicsProcessing OFF here and _ap2() switched it straight back ON --
+        // two enable/disable toggles per call, which is an audible click. It also
+        // wrongly DISARMED the limiter while Volume Boost was up and Premium was off.
+        // Same condition set as _ap2()/_startVolumeBoostRamp() now, so it settles once.
+        val limiterWanted = active || lastBassBoost || volumeBoostFraction > 0.001f ||
+            (lastKnownSourceKbps?.let { it < K_BR2 } == true)
+        if (lastAppliedLimiterEnabled != limiterWanted) {
+            _lm2(limiterWanted)
+            lastAppliedLimiterEnabled = limiterWanted
         }
 
         if (virtualizerHealthy && virtualizerSupported) {

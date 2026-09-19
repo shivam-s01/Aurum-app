@@ -386,6 +386,9 @@ class NativeAudioEngine {
             // tailored) default, not a broken one.
             unawaited(_method.invokeMethod('reportResolvedBitrate', {
               'kbps': AudioPrefs.lastResolvedKbps,
+              // Which song this bitrate belongs to — the native side only applies
+              // it to the currently playing song, never to a background-prewarmed one.
+              'songId': song.id,
             }).catchError((_) {}));
           }
         } catch (e) {

@@ -465,7 +465,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 }
                 "reportResolvedBitrate" -> {
                     val kbps = call.argument<Int>("kbps")
-                    engine.effects.reportSourceBitrate(kbps)
+                    // songId lets the engine apply this only to the CURRENT song
+                    // (see AurumAudioEngine.reportResolvedBitrate).
+                    val songId = call.argument<String>("songId")
+                    engine.reportResolvedBitrate(songId, kbps)
                     result.success(null)
                 }
                 "getPremiumSoundCapabilities" -> {

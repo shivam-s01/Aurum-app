@@ -180,7 +180,45 @@ class AurumMediaSessionService : MediaSessionService() {
             }
         }
 
-        val sessionBuilder = MediaSession.Builder(this, engine.player)
+        // FIX ("background/notification/lock-screen/Bluetooth Next sometimes does
+        // nothing"): the session used to wrap engine.player (the raw ExoPlayer)
+        // directly. Every transport button from the notification, lock screen, headset
+        // and Android Auto therefore called ExoPlayer.seekToNext()/seekToPrevious()
+        // itself -- and ExoPlayer's timeline only ever contains the songs the engine has
+        // ALREADY spliced in (the rest of the queue is resolved one-by-one in the
+        // background). If the next song wasn't spliced in yet (right after starting a
+        // queue, after fast skips, after a slow/failed resolve), ExoPlayer had no next
+        // item: the Next button was disabled/hidden or the press was silently ignored,
+        // and it also bypassed the engine's skip serialization entirely.
+        // This wrapper routes every Next/Previous through the engine's own
+        // skipToNext()/skipToPrevious() (which know the full queue and fall back to a
+        // proper resolve+restart), and advertises the buttons based on the real queue.
+        val sessionPlayer = object : androidx.media3.common.ForwardingPlayer(engine.player) {
+            override fun getAvailableCommands(): Player.Commands {
+                val b = super.getAvailableCommands().buildUpon()
+                if (engine.canSkipNext()) {
+                    b.add(Player.COMMAND_SEEK_TO_NEXT)
+                    b.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                }
+                if (engine.canSkipPrevious()) {
+                    b.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    b.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                }
+                return b.build()
+            }
+            override fun isCommandAvailable(command: Int): Boolean =
+                getAvailableCommands().contains(command)
+            override fun hasNextMediaItem(): Boolean =
+                super.hasNextMediaItem() || engine.canSkipNext()
+            override fun hasPreviousMediaItem(): Boolean =
+                super.hasPreviousMediaItem() || engine.canSkipPrevious()
+            override fun seekToNext() { engine.skipToNext() }
+            override fun seekToNextMediaItem() { engine.skipToNext() }
+            override fun seekToPrevious() { engine.skipToPrevious() }
+            override fun seekToPreviousMediaItem() { engine.skipToPrevious() }
+        }
+
+        val sessionBuilder = MediaSession.Builder(this, sessionPlayer)
             .setCallback(callback)
         if (sessionActivityIntent != null) {
             sessionBuilder.setSessionActivity(sessionActivityIntent)
