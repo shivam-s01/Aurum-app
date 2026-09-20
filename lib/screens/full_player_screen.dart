@@ -5450,28 +5450,83 @@ class _QueuePageState extends State<_QueuePage> {
   List<Song> _localQueue = const [];
   int? _localCurrent;
 
-  // True for the few frames between an optimistic local reorder and the
-  // provider's own notifyListeners() catching up to match it — used to
-  // skip exactly one incoming "echo" sync so the local order we just set
-  // is never clobbered by the very update we ourselves triggered.
-  bool _awaitingOwnReorderEcho = false;
+  // FIX (recheck — "drag chhodne ke baad songs bump/settle hoti hai" still
+  // happening even with the optimistic local queue above): the previous
+  // version of this guard was a single-use boolean
+  // (_awaitingOwnReorderEcho) that protected the local optimistic order
+  // against exactly ONE incoming provider sync, then cleared itself no
+  // matter what that sync actually contained. But multiple provider
+  // rebuilds can legitimately land in the window between a drop and the
+  // real reorder settling — PlayerProvider's _onEngineState calls
+  // notifyListeners() unconditionally on every ~1s native position tick
+  // (see its own comment), and separately, the native side's queue-move
+  // pushes its OWN state event (with the already-reordered queueIds)
+  // proactively as soon as the native mutex-guarded move completes —
+  // which can land before this screen's own `await
+  // context.read<PlayerProvider>().moveQueueItem(...)` call below even
+  // resolves. If the boolean flag got consumed by whichever of these
+  // rebuilds happened to arrive FIRST — regardless of whether that was
+  // actually our reorder's real echo — every rebuild after that first one
+  // was no longer protected at all, so a genuinely stale/unrelated sync
+  // arriving next could still overwrite the correct optimistic order with
+  // an old one, then a moment later the real echo would arrive and jump
+  // it back to correct — exactly the reported "bump after release".
+  //
+  // Fix: instead of a single-use flag, remember the exact target order we
+  // set (song IDs, in order) and keep comparing EVERY incoming sync
+  // against that target — not just the first one — until the provider's
+  // queue genuinely matches it (or a newer local reorder supersedes the
+  // target before that happens). A sync that doesn't yet match the
+  // pending target is presumed stale/in-flight and is ignored outright,
+  // however many rebuilds that takes; only a sync that actually matches
+  // (settling) or a genuinely different queue (different length/IDs
+  // entirely, e.g. a song added/removed elsewhere) is allowed through.
+  List<String>? _pendingTargetIds;
+
+  // Safety net for the guard above: if the provider's queue never actually
+  // reaches the target we set (e.g. native's own from/to bounds check
+  // rejects an edge-position move as a no-op while our local clamp still
+  // allowed it, so the two sides permanently disagree), _pendingTargetIds
+  // would otherwise stay set forever and freeze _localQueue against every
+  // future sync except a length change. Same defensive pattern as the
+  // native seek-settle timeout: give up waiting after a short window and
+  // let the next sync through as ground truth, rather than risk getting
+  // stuck showing a local order that will never be confirmed.
+  DateTime? _pendingTargetSetAt;
+  static const _pendingTargetTimeout = Duration(seconds: 3);
 
   void _syncFromProvider(List<Song> queue, int? current) {
-    if (_awaitingOwnReorderEcho) {
-      // This is almost certainly the echo of our own moveQueueItem() call
-      // landing — compare by id sequence rather than trusting a single
-      // flag flip, so a genuinely different change (song added/removed by
-      // something else) arriving in this same window still gets applied
-      // instead of silently dropped.
-      final sameIds = queue.length == _localQueue.length &&
-          List.generate(queue.length, (i) => queue[i].id)
-              .join(',') ==
-              _localQueue.map((s) => s.id).join(',');
-      _awaitingOwnReorderEcho = false;
-      if (sameIds) {
+    final pending = _pendingTargetIds;
+    if (pending != null) {
+      final setAt = _pendingTargetSetAt;
+      final timedOut = setAt == null ||
+          DateTime.now().difference(setAt) > _pendingTargetTimeout;
+      final incomingIds = List.generate(queue.length, (i) => queue[i].id);
+      if (incomingIds.length == pending.length &&
+          incomingIds.join(',') == pending.join(',')) {
+        // The provider has genuinely caught up to the order we set —
+        // stop guarding, adopt the (now-matching) provider state as
+        // ground truth going forward.
+        _pendingTargetIds = null;
+        _pendingTargetSetAt = null;
         _localCurrent = current;
         return;
       }
+      if (incomingIds.length == pending.length && !timedOut) {
+        // Same songs, not yet in the target order — this is an
+        // in-flight/stale sync describing a state our own reorder has
+        // already superseded locally. Ignore it and keep showing the
+        // local optimistic order; a later sync will eventually match.
+        return;
+      }
+      // Either the length differs (a real, independent change — song
+      // added/removed by something else entirely — arrived in this same
+      // window) or we've waited long enough that the target is presumed
+      // unreachable. Either way, stop guarding our now-stale target and
+      // fall through to apply the incoming state normally below, same as
+      // if no reorder were pending.
+      _pendingTargetIds = null;
+      _pendingTargetSetAt = null;
     }
     // PlayerProvider.queue returns its internal _queue list BY REFERENCE,
     // not a copy — assigning it directly would make _localQueue and the
@@ -5685,7 +5740,14 @@ class _QueuePageState extends State<_QueuePage> {
                       _localCurrent = (_localCurrent ?? 0) + 1;
                     }
                   });
-                  _awaitingOwnReorderEcho = true;
+                  // See _pendingTargetIds' doc comment above: remember the
+                  // exact order we just committed to locally, so every
+                  // provider sync that arrives before it genuinely
+                  // matches — however many there are — is recognized as
+                  // stale/in-flight and ignored, not just the first one.
+                  _pendingTargetIds =
+                      _localQueue.map((s) => s.id).toList();
+                  _pendingTargetSetAt = DateTime.now();
                   unawaited(context
                       .read<PlayerProvider>()
                       .moveQueueItem(fromQueueIdx, toQueueIdx));
