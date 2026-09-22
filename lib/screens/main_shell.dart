@@ -924,7 +924,7 @@ class AurumBottomNavBar extends StatelessWidget {
                   tintColor: effectiveBlurSigma <= 0
                       ? AurumTheme.bgCardOf(context)
                       : (isDark ? Colors.black : Colors.white),
-                  child: navBarContent,
+                  child: navBarContent!,
                 ),
               );
             },
