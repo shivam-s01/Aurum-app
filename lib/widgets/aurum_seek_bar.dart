@@ -402,12 +402,31 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
 
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                // Only the horizontal-drag recognizer is registered here —
-                // NOT onTapDown/onTapUp alongside it. A drag recognizer
-                // alone already fires onHorizontalDragStart for a
-                // zero-distance touch-and-release, so it covers plain taps
-                // too — no separate tap handler needed, and no two-
-                // recognizer arena race between tap and drag.
+                // FIX ("sidha click karo toh seek nahi hota, sirf pakad
+                // kar drag karne pe hi kaam karta hai"): only the
+                // horizontal-drag recognizer was registered here — no
+                // tap handler. The old assumption was that a drag
+                // recognizer alone also resolves a zero-distance
+                // touch-and-release as a "start", so a plain tap would
+                // be covered for free. It isn't: onHorizontalDragStart
+                // only fires once the gesture arena actually resolves a
+                // drag (real horizontal movement past the touch slop),
+                // so a genuine tap — finger down, no movement, straight
+                // back up — never fires it at all. That's exactly why
+                // tapping anywhere on the bar did nothing while dragging
+                // worked fine. Adding onTapUp alongside the drag
+                // handlers lets GestureDetector run both recognizers in
+                // the same arena and resolve whichever one actually
+                // matches the gesture — a tap seeks immediately via
+                // onTapUp, a drag still seeks continuously as before;
+                // this is the same pattern Flutter's own Slider uses
+                // internally to support both tap-to-seek and drag.
+                onTapUp: (d) {
+                  final v = (d.localPosition.dx / width).clamp(0.0, 1.0);
+                  widget.onDragStart();
+                  widget.onDrag(v);
+                  widget.onDragEnd(v);
+                },
                 onHorizontalDragStart: (d) {
                   widget.onDragStart();
                   handleUpdate(d.localPosition);

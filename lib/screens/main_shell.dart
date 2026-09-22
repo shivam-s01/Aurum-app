@@ -14,6 +14,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/aurum_glass.dart';
 import '../models/song.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
@@ -909,27 +910,22 @@ class AurumBottomNavBar extends StatelessWidget {
                   ),
                 );
               }
-              final bar = Container(
+              // REAL iOS-style liquid glass (blur + specular highlight +
+              // edge hairline) via AurumGlass — a flat blurred tint alone
+              // reads as "awkward", not actual glass. sigma<=0 falls
+              // through to AurumGlass's own solid-panel branch, so
+              // "zero blur = zero extra GPU cost" is unchanged.
+              return SizedBox(
                 height: _barHeight,
-                decoration: BoxDecoration(
-                  color: effectiveBlurSigma <= 0
-                      ? AurumTheme.bgCardOf(context)
-                      : (isDark ? Colors.black : Colors.white)
-                          .withValues(alpha: isDark ? 0.45 : 0.65),
+                child: AurumGlass(
+                  sigma: effectiveBlurSigma,
                   borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: (isDark ? Colors.white : Colors.black)
-                        .withValues(alpha: 0.08),
-                    width: 1,
-                  ),
+                  isDark: isDark,
+                  tintColor: effectiveBlurSigma <= 0
+                      ? AurumTheme.bgCardOf(context)
+                      : (isDark ? Colors.black : Colors.white),
+                  child: navBarContent,
                 ),
-                child: navBarContent,
-              );
-              if (effectiveBlurSigma <= 0) return bar;
-              return BackdropFilter(
-                filter: ImageFilter.blur(
-                    sigmaX: effectiveBlurSigma, sigmaY: effectiveBlurSigma),
-                child: bar,
               );
             },
             child: LayoutBuilder(

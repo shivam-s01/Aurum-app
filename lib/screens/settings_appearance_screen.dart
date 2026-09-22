@@ -30,7 +30,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   String _playerBgStyle = 'Blur';
   bool _dynamicPlayerColor = true;
   String _playerButtonColors = 'Primary';
-  String _playerSliderStyle = 'Rounded';
+  String _playerSliderStyle = 'Waveform';
   String _fullPlayerStyle = 'Classic';
   // SPEED FIX (Spotify-level lightweight): these three local fallback
   // defaults must match their AudioPrefs notifier counterparts exactly
@@ -46,8 +46,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // confusing flash of the wrong value on a screen about performance
   // settings specifically. Keeping both sides in sync avoids that.
   bool _showBlurredBg = false;
-  double _navBarBlurSigma = 0.0;
-  double _miniPlayerBlurSigma = 0.0;
+  double _navBarBlurSigma = 18.0;
+  double _miniPlayerBlurSigma = 12.0;
   String _navBarStyle = 'Floating';
   // Lyrics
   String _lyricsTextPosition = 'Centre';
@@ -116,7 +116,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _playerBgStyle = p.getString('player_bg_style') ?? 'Blur';
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
-      _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
+      _playerSliderStyle = p.getString('player_slider_style') ?? 'Waveform';
       _fullPlayerStyle = p.getString('full_player_style') ?? 'Classic';
       // SPEED FIX (Spotify-level lightweight): fallback defaults here
       // matched to the new AudioPrefs notifier defaults (false/0.0/0.0)
@@ -128,8 +128,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       // launch, but every time this specific key was never explicitly
       // set.
       _showBlurredBg = p.getBool('show_blurred_bg') ?? false;
-      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 0.0;
-      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 0.0;
+      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
+      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
       _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
@@ -350,26 +350,31 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             value: _showBlurredBg,
             onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); AudioPrefs.setShowBlurredBg(v); },
           ),
-          // Blur intensity controls for the two persistent frosted-glass
+          // Single ON/OFF toggle for the two persistent frosted-glass
           // surfaces (nav bar, mini player) — both run their BackdropFilter
           // blur on every frame they're visible, which is real ongoing
-          // GPU/battery cost on weaker devices. Letting users dial this
-          // down (or to 0 — fully flat, cheapest possible) trades the
-          // frosted look for cooler/longer-lasting playback, without
-          // forcing that tradeoff on everyone.
-          _sliderTile(context,
-            title: l10n.saNavBarBlur,
-            value: _navBarBlurSigma,
-            min: 0, max: 24, divisions: 24,
-            displayValue: _navBarBlurSigma <= 0 ? 'Off' : _navBarBlurSigma.toInt().toString(),
-            onChanged: (v) { setState(() => _navBarBlurSigma = v); AudioPrefs.setNavBarBlurSigma(v); },
-          ),
-          _sliderTile(context,
-            title: l10n.saMiniPlayerBlur,
-            value: _miniPlayerBlurSigma,
-            min: 0, max: 14, divisions: 14,
-            displayValue: _miniPlayerBlurSigma <= 0 ? 'Off' : _miniPlayerBlurSigma.toInt().toString(),
-            onChanged: (v) { setState(() => _miniPlayerBlurSigma = v); AudioPrefs.setMiniPlayerBlurSigma(v); },
+          // GPU/battery cost on weaker devices. ON uses fixed, tuned sigma
+          // values (18 for nav bar, 12 for mini player — well under the
+          // heavier 24/14 max this screen used to allow) so it stays
+          // lightweight; OFF fully skips BackdropFilter on both surfaces
+          // (falls back to a flat panel), the cheapest possible option.
+          // This is plain Flutter BackdropFilter/ImageFilter.blur (Skia),
+          // not an Android platform API — it renders identically on every
+          // supported Android version, not just newer ones.
+          _inlineSwitch(context,
+            title: 'Enable Liquid Glass',
+            subtitle: 'Frosted-glass blur for the nav bar and mini player.',
+            value: _navBarBlurSigma > 0 || _miniPlayerBlurSigma > 0,
+            onChanged: (v) {
+              final nav = v ? 18.0 : 0.0;
+              final mini = v ? 12.0 : 0.0;
+              setState(() {
+                _navBarBlurSigma = nav;
+                _miniPlayerBlurSigma = mini;
+              });
+              AudioPrefs.setNavBarBlurSigma(nav);
+              AudioPrefs.setMiniPlayerBlurSigma(mini);
+            },
           ),
           // ── Mini Player ──
           // Mini player settings removed — the widget was rewritten to a

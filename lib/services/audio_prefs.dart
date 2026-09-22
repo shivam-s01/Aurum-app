@@ -261,7 +261,7 @@ class AudioPrefs {
   // want the frosted-glass look back can still turn it up in Settings →
   // Appearance → "Nav Bar Blur".
   static final ValueNotifier<double> navBarBlurSigmaNotifier =
-      ValueNotifier<double>(0.0);
+      ValueNotifier<double>(18.0);
 
   /// 0–14 (default 14) — blur sigma for the mini player's frosted-glass
   /// BackdropFilter. Same reasoning/tradeoff as [navBarBlurSigmaNotifier]
@@ -278,7 +278,7 @@ class AudioPrefs {
   // Defaulted to 0 (solid bar) for the same lightweight-by-default feel;
   // still user-adjustable in Settings → Appearance.
   static final ValueNotifier<double> miniPlayerBlurSigmaNotifier =
-      ValueNotifier<double>(0.0);
+      ValueNotifier<double>(12.0);
 
   /// 'Floating' (default) | 'Docked' — overall shape/placement of the
   /// bottom nav bar + mini player stack. 'Floating' is Aurum's existing

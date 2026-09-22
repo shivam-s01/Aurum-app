@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
 import 'aurum_artwork.dart';
+import 'aurum_glass.dart';
 import 'aurum_pressable.dart';
 import 'aurum_play_pause_icon.dart';
 import '../screens/home_screen.dart' show pushFullPlayer;
@@ -583,70 +584,36 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // not glass-without-blur, so nothing looks
                             // broken while a screen sits on top of it.
                             final solidBg = _tintColor ?? fallback;
-                            final barBg = (docked || effectiveBlurSigma <= 0)
-                                ? solidBg
-                                : baseTint.withValues(
-                                    alpha: isDark ? 0.42 : 0.62,
-                                  );
-                            final content = Container(
+                            final useGlass =
+                                !docked && effectiveBlurSigma > 0;
+                            final innerContent = _miniPlayerContent(
+                                context, player,
+                                onTint: (useGlass ? baseTint : solidBg)
+                                            .computeLuminance() >
+                                        0.5
+                                    ? Colors.black
+                                    : Colors.white,
+                                compact: docked);
+                            final barRadius = docked
+                                ? BorderRadius.circular(10)
+                                : BorderRadius.circular(28);
+                            // REAL iOS-style liquid glass (blur + specular
+                            // highlight + edge hairline) via AurumGlass —
+                            // see aurum_glass.dart for why a flat blurred
+                            // tint alone read as "awkward"/not actually
+                            // glass. sigma<=0 / Docked still fall through
+                            // to AurumGlass's own solid-panel branch, so
+                            // the "zero blur = zero extra GPU cost" contract
+                            // from the PERF/HEAT comment below is unchanged.
+                            return SizedBox(
                               height: docked ? 60 : 68,
-                              decoration: BoxDecoration(
-                                color: barBg,
-                                borderRadius: docked
-                                    ? BorderRadius.circular(10)
-                                    : BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.08),
-                                  width: 1,
-                                ),
+                              child: AurumGlass(
+                                sigma: docked ? 0 : effectiveBlurSigma,
+                                borderRadius: barRadius,
+                                isDark: isDark,
+                                tintColor: useGlass ? baseTint : solidBg,
+                                child: innerContent,
                               ),
-                              // FIX ("theme ke hisab se artwork awkward
-                              // lagta hai"): title/artist text used to
-                              // always use the app's fixed dark/light-mode
-                              // text color, completely independent of the
-                              // actual artwork-derived color this bar is
-                              // painted with. A light/pastel album cover in
-                              // dark mode produced a light tint background
-                              // with white theme text on top — low/no
-                              // contrast, unreadable. Deriving on/off text
-                              // straight from the bar's own real background
-                              // luminance (same pattern already used for
-                              // the play button icon below) guarantees
-                              // readable text against whatever color this
-                              // specific song's artwork actually painted.
-                              child: _miniPlayerContent(context, player,
-                                  onTint: ((docked || effectiveBlurSigma <= 0)
-                                              ? solidBg
-                                              : baseTint)
-                                          .computeLuminance() >
-                                          0.5
-                                      ? Colors.black
-                                      : Colors.white,
-                                  compact: docked),
-                            );
-                            // PERF/HEAT SETTING: mini player is a persistent
-                            // overlay on every screen, so its BackdropFilter
-                            // blur runs on every frame it's visible — real,
-                            // continuous GPU cost. sigma == 0 (user set via
-                            // Settings → Appearance → "Mini Player Blur"),
-                            // Docked mode, or this route not being the top
-                            // of the stack (see effectiveBlurSigma above)
-                            // all skip BackdropFilter entirely for the
-                            // cheapest possible render. Docked mode ALWAYS
-                            // skips it regardless of the blur slider —
-                            // Docked is meant to be the flat, lightweight
-                            // classic look, and the whole point (both
-                            // visually and for perf) is that it never pays
-                            // for glass/blur at all.
-                            if (docked || effectiveBlurSigma <= 0) {
-                              return content;
-                            }
-                            return BackdropFilter(
-                              filter: ImageFilter.blur(
-                                  sigmaX: effectiveBlurSigma,
-                                  sigmaY: effectiveBlurSigma),
-                              child: content,
                             );
                           },
                         );
