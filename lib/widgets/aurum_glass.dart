@@ -37,28 +37,6 @@ import 'package:flutter/material.dart';
 /// existing call site (mini player, nav bar, collapsing headers, etc.)
 /// needs no changes — `sigma <= 0` still takes the zero-cost solid-panel
 /// fallback path.
-/// Look of the glass surface (Settings → Appearance → "Glass Style").
-///
-/// * [classic]  – Aurum's original shader glass (kept for anyone who
-///                liked it; no bevel, no saturation boost).
-/// * [iosClear] – iOS 26 "Clear": very light tint, strong refraction,
-///                GlassiFy bevel. Background shows through the most.
-/// * [iosFrosted] – iOS 26 default frosted look: a bit more body/tint,
-///                GlassiFy bevel, slight saturation boost.
-enum AurumGlassStyle { classic, iosClear, iosFrosted }
-
-AurumGlassStyle aurumGlassStyleFromName(String? name) {
-  switch (name) {
-    case 'Classic':
-      return AurumGlassStyle.classic;
-    case 'iOS Clear':
-      return AurumGlassStyle.iosClear;
-    case 'iOS Frosted':
-    default:
-      return AurumGlassStyle.iosFrosted;
-  }
-}
-
 class AurumGlass extends StatelessWidget {
   final Widget child;
   final double sigma;
@@ -77,8 +55,6 @@ class AurumGlass extends StatelessWidget {
   /// changes the glass colour" on the mini player.
   final bool useTintInGlass;
 
-  final AurumGlassStyle style;
-
   const AurumGlass({
     super.key,
     required this.child,
@@ -87,7 +63,6 @@ class AurumGlass extends StatelessWidget {
     required this.isDark,
     this.tintColor,
     this.useTintInGlass = false,
-    this.style = AurumGlassStyle.iosFrosted,
   });
 
   @override
@@ -115,7 +90,6 @@ class AurumGlass extends StatelessWidget {
         borderRadius: borderRadius,
         isDark: isDark,
         tintColor: useTintInGlass ? tintColor : null,
-        style: style,
         child: child,
       ),
     );
@@ -128,7 +102,6 @@ class _AurumLiquidGlassBackdrop extends StatefulWidget {
   final BorderRadius borderRadius;
   final bool isDark;
   final Color? tintColor;
-  final AurumGlassStyle style;
 
   const _AurumLiquidGlassBackdrop({
     required this.child,
@@ -136,7 +109,6 @@ class _AurumLiquidGlassBackdrop extends StatefulWidget {
     required this.borderRadius,
     required this.isDark,
     required this.tintColor,
-    required this.style,
   });
 
   @override
@@ -192,7 +164,7 @@ class _AurumLiquidGlassBackdropState
     if (_shader != null) {
       final shader = _shader!;
       final radius = widget.borderRadius.topLeft.x;
-      final t = _GlassTuning.of(widget.style, widget.isDark);
+      final t = _GlassTuning.of(widget.isDark);
       shader
         ..setFloat(1, radius)
         ..setFloat(2, t.refraction)
@@ -284,9 +256,10 @@ class _AurumLiquidGlassBackdropState
 }
 
 
-/// Per-style shader tuning. Numbers are chosen to match the GlassiFy demo
-/// (brightness ~1.4 on dark, 3px inset bevel, thin rim) while keeping the
-/// glass BODY colour neutral so it never inherits artwork colour.
+/// Single tuned iOS 26 look. Values chosen so the glass reads as a real
+/// slab: strong rim lensing, light neutral body (content behind stays
+/// visible and keeps its own colour), lit bevel. Body colour stays
+/// neutral (theme black/white) — it never inherits artwork colour.
 class _GlassTuning {
   final double refraction;
   final double chroma;
@@ -306,38 +279,15 @@ class _GlassTuning {
     required this.saturation,
   });
 
-  static _GlassTuning of(AurumGlassStyle style, bool isDark) {
-    switch (style) {
-      case AurumGlassStyle.classic:
-        return _GlassTuning(
-          refraction: 8.0,
-          chroma: 0.12,
-          fresnelPower: 2.4,
-          tintWeight: isDark ? 0.42 : 0.50,
-          bevel: 0.0,
-          brightness: 1.0,
-          saturation: 1.0,
-        );
-      case AurumGlassStyle.iosClear:
-        return _GlassTuning(
-          refraction: 12.0,
-          chroma: 0.10,
-          fresnelPower: 2.0,
-          tintWeight: isDark ? 0.10 : 0.16,
-          bevel: 1.0,
-          brightness: isDark ? 1.18 : 1.05,
-          saturation: 1.25,
-        );
-      case AurumGlassStyle.iosFrosted:
-        return _GlassTuning(
-          refraction: 10.0,
-          chroma: 0.10,
-          fresnelPower: 2.2,
-          tintWeight: isDark ? 0.24 : 0.34,
-          bevel: 1.0,
-          brightness: isDark ? 1.12 : 1.04,
-          saturation: 1.18,
-        );
-    }
+  static _GlassTuning of(bool isDark) {
+    return _GlassTuning(
+      refraction: 14.0,
+      chroma: 0.14,
+      fresnelPower: 2.0,
+      tintWeight: isDark ? 0.16 : 0.22,
+      bevel: 1.0,
+      brightness: isDark ? 1.10 : 1.03,
+      saturation: 1.35,
+    );
   }
 }

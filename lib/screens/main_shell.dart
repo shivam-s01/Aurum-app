@@ -579,13 +579,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         color: Colors.transparent,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
-        child: RepaintBoundary(
-          // RepaintBoundary: floating SnackBars (settings confirmations,
-          // "Added to playlist", etc.) are anchored to this Scaffold via
-          // ScaffoldMessenger and can trigger a relayout pass around
-          // bottomNavigationBar. Isolating this subtree's paint keeps
-          // that pass from ever visually touching the mini player/nav
-          // bar.
+        // NO RepaintBoundary here on purpose (removed for real glass):
+        // a BackdropFilter can only sample the layer it lives in. A
+        // RepaintBoundary above the nav bar / mini player puts them in
+        // their own compositing layer, so the glass shader receives an
+        // EMPTY backdrop and renders as a flat tinted panel instead of
+        // refracting the page content behind it. The snackbar-relayout
+        // isolation it used to provide is not worth losing real glass.
+        child: _GlassBackdropPassthrough(
           // FIX — the actual source of the "ghost pill": Scaffold's
           // `bottomNavigationBar` slot is ALWAYS wrapped internally by
           // Flutter in its own Material widget, which paints a solid
@@ -915,24 +916,18 @@ class AurumBottomNavBar extends StatelessWidget {
               // reads as "awkward", not actual glass. sigma<=0 falls
               // through to AurumGlass's own solid-panel branch, so
               // "zero blur = zero extra GPU cost" is unchanged.
-              return ValueListenableBuilder<String>(
-                valueListenable: AudioPrefs.glassStyleNotifier,
-                builder: (context, glassStyleName, _) {
-                  return SizedBox(
-                    height: _barHeight,
-                    child: AurumGlass(
-                      sigma: effectiveBlurSigma,
-                      borderRadius: BorderRadius.circular(28),
-                      isDark: isDark,
-                      // Flat fallback only (sigma<=0). The glass body itself
-                      // is always neutral — never tinted by artwork.
-                      tintColor: AurumTheme.bgCardOf(context),
-                      useTintInGlass: false,
-                      style: aurumGlassStyleFromName(glassStyleName),
-                      child: navBarContent!,
-                    ),
-                  );
-                },
+              return SizedBox(
+                height: _barHeight,
+                child: AurumGlass(
+                  sigma: effectiveBlurSigma,
+                  borderRadius: BorderRadius.circular(28),
+                  isDark: isDark,
+                  // Flat fallback only (sigma<=0). The glass body itself
+                  // is always neutral — never tinted by artwork.
+                  tintColor: AurumTheme.bgCardOf(context),
+                  useTintInGlass: false,
+                  child: navBarContent!,
+                ),
               );
             },
             child: LayoutBuilder(
@@ -1051,4 +1046,16 @@ class AurumBottomNavBar extends StatelessWidget {
       },
     );
   }
+}
+
+/// Identity wrapper. Exists only so the bottomNavigationBar subtree keeps
+/// the exact same nesting depth it had when a RepaintBoundary lived here.
+/// It adds NO layer, clip, or boundary — a BackdropFilter below must see
+/// the page content, and any RepaintBoundary/ClipRect/Opacity above it
+/// would give the glass shader an empty backdrop.
+class _GlassBackdropPassthrough extends StatelessWidget {
+  final Widget child;
+  const _GlassBackdropPassthrough({required this.child});
+  @override
+  Widget build(BuildContext context) => child;
 }

@@ -294,14 +294,6 @@ class AudioPrefs {
   static final ValueNotifier<String> navBarStyleNotifier =
       ValueNotifier<String>('Floating');
 
-  /// 'iOS Frosted' (default) | 'iOS Clear' | 'Classic' — look of the
-  /// liquid-glass surface on the nav bar + mini player (see
-  /// AurumGlassStyle in widgets/aurum_glass.dart). Only matters while
-  /// "Enable Liquid Glass" is ON. Set from Settings → Appearance →
-  /// "Glass Style".
-  static final ValueNotifier<String> glassStyleNotifier =
-      ValueNotifier<String>('iOS Frosted');
-
   // ── Battery Saver Mode ───────────────────────────────────────────────
   // A separate feature from the individual animation/background toggles
   // above — those stay exactly as the user set them. Battery Saver Mode
@@ -386,7 +378,6 @@ class AudioPrefs {
   static const _kShowBlurBg    = 'show_blurred_bg';
   static const _kNavBarBlur    = 'nav_bar_blur_sigma';
   static const _kNavBarStyle   = 'nav_bar_style';
-  static const _kGlassStyle    = 'glass_style';
   static const _kMiniPlayerBlur = 'mini_player_blur_sigma';
   static const _kPlayerBgStyle = 'player_bg_style';
   static const _kMiniPlayerBg  = 'mini_player_bg_style';
@@ -444,7 +435,6 @@ class AudioPrefs {
     miniPlayerBlurSigmaNotifier.value =
         p.getDouble(_kMiniPlayerBlur) ?? miniPlayerBlurSigmaNotifier.value;
     navBarStyleNotifier.value = p.getString(_kNavBarStyle) ?? navBarStyleNotifier.value;
-    glassStyleNotifier.value = p.getString(_kGlassStyle) ?? glassStyleNotifier.value;
     playerBgStyleNotifier.value = p.getString(_kPlayerBgStyle) ?? playerBgStyleNotifier.value;
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
     bgGradientAnimationNotifier.value = p.getBool(_kBgGradAnim) ?? bgGradientAnimationNotifier.value;
@@ -646,12 +636,6 @@ class AudioPrefs {
     miniPlayerBlurSigmaNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setDouble(_kMiniPlayerBlur, v);
-  }
-
-  static Future<void> setGlassStyle(String v) async {
-    glassStyleNotifier.value = v;
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_kGlassStyle, v);
   }
 
   static Future<void> setNavBarStyle(String v) async {

@@ -1,55 +1,37 @@
 #version 460 core
 
 // ═══════════════════════════════════════════════════════════════════════
-// Aurum Liquid Glass — real iOS 26-style glass shader.
+// Aurum Liquid Glass — iOS 26 style, single tuned look.
 //
-// This is what actually separates "blurred tint" from "glass": every
-// pixel samples the backdrop from a position that has been BENT by a
-// simulated glass surface normal (refraction), split slightly per color
-// channel at the edges (chromatic dispersion, like a prism), lit with a
-// fresnel rim that brightens toward the silhouette edge, and topped with
-// a directional specular glare. None of that exists in a flat
-// BackdropFilter blur + gradient overlay — this is the actual optical
-// recipe Apple's Liquid Glass material uses.
+// What makes this read as REAL glass instead of "blurred tint":
+//   1. LENS refraction — the backdrop is sampled from a position bent
+//      by the surface normal, strongest at the rim, ~0 in the flat
+//      middle (a thick glass slab's bevel), with per-channel dispersion.
+//   2. ABSORPTION, not overlay — the glass body darkens/lightens the
+//      backdrop multiplicatively and only a small amount of neutral
+//      body colour is mixed in. Content behind stays visible and keeps
+//      its own colour (Apple's glass never looks like a painted panel).
+//   3. RIM-FOLLOWING specular — the highlight hugs the silhouette on
+//      the light-facing side (top-left) and a weaker counter-glint sits
+//      opposite (bottom-right), exactly like a lit bevel. No floating
+//      diagonal streak.
+//   4. DIRECTIONAL fresnel + thin inner glow so the edge feels like
+//      it has thickness.
 //
-// Inputs (uniforms), in the exact order Dart's setFloat()/
-// setImageSampler() must supply them. Index 0 (uSize) and sampler 0
-// (uBackdrop) are auto-filled by the engine itself when this shader is
-// used via ImageFilter.shader — Dart code never calls setFloat/
-// setImageSampler for those two, only for everything after:
-//   0: uSize (vec2)   - engine-filled: size of the filtered surface, px
-//   1: uRadius         - corner radius in logical px
-//   2: uRefraction      - refraction strength (px of max sample offset)
-//   3: uChroma          - chromatic dispersion strength (0..1)
-//   4: uFresnelPower    - edge glow falloff exponent
-//   5: uLightX          - directional light origin x (0..1, surface space)
-//   6: uLightY          - directional light origin y (0..1, surface space)
-//   7: uTint (vec4)     - base tint color, straight (non-premultiplied)
-//                          alpha, composited manually below
-//  11: uIsDark          - 1.0 dark theme, 0.0 light theme
-//  12: uBevel           - GlassiFy-style inner bevel strength (0..1):
-//                          inset highlight top-left + inset shadow
-//                          bottom-right, exactly like GlassiFy's
-//                          `inset 3px 3px 3px -1px #fff5 / inset -3px
-//                          -3px 3px -1px #4447` box-shadow recipe
-//  13: uBrightness      - backdrop brightness multiplier (GlassiFy
-//                          `brightness()` filter, 1.0 = unchanged)
-//  14: uSaturation      - backdrop saturation multiplier (iOS glass
-//                          boosts saturation slightly, 1.0 = unchanged)
-// sampler0: uBackdrop (vec2) - engine-filled: the live backdrop pixels
-//           behind this widget, already softened by the BackdropFilter
-//           blur pass Dart applies in the SAME filter chain before this
-//           shader runs — refraction then bends soft frosted light,
-//           exactly like real glass, not a sharp double-image.
+// Uniform contract (Dart setFloat order). uSize (vec2) + sampler
+// uBackdrop are engine-filled for ImageFilter.shader:
+//   0: uSize (vec2, engine)   1: uRadius
+//   2: uRefraction            3: uChroma
+//   4: uFresnelPower          5: uLightX      6: uLightY
+//   7..10: uTint (vec4: rgb = neutral body colour, a = tint weight)
+//  11: uIsDark
+//  12: uBevel                 13: uBrightness   14: uSaturation
+// (Indices/order intentionally unchanged from the previous shader so
+//  Dart-side setFloat calls need no renumbering.)
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <flutter/runtime_effect.glsl>
 
-// ImageFilter.shader (the Impeller backdrop-filter path) has a hard
-// engine requirement: uniform index 0 MUST be a vec2 (auto-filled by the
-// engine with the filtered texture's size), and sampler index 0 MUST be
-// the first sampler declared (auto-filled with the backdrop pixels). Both
-// must exist even though Dart-side code never sets them explicitly.
 uniform vec2 uSize;
 
 uniform float uRadius;
@@ -58,7 +40,7 @@ uniform float uChroma;
 uniform float uFresnelPower;
 uniform float uLightX;
 uniform float uLightY;
-uniform vec4 uTint;
+uniform vec4 uTint;      // rgb = neutral body colour, a = tint weight
 uniform float uIsDark;
 uniform float uBevel;
 uniform float uBrightness;
@@ -68,12 +50,6 @@ uniform sampler2D uBackdrop;
 
 out vec4 fragColor;
 
-// Signed distance to a rounded rect centered at `center`, half-size `he`,
-// corner radius `r`. Negative inside, positive outside, 0 at the edge —
-// this is what lets us derive a smooth surface NORMAL near the edge
-// (the gradient of the SDF), which is the whole basis for refraction:
-// real glass bends light more where the surface curves away from flat,
-// i.e. right at the rounded edge, and barely at all in the flat middle.
 float roundedRectSDF(vec2 p, vec2 he, float r) {
   vec2 d = abs(p) - he + vec2(r);
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
@@ -83,132 +59,112 @@ void main() {
   vec2 fragCoord = FlutterFragCoord().xy;
   vec2 uv = fragCoord / uSize;
 #ifdef IMPELLER_TARGET_OPENGLES
-  // OpenGL(ES) backend renders custom ImageFilter shaders upside down
-  // unless the y-axis is explicitly flipped here — see Flutter's own
-  // fragment-shader docs for this exact caveat.
   uv.y = 1.0 - uv.y;
 #endif
-  vec2 center = uSize * 0.5;
-  vec2 p = fragCoord - center;
+  vec2 p = fragCoord - uSize * 0.5;
   vec2 he = uSize * 0.5;
+  float dark = uIsDark;
 
   float dist = roundedRectSDF(p, he, uRadius);
-
-  // Outside the rounded-rect silhouette entirely -> fully transparent.
-  // Kept branchless (no `if`/`return`) on purpose: mobile GPUs are
-  // tile-based and a fragment shader with a data-dependent early exit
-  // still costs a full warp's worth of divergent work in the worst
-  // case, so a branchless early-out is actually cheaper here than an
-  // `if` would be, not just simpler. `outside` is 0 inside the shape and
-  // ramps to 1 just past it; multiplying the final alpha by
-  // `(1.0 - outside)` collapses the whole surface to fully transparent
-  // there for free, no separate exit path needed.
   float outside = smoothstep(0.0, 1.5, dist);
 
-  // Estimate the local surface normal via the SDF gradient (cheap
-  // central-difference — 4 extra SDF evals, negligible cost).
+  // Surface normal from the SDF gradient.
   float eps = 1.0;
   vec2 grad = vec2(
-    roundedRectSDF(p + vec2(eps, 0.0), he, uRadius) - roundedRectSDF(p - vec2(eps, 0.0), he, uRadius),
-    roundedRectSDF(p + vec2(0.0, eps), he, uRadius) - roundedRectSDF(p - vec2(0.0, eps), he, uRadius)
-  );
+    roundedRectSDF(p + vec2(eps, 0.0), he, uRadius) -
+        roundedRectSDF(p - vec2(eps, 0.0), he, uRadius),
+    roundedRectSDF(p + vec2(0.0, eps), he, uRadius) -
+        roundedRectSDF(p - vec2(0.0, eps), he, uRadius));
   vec2 normal = length(grad) > 0.0001 ? normalize(grad) : vec2(0.0);
 
-  // Refraction falls off from the edge inward — strongest right at the
-  // rim (where a real glass bevel curves the most), fading to ~0 in the
-  // flat interior. `edgeBand` controls how wide that curved bevel reads.
-  float edgeBand = 34.0;
-  float edgeFactor = 1.0 - smoothstep(-edgeBand, 0.0, dist);
-  edgeFactor = clamp(edgeFactor, 0.0, 1.0);
-  // Ease the falloff so it feels like a lens bevel, not a linear ramp.
-  edgeFactor = edgeFactor * edgeFactor * (3.0 - 2.0 * edgeFactor);
+  // ── Lens profile ────────────────────────────────────────────────────
+  // `depth` = distance inward from the rim. A convex-lens profile
+  // (squared falloff) concentrates bending near the edge and leaves the
+  // interior almost undistorted — legible content, glassy rim.
+  float depth = clamp(-dist, 0.0, 1000.0);
+  float bevelW = min(26.0, min(he.x, he.y) * 0.9);
+  float t = clamp(1.0 - depth / bevelW, 0.0, 1.0);
+  float lens = t * t * t;                       // sharp near rim
+  float soft = t * t * (3.0 - 2.0 * t);          // gentle shoulder
 
-  vec2 refractOffset = normal * uRefraction * edgeFactor;
+  // Refract INWARD (negative normal) — a real slab pulls the far
+  // backdrop toward the rim, which is what gives the "magnified edge".
+  vec2 offset = -normal * uRefraction * lens;
 
-  // ── Chromatic dispersion ────────────────────────────────────────────
-  // Real glass bends different wavelengths by slightly different
-  // amounts (that's literally what a prism is). Sampling R/G/B at
-  // slightly different offsets along the same refraction direction is
-  // the standard, cheap way to fake this convincingly.
-  float chroma = uChroma * edgeFactor;
-  vec2 uvR = (fragCoord + refractOffset * (1.0 + chroma)) / uSize;
-  vec2 uvG = (fragCoord + refractOffset) / uSize;
-  vec2 uvB = (fragCoord + refractOffset * (1.0 - chroma)) / uSize;
+  float ch = uChroma * lens;
+  vec2 offR = offset * (1.0 + ch);
+  vec2 offG = offset;
+  vec2 offB = offset * (1.0 - ch);
 
+  vec2 uvR = (fragCoord + offR) / uSize;
+  vec2 uvG = (fragCoord + offG) / uSize;
+  vec2 uvB = (fragCoord + offB) / uSize;
 #ifdef IMPELLER_TARGET_OPENGLES
   uvR.y = 1.0 - uvR.y;
   uvG.y = 1.0 - uvG.y;
   uvB.y = 1.0 - uvB.y;
 #endif
+  uvR = clamp(uvR, 0.002, 0.998);
+  uvG = clamp(uvG, 0.002, 0.998);
+  uvB = clamp(uvB, 0.002, 0.998);
 
-  uvR = clamp(uvR, 0.0015, 0.9985);
-  uvG = clamp(uvG, 0.0015, 0.9985);
-  uvB = clamp(uvB, 0.0015, 0.9985);
+  vec3 bg = vec3(texture(uBackdrop, uvR).r,
+                 texture(uBackdrop, uvG).g,
+                 texture(uBackdrop, uvB).b);
 
-  float r = texture(uBackdrop, uvR).r;
-  float g = texture(uBackdrop, uvG).g;
-  float b = texture(uBackdrop, uvB).b;
-  vec3 refracted = vec3(r, g, b);
+  // ── Body: absorption first, neutral tint second ─────────────────────
+  bg *= uBrightness;
+  float luma = dot(bg, vec3(0.2126, 0.7152, 0.0722));
+  bg = mix(vec3(luma), bg, uSaturation);
 
-  // GlassiFy `backdrop-filter: brightness(x)` + iOS-style saturation
-  // boost. Done on the backdrop only (before the tint mix) so the glass
-  // body colour itself is never affected by these two.
-  refracted *= uBrightness;
-  float luma = dot(refracted, vec3(0.2126, 0.7152, 0.0722));
-  refracted = mix(vec3(luma), refracted, uSaturation);
+  // Multiplicative absorption (glass slightly darkens in dark mode /
+  // slightly milks in light mode) + a LOW-weight neutral body mix.
+  vec3 absorb = dark > 0.5 ? vec3(0.86) : vec3(1.0);
+  vec3 body = bg * absorb;
+  vec3 color = mix(body, uTint.rgb, uTint.a);
 
-  // ── Base tint (the glass's own body color/weight) ───────────────────
-  vec3 color = mix(refracted, uTint.rgb, uTint.a);
+  // Soft milky lift toward the centre-top — the diffuse "sheen" on a
+  // frosted slab. Very low amplitude; it's what stops the interior from
+  // looking flat without turning into a gradient overlay.
+  float sheen = (1.0 - uv.y) * (1.0 - soft) * (dark > 0.5 ? 0.035 : 0.06);
+  color += sheen;
 
-  // ── Fresnel rim ──────────────────────────────────────────────────────
-  // Brightens toward the silhouette edge — the classic "light catching
-  // the rim of a glass pane" look. Directional: stronger on the side
-  // facing the simulated light source, near-absent on the opposite side,
-  // which is what makes it read as a lit 3D bevel instead of a flat
-  // uniform outline.
-  vec2 lightDir = normalize(vec2(uLightX, uLightY) - vec2(0.5));
-  float facing = dot(normal, -lightDir) * 0.5 + 0.5;
-  float fresnel = pow(edgeFactor, uFresnelPower) * facing;
-  color += fresnel * (uIsDark > 0.5 ? 0.35 : 0.55);
+  // ── Light direction (from top-left) ─────────────────────────────────
+  // Light comes from the top-left; normal points OUTWARD, so the lit
+  // rim is the one whose outward normal points up-left. uLightX/Y bias
+  // that direction slightly (kept so Dart-side values still matter).
+  vec2 toLight = normalize(vec2(-0.6 + (uLightX - 0.5) * 0.4, -0.8 + (uLightY - 0.08) * 0.4));
+  float facing = dot(normal, toLight);
+  float litSide = max(facing, 0.0);
+  float darkSide = max(-facing, 0.0);
 
-  // ── GlassiFy inner bevel ─────────────────────────────────────────────
-  // GlassiFy's signature look is a 3px inset highlight on the top-left
-  // and a 3px inset shadow on the bottom-right (`box-shadow: inset 3px
-  // 3px 3px -1px #ffffff50, inset -3px -3px 3px -1px #44444469`), plus
-  // a 1px translucent rim border. Reproduced here from the same SDF:
-  // `bevelBand` is a thin ~3px band hugging the inside of the edge, and
-  // the sign of dot(normal, lightDir) picks highlight vs shadow side.
-  float bevelBand = 1.0 - smoothstep(0.0, 3.5, -dist);
-  bevelBand *= (1.0 - outside);
-  float side = dot(normal, normalize(vec2(-1.0, -1.0)));
-  float hi = max(side, 0.0) * bevelBand;
-  float lo = max(-side, 0.0) * bevelBand;
-  color += hi * uBevel * (uIsDark > 0.5 ? 0.30 : 0.55);
-  color -= lo * uBevel * (uIsDark > 0.5 ? 0.26 : 0.10);
-  // 1px rim (GlassiFy `border: #d1d1d170 solid 1px`)
-  float rim = (1.0 - smoothstep(0.0, 1.2, -dist)) * (1.0 - outside);
-  color = mix(color, vec3(0.82), rim * 0.22 * uBevel);
+  // ── Fresnel rim (directional) ───────────────────────────────────────
+  float rimMask = pow(t, uFresnelPower + 1.0);
+  color += rimMask * (0.10 + 0.55 * litSide) * (dark > 0.5 ? 0.42 : 0.60);
+  color -= rimMask * darkSide * (dark > 0.5 ? 0.10 : 0.05);
 
-  // ── Specular glare streak ────────────────────────────────────────────
-  // A soft directional highlight band near the top, offset toward the
-  // light — the "shine" that sells a curved glossy surface. Kept subtle
-  // and narrow so it reads as a highlight, not a diagonal wipe.
-  float specBand = 1.0 - smoothstep(0.0, 0.38, abs(uv.y - (1.0 - uLightY) * 0.28));
-  float specSide = 1.0 - smoothstep(0.0, 0.6, abs(uv.x - uLightX));
-  float specular = specBand * specSide * (1.0 - edgeFactor * 0.3);
-  color += specular * (uIsDark > 0.5 ? 0.10 : 0.16);
+  // ── Rim-following specular (the big "real glass" cue) ───────────────
+  // Thin ~1.6px ridge hugging the silhouette, bright on the lit side,
+  // with a weaker counter-glint on the opposite side.
+  float ridge = 1.0 - smoothstep(0.0, 1.7, depth);
+  ridge *= (1.0 - outside);
+  float specMain = ridge * pow(litSide, 1.4);
+  float specCounter = ridge * pow(darkSide, 2.0) * 0.38;
+  color += (specMain * (dark > 0.5 ? 0.85 : 0.95) +
+            specCounter * (dark > 0.5 ? 0.55 : 0.50)) * uBevel;
 
-  // ── Inner shadow at the very bottom edge ────────────────────────────
-  // Real glass isn't uniformly lit — the edge opposite the light sits in
-  // faint shadow, which adds the depth/weight a flat panel is missing.
-  float shadowFacing = 1.0 - facing;
-  float innerShadow = pow(edgeFactor, 2.2) * shadowFacing;
-  color -= vec3(uIsDark > 0.5 ? 0.14 : 0.08) * innerShadow;
+  // Inner soft glow just inside the ridge (gives the edge thickness).
+  float inner = smoothstep(0.0, 7.0, depth) *
+                (1.0 - smoothstep(7.0, 16.0, depth));
+  color += inner * litSide * (dark > 0.5 ? 0.06 : 0.09) * uBevel;
 
-  // Alpha: fully opaque in the interior (the tint+refraction already
-  // carries the backdrop through), soft anti-aliased falloff exactly at
-  // the rounded-rect boundary, hard-zeroed past it via `outside`.
+  // Subtle inner shadow on the far side — depth without a drop shadow.
+  color -= rimMask * darkSide * (dark > 0.5 ? 0.06 : 0.04) * uBevel;
+
+  // Hairline outer rim so the shape reads on any backdrop.
+  float hair = (1.0 - smoothstep(0.0, 1.1, depth)) * (1.0 - outside);
+  color = mix(color, vec3(dark > 0.5 ? 0.92 : 0.98), hair * 0.16 * uBevel);
+
   float alpha = (1.0 - smoothstep(-1.0, 1.0, dist)) * (1.0 - outside);
-
   fragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha);
 }

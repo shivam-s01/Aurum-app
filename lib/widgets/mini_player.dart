@@ -613,23 +613,16 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // is NOT mixed into the glass. tintColor is
                             // only used for the sigma<=0 / Docked flat
                             // fallback panel.
-                            return ValueListenableBuilder<String>(
-                              valueListenable: AudioPrefs.glassStyleNotifier,
-                              builder: (context, glassStyleName, _) {
-                                return SizedBox(
-                                  height: docked ? 60 : 68,
-                                  child: AurumGlass(
-                                    sigma: docked ? 0 : effectiveBlurSigma,
-                                    borderRadius: barRadius,
-                                    isDark: isDark,
-                                    tintColor: solidBg,
-                                    useTintInGlass: false,
-                                    style: aurumGlassStyleFromName(
-                                        glassStyleName),
-                                    child: innerContent,
-                                  ),
-                                );
-                              },
+                            return SizedBox(
+                              height: docked ? 60 : 68,
+                              child: AurumGlass(
+                                sigma: docked ? 0 : effectiveBlurSigma,
+                                borderRadius: barRadius,
+                                isDark: isDark,
+                                tintColor: solidBg,
+                                useTintInGlass: false,
+                                child: innerContent,
+                              ),
                             );
                           },
                         );
