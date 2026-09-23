@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_glass.dart';
+import '../services/audio_prefs.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -1520,158 +1522,148 @@ class _SearchScreenState extends State<SearchScreen>
     final l10n = AppLocalizations.of(context)!;
     final focused = _focusNode.hasFocus;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // GLASS LOOK ("glass but ekdam lightweight, low end device"): a real
-    // frosted-glass effect needs BackdropFilter(ImageFilter.blur), which
-    // makes Skia re-blur everything BEHIND this widget on every single
-    // frame it's visible — on a low-end Android GPU that's a guaranteed
-    // jank source, worse the moment this bar scrolls or the keyboard
-    // animates in/out underneath it. This gets the same "frosted glass"
-    // read — soft translucent tint, a hairline light border catching an
-    // edge like glass would, no hard flat fill — using only a static
-    // gradient + border, which costs nothing beyond what a plain colored
-    // Container already cost. No blur, no shader, no extra repaint layer.
+    // GLASS LOOK: now real shader-driven liquid glass (AurumGlass — same
+    // material as the nav bar/mini player), gated behind the user's own
+    // Settings → Appearance → "Nav Bar Blur" value so the low-end-device
+    // tradeoff documented below is still fully respected — sigma 0 (the
+    // setting's own "off" state) still costs nothing beyond a flat
+    // Container, exactly like before. Only users who've already opted
+    // into blur elsewhere in the app pay for it here too.
+    final borderColor = focused
+        ? AurumTheme.accentOf(context).withOpacity(0.6)
+        : (isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.08));
+    final textField = TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      // SAFETY NET: force canRequestFocus back on and request focus
+      // whenever the user actually taps the field, regardless of what
+      // isActive-driven state thinks it should be. This is the direct
+      // fix for the keyboard never opening again after leaving the tab.
+      onTap: () {
+        if (!_focusNode.canRequestFocus) _focusNode.canRequestFocus = true;
+        if (!_focusNode.hasFocus) _focusNode.requestFocus();
+        // DIRECT FIX ("box mai click krte hi history aa jaye"): the
+        // focus-listener (_onFocusChange) only fires setState when
+        // _showHistory's value actually flips — if the field was
+        // already focused (or the listener's async focus-gained
+        // event is simply slow/flaky), tapping back into an empty
+        // box with real history sometimes left the Explore landing
+        // showing instead of history. Setting it directly here, on
+        // the real tap gesture, makes it immediate and doesn't wait
+        // on any focus-change callback timing.
+        if (_controller.text.trim().isEmpty && _history.isNotEmpty && !_showHistory) {
+          setState(() => _showHistory = true);
+        }
+      },
+      onChanged: _onChanged,
+      onSubmitted: _search,
+      style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500),
+      decoration: InputDecoration(
+        hintText: l10n.searchHint,
+        hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
+        prefixIcon: Icon(Icons.search_rounded,
+            color: focused ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 20),
+        // Right side: a back arrow whenever the user is "inside"
+        // search (focused, typing, viewing history, or looking at
+        // results) — a guaranteed one-tap way back to the
+        // Explore/Suggestions landing, since focus-based auto-return
+        // isn't reliable on its own (the field can stay focused
+        // without a fresh focus-gained event firing again). When
+        // there's also text typed, the clear(X) sits right next to
+        // it — clearing text alone (keep the keyboard open, stay in
+        // search) is still a separate, more common gesture than
+        // fully backing out.
+        suffixIcon: (focused || _controller.text.isNotEmpty || _showHistory)
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_controller.text.isNotEmpty)
+                    AurumPressable(
+                      scaleAmount: 0.82,
+                      onTap: _clearSearch,
+                      child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                    ),
+                  AurumPressable(
+                    scaleAmount: 0.82,
+                    onTap: _goToLanding,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 10, right: 4),
+                      child: Icon(Icons.arrow_back_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+                    ),
+                  ),
+                ],
+              )
+            : null,
+        border: InputBorder.none,
+        // BUG FIX (part of the "pill grows tall on keyboard open" fix
+        // above): isDense removes InputDecorator's default extra
+        // vertical slack, which combined with the parent
+        // AnimatedContainer's fixed height:44 above stops this bar
+        // from ever being able to grow taller than its intended
+        // compact size, keyboard open or not. contentPadding reduced
+        // from vertical:14 to vertical:10 to actually fit within that
+        // fixed 44px height alongside the 20px icons and ~20px text
+        // line — the old vertical:14 (28px total) plus text line
+        // would have exceeded 44px and clipped/overflowed now that
+        // the container can no longer silently grow to accommodate it.
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+      textInputAction: TextInputAction.search,
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: AnimatedContainer(
-        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-        curve: Curves.easeOut,
-        // BUG FIX ("keyboard khulte hi search bar ekdam upar tak pill jaisa
-        // ban jata hai"): this container had no height constraint at all —
-        // it relied entirely on the TextField's own intrinsic content
-        // height to size itself. The TextField's InputDecoration never set
-        // isDense, so Flutter's default (non-dense) InputDecorator
-        // reserves extra built-in vertical slack for a helper/error text
-        // line even when none is ever shown here — normally a few pixels
-        // of unnoticed padding, but this bar sits inside a Column that
-        // reflows on every keyboard-open layout pass (the whole search
-        // results/history area resizes as the keyboard's bottom inset
-        // changes), and that reflow is what let this box's height balloon
-        // visibly instead of settling back to its normal compact size,
-        // giving exactly the "ekdam upar tak pill" symptom. Pinning an
-        // explicit height here (44, matching this app's other compact
-        // search/nav bars — see the height: 44 pill elsewhere in this
-        // file) means this bar's size can never depend on the
-        // TextField's variable intrinsic height at all, keyboard open or
-        // not. isDense: true below removes the same extra slack at its
-        // source too, as defense in depth.
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isDark
-                ? [Colors.white.withOpacity(0.10), Colors.white.withOpacity(0.04)]
+      child: ValueListenableBuilder<double>(
+        valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
+        builder: (context, blurSigma, child) => AnimatedContainer(
+          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+          curve: Curves.easeOut,
+          // BUG FIX ("keyboard khulte hi search bar ekdam upar tak pill
+          // jaisa ban jata hai"): this container had no height constraint
+          // at all — it relied entirely on the TextField's own intrinsic
+          // content height to size itself. The TextField's
+          // InputDecoration never set isDense, so Flutter's default
+          // (non-dense) InputDecorator reserves extra built-in vertical
+          // slack for a helper/error text line even when none is ever
+          // shown here — normally a few pixels of unnoticed padding, but
+          // this bar sits inside a Column that reflows on every
+          // keyboard-open layout pass, and that reflow is what let this
+          // box's height balloon visibly instead of settling back to its
+          // normal compact size. Pinning an explicit height here (44,
+          // matching this app's other compact search/nav bars) means
+          // this bar's size can never depend on the TextField's variable
+          // intrinsic height at all, keyboard open or not.
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: focused ? 1.3 : 0.7),
+            boxShadow: focused
+                ? [
+                    BoxShadow(
+                      color: AurumTheme.accentOf(context).withOpacity(0.16),
+                      blurRadius: 18,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: AurumGlass(
+            sigma: blurSigma,
+            borderRadius: BorderRadius.circular(14),
+            isDark: isDark,
+            tintColor: isDark
+                ? Colors.white.withOpacity(0.06)
                 // LIGHT-MODE FIX ("awkward na lage"): light theme's bg
-                // (#F5F3ED, a soft cream) sits very close to white already —
-                // a white-tinted gradient at 0.55→0.28 opacity barely reads
-                // as glass there, it just looks like a flat washed-out
-                // card with almost no depth against a near-white page.
-                // Using the app's own dark card tone (bgCard, #0D0D14) at
-                // low opacity instead gives the frosted panel actual
-                // contrast against the cream background — visibly "glassy"
-                // rather than nearly invisible — while staying just as
-                // cheap (still a static gradient, no blur).
-                : [
-                    AurumTheme.darkBgCard.withOpacity(0.06),
-                    AurumTheme.darkBgCard.withOpacity(0.03),
-                  ],
+                // (#F5F3ED, a soft cream) sits very close to white
+                // already — a white tint barely reads as glass there.
+                // The app's own dark card tone at low opacity gives real
+                // contrast against the cream background instead.
+                : AurumTheme.darkBgCard.withOpacity(0.05),
+            child: child!,
           ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: focused
-                ? AurumTheme.accentOf(context).withOpacity(0.6)
-                : (isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.08)),
-            width: focused ? 1.3 : 0.7,
-          ),
-          boxShadow: focused
-              ? [
-                  BoxShadow(
-                    color: AurumTheme.accentOf(context).withOpacity(0.16),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : const [],
         ),
-        child: TextField(
-          controller: _controller,
-          focusNode: _focusNode,
-          // SAFETY NET: force canRequestFocus back on and request focus
-          // whenever the user actually taps the field, regardless of what
-          // isActive-driven state thinks it should be. This is the direct
-          // fix for the keyboard never opening again after leaving the tab.
-          onTap: () {
-            if (!_focusNode.canRequestFocus) _focusNode.canRequestFocus = true;
-            if (!_focusNode.hasFocus) _focusNode.requestFocus();
-            // DIRECT FIX ("box mai click krte hi history aa jaye"): the
-            // focus-listener (_onFocusChange) only fires setState when
-            // _showHistory's value actually flips — if the field was
-            // already focused (or the listener's async focus-gained
-            // event is simply slow/flaky), tapping back into an empty
-            // box with real history sometimes left the Explore landing
-            // showing instead of history. Setting it directly here, on
-            // the real tap gesture, makes it immediate and doesn't wait
-            // on any focus-change callback timing.
-            if (_controller.text.trim().isEmpty && _history.isNotEmpty && !_showHistory) {
-              setState(() => _showHistory = true);
-            }
-          },
-          onChanged: _onChanged,
-          onSubmitted: _search,
-          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500),
-          decoration: InputDecoration(
-            hintText: l10n.searchHint,
-            hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
-            prefixIcon: Icon(Icons.search_rounded,
-                color: focused ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 20),
-            // Right side: a back arrow whenever the user is "inside"
-            // search (focused, typing, viewing history, or looking at
-            // results) — a guaranteed one-tap way back to the
-            // Explore/Suggestions landing, since focus-based auto-return
-            // isn't reliable on its own (the field can stay focused
-            // without a fresh focus-gained event firing again). When
-            // there's also text typed, the clear(X) sits right next to
-            // it — clearing text alone (keep the keyboard open, stay in
-            // search) is still a separate, more common gesture than
-            // fully backing out.
-            suffixIcon: (focused || _controller.text.isNotEmpty || _showHistory)
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_controller.text.isNotEmpty)
-                        AurumPressable(
-                          scaleAmount: 0.82,
-                          onTap: _clearSearch,
-                          child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
-                        ),
-                      AurumPressable(
-                        scaleAmount: 0.82,
-                        onTap: _goToLanding,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 10, right: 4),
-                          child: Icon(Icons.arrow_back_rounded, color: AurumTheme.textMutedOf(context), size: 20),
-                        ),
-                      ),
-                    ],
-                  )
-                : null,
-            border: InputBorder.none,
-            // BUG FIX (part of the "pill grows tall on keyboard open" fix
-            // above): isDense removes InputDecorator's default extra
-            // vertical slack, which combined with the parent
-            // AnimatedContainer's fixed height:44 above stops this bar
-            // from ever being able to grow taller than its intended
-            // compact size, keyboard open or not. contentPadding reduced
-            // from vertical:14 to vertical:10 to actually fit within that
-            // fixed 44px height alongside the 20px icons and ~20px text
-            // line — the old vertical:14 (28px total) plus text line
-            // would have exceeded 44px and clipped/overflowed now that
-            // the container can no longer silently grow to accommodate it.
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          ),
-          textInputAction: TextInputAction.search,
-        ),
+        child: textField,
       ),
     );
   }
