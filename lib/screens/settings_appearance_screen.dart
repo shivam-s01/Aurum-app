@@ -30,7 +30,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   String _playerBgStyle = 'Blur';
   bool _dynamicPlayerColor = true;
   String _playerButtonColors = 'Primary';
-  String _playerSliderStyle = 'Rounded';
+  String _playerSliderStyle = 'Waveform';
   String _fullPlayerStyle = 'Classic';
   // SPEED FIX (Spotify-level lightweight): these three local fallback
   // defaults must match their AudioPrefs notifier counterparts exactly
@@ -46,9 +46,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // confusing flash of the wrong value on a screen about performance
   // settings specifically. Keeping both sides in sync avoids that.
   bool _showBlurredBg = false;
-  double _navBarBlurSigma = 0.0;
-  double _miniPlayerBlurSigma = 0.0;
+  double _navBarBlurSigma = 18.0;
+  double _miniPlayerBlurSigma = 12.0;
   String _navBarStyle = 'Floating';
+  String _glassStyle = 'iOS Frosted';
   // Lyrics
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
@@ -116,7 +117,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _playerBgStyle = p.getString('player_bg_style') ?? 'Blur';
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
-      _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
+      _playerSliderStyle = p.getString('player_slider_style') ?? 'Waveform';
       _fullPlayerStyle = p.getString('full_player_style') ?? 'Classic';
       // SPEED FIX (Spotify-level lightweight): fallback defaults here
       // matched to the new AudioPrefs notifier defaults (false/0.0/0.0)
@@ -128,9 +129,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       // launch, but every time this specific key was never explicitly
       // set.
       _showBlurredBg = p.getBool('show_blurred_bg') ?? false;
-      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 0.0;
-      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 0.0;
+      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
+      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
       _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
+      _glassStyle = p.getString('glass_style') ?? 'iOS Frosted';
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
@@ -350,27 +352,44 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             value: _showBlurredBg,
             onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); AudioPrefs.setShowBlurredBg(v); },
           ),
-          // Blur intensity controls for the two persistent frosted-glass
-          // surfaces (nav bar, mini player) — both run their BackdropFilter
-          // blur on every frame they're visible, which is real ongoing
-          // GPU/battery cost on weaker devices. Letting users dial this
-          // down (or to 0 — fully flat, cheapest possible) trades the
-          // frosted look for cooler/longer-lasting playback, without
-          // forcing that tradeoff on everyone.
-          _sliderTile(context,
-            title: l10n.saNavBarBlur,
-            value: _navBarBlurSigma,
-            min: 0, max: 24, divisions: 24,
-            displayValue: _navBarBlurSigma <= 0 ? 'Off' : _navBarBlurSigma.toInt().toString(),
-            onChanged: (v) { setState(() => _navBarBlurSigma = v); AudioPrefs.setNavBarBlurSigma(v); },
+          // Master ON/OFF for the iOS-style liquid glass on the nav bar and
+          // mini player. ON uses fixed, tuned sigma values (18 nav bar / 12
+          // mini player) so it stays lightweight; OFF skips the
+          // BackdropFilter + shader entirely (flat panel — cheapest).
+          // The glass is rendered by a custom fragment shader
+          // (shaders/liquid_glass.frag, needs Impeller) with an automatic
+          // blur fallback on devices that can't run it. The glass body is
+          // always neutral — it never takes the song artwork's colour.
+          _inlineSwitch(context,
+            title: 'Enable Liquid Glass',
+            subtitle: 'iOS-style liquid glass for the nav bar and mini player.',
+            value: _navBarBlurSigma > 0 || _miniPlayerBlurSigma > 0,
+            onChanged: (v) {
+              final nav = v ? 18.0 : 0.0;
+              final mini = v ? 12.0 : 0.0;
+              setState(() {
+                _navBarBlurSigma = nav;
+                _miniPlayerBlurSigma = mini;
+              });
+              _save('nav_bar_blur_sigma', nav);
+              _save('mini_player_blur_sigma', mini);
+              AudioPrefs.setNavBarBlurSigma(nav);
+              AudioPrefs.setMiniPlayerBlurSigma(mini);
+            },
           ),
-          _sliderTile(context,
-            title: l10n.saMiniPlayerBlur,
-            value: _miniPlayerBlurSigma,
-            min: 0, max: 14, divisions: 14,
-            displayValue: _miniPlayerBlurSigma <= 0 ? 'Off' : _miniPlayerBlurSigma.toInt().toString(),
-            onChanged: (v) { setState(() => _miniPlayerBlurSigma = v); AudioPrefs.setMiniPlayerBlurSigma(v); },
-          ),
+          // Glass look picker — only meaningful while glass is ON.
+          if (_navBarBlurSigma > 0 || _miniPlayerBlurSigma > 0)
+            _dropdownTile(context,
+              title: 'Glass Style',
+              subtitle: 'iOS Frosted: soft body. iOS Clear: see-through, strongest refraction. Classic: Aurum\'s original glass.',
+              value: _glassStyle,
+              options: const ['iOS Frosted', 'iOS Clear', 'Classic'],
+              onChanged: (v) {
+                setState(() => _glassStyle = v!);
+                _save('glass_style', v!);
+                AudioPrefs.setGlassStyle(v);
+              },
+            ),
           // ── Mini Player ──
           // Mini player settings removed — the widget was rewritten to a
           // single fixed, minimal design with no configurable style,
