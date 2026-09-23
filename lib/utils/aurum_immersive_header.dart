@@ -24,6 +24,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/aurum_theme.dart';
+import '../widgets/aurum_glass.dart';
 import 'artwork_palette_cache.dart';
 
 /// Extracts a single "immersive background" color from an artwork URL.
@@ -232,28 +233,24 @@ class AurumGlassCollapseBar extends StatelessWidget {
     // Remap so 0.0 collapse -> _minStrength (not 0), 1.0 collapse -> 1.0,
     // linearly in between — the floor, not a separate on/off switch.
     final strength = _minStrength + (1.0 - _minStrength) * collapseRaw;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return IgnorePointer(
       child: Opacity(
         opacity: strength,
-        child: ClipRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(
-              sigmaX: 18 * strength,
-              sigmaY: 18 * strength,
-            ),
-            child: Container(
-              height: barHeight + MediaQuery.of(context).padding.top,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    glow.withOpacity(0.55),
-                    glow.withOpacity(0.30),
-                  ],
-                ),
-              ),
-            ),
+        // Real liquid-glass collapse strip (shader refraction/fresnel via
+        // AurumGlass) instead of a flat blurred gradient — same material
+        // as the nav bar and mini player now, so the whole app's glass
+        // reads as one consistent surface. sigma scales with `strength`
+        // exactly like before, so it's still fully off (and zero-cost)
+        // while the header is expanded.
+        child: AurumGlass(
+          sigma: 18 * strength,
+          borderRadius: BorderRadius.zero,
+          isDark: isDark,
+          tintColor: glow,
+          child: SizedBox(
+            height: barHeight + MediaQuery.of(context).padding.top,
+            width: double.infinity,
           ),
         ),
       ),

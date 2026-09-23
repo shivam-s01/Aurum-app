@@ -32,7 +32,7 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.accent;
   String         _playerButtonColorMode = 'Primary';
-  String         _playerSliderStyle = 'Rounded';
+  String         _playerSliderStyle = 'Waveform';
   String         _fullPlayerStyle = 'Classic';
 
   AurumThemeMode get mode      => _mode;

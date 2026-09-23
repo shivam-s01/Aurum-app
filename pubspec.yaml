@@ -116,6 +116,7 @@ dependencies:
   connectivity_plus: ^6.0.5
   google_sign_in: ^6.2.1
 
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -128,3 +129,5 @@ flutter:
     - assets/images/
     - assets/fonts/
     - assets/data/
+  shaders:
+    - shaders/liquid_glass.frag
