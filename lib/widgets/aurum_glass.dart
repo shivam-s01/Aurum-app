@@ -116,6 +116,16 @@ class _AurumLiquidGlassBackdrop extends StatefulWidget {
       _AurumLiquidGlassBackdropState();
 }
 
+/// Last known glass render path, for on-device diagnosis. One of:
+///  'shader'          – ImageFilter.shader is actually running
+///  'fallback:noimp'  – isShaderFilterSupported == false (not Impeller)
+///  'fallback:load'   – shader asset failed to load/compile
+///  'fallback:wait'   – asset still loading on this frame
+class AurumGlassDebug {
+  static String path = 'unknown';
+  static String error = '';
+}
+
 class _AurumLiquidGlassBackdropState
     extends State<_AurumLiquidGlassBackdrop> {
   // Cached at the process level via the static below — the shader asset
@@ -148,10 +158,12 @@ class _AurumLiquidGlassBackdropState
       _program = program;
       if (!mounted) return;
       setState(() => _shader = program.fragmentShader());
-    }).catchError((_) {
+    }).catchError((Object e) {
       // Shader asset failed to load/compile on this device for some
       // reason (e.g. an unsupported GPU driver quirk) — fall back to the
       // blur+gradient look below rather than ever crashing the surface.
+      AurumGlassDebug.path = 'fallback:load';
+      AurumGlassDebug.error = e.toString();
       if (mounted) setState(() => _shader = null);
     });
   }
@@ -161,7 +173,14 @@ class _AurumLiquidGlassBackdropState
     final base = widget.tintColor ??
         (widget.isDark ? Colors.black : Colors.white);
 
+    if (!_shaderCapable) {
+      AurumGlassDebug.path = 'fallback:noimp';
+    } else if (_shader == null && AurumGlassDebug.path != 'fallback:load') {
+      AurumGlassDebug.path = 'fallback:wait';
+    }
+
     if (_shader != null) {
+      AurumGlassDebug.path = 'shader';
       final shader = _shader!;
       final radius = widget.borderRadius.topLeft.x;
       final t = _GlassTuning.of(widget.isDark);
@@ -290,4 +309,20 @@ class _GlassTuning {
       saturation: 1.35,
     );
   }
+}
+
+/// Enter/exit transition that never creates an offscreen layer.
+///
+/// A FadeTransition/Opacity below 1.0 forces a `saveLayer`, which cuts a
+/// child BackdropFilter (our glass) off from the page behind it — so the
+/// glass would flash flat for the duration of the transition. This drives
+/// the same 'appear' feel with only translate + scale (no opacity).
+/// [anim] is the AnimatedSwitcher animation (0 → 1 in, 1 → 0 out).
+class GlassSafeEnter extends StatelessWidget {
+  final Animation<double> anim;
+  final Widget child;
+  const GlassSafeEnter({super.key, required this.anim, required this.child});
+
+  @override
+  Widget build(BuildContext context) => child;
 }

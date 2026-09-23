@@ -1614,9 +1614,11 @@ class _SearchScreenState extends State<SearchScreen>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: ValueListenableBuilder<double>(
-        valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
-        builder: (context, blurSigma, child) => AnimatedContainer(
+      child: ValueListenableBuilder<bool>(
+        valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+        builder: (context, glassOn, child) {
+          final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
+          return AnimatedContainer(
           duration: AurumMotion.durationOrZero(AurumMotion.medium1),
           curve: Curves.easeOut,
           // BUG FIX ("keyboard khulte hi search bar ekdam upar tak pill
@@ -1662,7 +1664,8 @@ class _SearchScreenState extends State<SearchScreen>
                 : AurumTheme.darkBgCard.withOpacity(0.05),
             child: child!,
           ),
-        ),
+          );
+        },
         child: textField,
       ),
     );

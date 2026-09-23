@@ -280,6 +280,17 @@ class AudioPrefs {
   static final ValueNotifier<double> miniPlayerBlurSigmaNotifier =
       ValueNotifier<double>(12.0);
 
+  /// Single master switch for the liquid glass on the nav bar + mini
+  /// player. Default ON. This REPLACES reading the old per-widget blur
+  /// sigma prefs: an older build stored `nav_bar_blur_sigma = 0.0` on many
+  /// devices, and that stale 0 silently forced the flat solid panel
+  /// forever (glass looked "off" even though the code was fine). The old
+  /// sigma keys are now ignored; sigma is a fixed tuned constant below.
+  static final ValueNotifier<bool> liquidGlassEnabledNotifier =
+      ValueNotifier<bool>(true);
+  static const double glassNavSigma = 18.0;
+  static const double glassMiniSigma = 12.0;
+
   /// 'Floating' (default) | 'Docked' — overall shape/placement of the
   /// bottom nav bar + mini player stack. 'Floating' is Aurum's existing
   /// look: side-margined rounded capsule nav bar with a separate rounded
@@ -377,6 +388,7 @@ class AudioPrefs {
   static const _kDynamicColor  = 'dynamic_player_color';
   static const _kShowBlurBg    = 'show_blurred_bg';
   static const _kNavBarBlur    = 'nav_bar_blur_sigma';
+  static const _kLiquidGlass   = 'liquid_glass_enabled';
   static const _kNavBarStyle   = 'nav_bar_style';
   static const _kMiniPlayerBlur = 'mini_player_blur_sigma';
   static const _kPlayerBgStyle = 'player_bg_style';
@@ -431,9 +443,9 @@ class AudioPrefs {
     swipeSensitivity = p.getDouble(_kSwipeSens) ?? swipeSensitivity;
     dynamicPlayerColorNotifier.value = p.getBool(_kDynamicColor) ?? dynamicPlayerColorNotifier.value;
     showBlurredBgNotifier.value = p.getBool(_kShowBlurBg) ?? showBlurredBgNotifier.value;
-    navBarBlurSigmaNotifier.value = p.getDouble(_kNavBarBlur) ?? navBarBlurSigmaNotifier.value;
-    miniPlayerBlurSigmaNotifier.value =
-        p.getDouble(_kMiniPlayerBlur) ?? miniPlayerBlurSigmaNotifier.value;
+    // Old sigma prefs intentionally NOT read (stale 0.0 killed glass).
+    liquidGlassEnabledNotifier.value =
+        p.getBool(_kLiquidGlass) ?? liquidGlassEnabledNotifier.value;
     navBarStyleNotifier.value = p.getString(_kNavBarStyle) ?? navBarStyleNotifier.value;
     playerBgStyleNotifier.value = p.getString(_kPlayerBgStyle) ?? playerBgStyleNotifier.value;
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
@@ -624,6 +636,12 @@ class AudioPrefs {
     showBlurredBgNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kShowBlurBg, v);
+  }
+
+  static Future<void> setLiquidGlassEnabled(bool v) async {
+    liquidGlassEnabledNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kLiquidGlass, v);
   }
 
   static Future<void> setNavBarBlurSigma(double v) async {

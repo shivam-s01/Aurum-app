@@ -648,8 +648,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       if (currentChild != null) currentChild,
                     ],
                   ),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
+                  // NO FadeTransition: Opacity/fade < 1 forces a saveLayer that
+                  // cuts the glass BackdropFilter off from the page behind it, so
+                  // the glass flashes flat during show/hide. Slide+scale only.
+                  transitionBuilder: (child, anim) => GlassSafeEnter(
+                    anim: anim,
                     child: SlideTransition(
                       position: Tween<Offset>(
                         begin: const Offset(0, 0.12),
@@ -836,9 +839,10 @@ class AurumBottomNavBar extends StatelessWidget {
           // below is completely unaffected. sigma == 0 skips BackdropFilter
           // entirely (cheapest possible option: flat tinted bar, same look
           // FullPlayerScreen's own route-transition fallback already uses).
-          child: ValueListenableBuilder<double>(
-            valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
-            builder: (context, blurSigma, navBarContent) {
+          child: ValueListenableBuilder<bool>(
+            valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+            builder: (context, glassOn, navBarContent) {
+              final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
               // PERF/BATTERY FIX (zero-tolerance heating/battery request):
               // same fix as mini_player.dart's effectiveBlurSigma — this
               // nav bar sits underneath every pushed screen too (MainShell

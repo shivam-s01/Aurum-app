@@ -46,6 +46,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // confusing flash of the wrong value on a screen about performance
   // settings specifically. Keeping both sides in sync avoids that.
   bool _showBlurredBg = false;
+  bool _liquidGlass = true;
   double _navBarBlurSigma = 18.0;
   double _miniPlayerBlurSigma = 12.0;
   String _navBarStyle = 'Floating';
@@ -128,6 +129,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       // launch, but every time this specific key was never explicitly
       // set.
       _showBlurredBg = p.getBool('show_blurred_bg') ?? false;
+      _liquidGlass = p.getBool('liquid_glass_enabled') ?? true;
       _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
       _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
       _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
@@ -361,18 +363,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           _inlineSwitch(context,
             title: 'Enable Liquid Glass',
             subtitle: 'Liquid glass effect for the nav bar and mini player.',
-            value: _navBarBlurSigma > 0 || _miniPlayerBlurSigma > 0,
+            value: _liquidGlass,
             onChanged: (v) {
-              final nav = v ? 18.0 : 0.0;
-              final mini = v ? 12.0 : 0.0;
-              setState(() {
-                _navBarBlurSigma = nav;
-                _miniPlayerBlurSigma = mini;
-              });
-              _save('nav_bar_blur_sigma', nav);
-              _save('mini_player_blur_sigma', mini);
-              AudioPrefs.setNavBarBlurSigma(nav);
-              AudioPrefs.setMiniPlayerBlurSigma(mini);
+              setState(() => _liquidGlass = v);
+              _save('liquid_glass_enabled', v);
+              AudioPrefs.setLiquidGlassEnabled(v);
             },
           ),
           // ── Mini Player ──

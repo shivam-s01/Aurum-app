@@ -115,7 +115,12 @@ void main() {
   // ── Body: absorption first, neutral tint second ─────────────────────
   bg *= uBrightness;
   float luma = dot(bg, vec3(0.2126, 0.7152, 0.0722));
-  bg = mix(vec3(luma), bg, uSaturation);
+  // Saturate, but pull the boost back for already-saturated pixels so
+  // strong colours (red/orange album art) don't clip to a flat 1.0 and
+  // read as a colour cast.
+  float chromaAmt = max(bg.r, max(bg.g, bg.b)) - min(bg.r, min(bg.g, bg.b));
+  float satBoost = 1.0 + (uSaturation - 1.0) * (1.0 - smoothstep(0.35, 0.85, chromaAmt));
+  bg = mix(vec3(luma), bg, satBoost);
 
   // Multiplicative absorption (glass slightly darkens in dark mode /
   // slightly milks in light mode) + a LOW-weight neutral body mix.

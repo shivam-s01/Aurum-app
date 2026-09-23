@@ -428,7 +428,6 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
         });
 
         final frac = (_dragY.abs() / 160.0).clamp(0.0, 1.0);
-        final opacity = _dragging ? (1.0 - frac * 0.6).clamp(0.0, 1.0) : 1.0;
         final translateY = _dragging ? _dragY.clamp(-60.0, 200.0) : 0.0;
 
         return GestureDetector(
@@ -438,8 +437,11 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
           onVerticalDragCancel: _onDragCancel,
           child: Transform.translate(
             offset: Offset(0, translateY),
-            child: Opacity(
-              opacity: opacity,
+            // NO Opacity here on purpose: Opacity(<1) forces a saveLayer,
+            // which cuts the BackdropFilter off from the page behind it
+            // and makes the glass flash flat for the whole drag. The swipe
+            // feel comes from the translate above instead.
+            child: _NoLayerPassthrough(
               child: ValueListenableBuilder<String>(
                 valueListenable: AudioPrefs.navBarStyleNotifier,
                 builder: (context, navStyle, _) {
@@ -531,9 +533,11 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                       // transitions instead of being swapped out — a minor,
                       // bounded perf tradeoff, not a correctness bug that
                       // can get permanently stuck.
-                      return ValueListenableBuilder<double>(
-                          valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
-                          builder: (context, blurSigma, _) {
+                      return ValueListenableBuilder<bool>(
+                          valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+                          builder: (context, glassOn, _) {
+                            final blurSigma =
+                                glassOn ? AudioPrefs.glassMiniSigma : 0.0;
                             // PERF FIX ("Settings ki har screen pe scroll
                             // stuck/frozen ho jata hai"): the mini player is
                             // a persistent overlay living underneath every
@@ -900,4 +904,13 @@ class _ControlBtn extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Identity wrapper — adds no layer, clip, or opacity. Keeps nesting
+/// identical to the old Opacity(...) so the surrounding tree is untouched.
+class _NoLayerPassthrough extends StatelessWidget {
+  final Widget child;
+  const _NoLayerPassthrough({required this.child});
+  @override
+  Widget build(BuildContext context) => child;
 }

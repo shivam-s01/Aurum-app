@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import 'mini_player.dart';
+import 'aurum_glass.dart';
 import '../utils/aurum_motion.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -113,8 +114,11 @@ class MiniPlayerSlot extends StatelessWidget {
                   if (currentChild != null) currentChild,
                 ],
               ),
-              transitionBuilder: (child, anim) => FadeTransition(
-                opacity: anim,
+              // NO FadeTransition: Opacity/fade < 1 forces a saveLayer that
+              // cuts the glass BackdropFilter off from the page behind it, so
+              // the glass flashes flat during show/hide. Slide+scale only.
+              transitionBuilder: (child, anim) => GlassSafeEnter(
+                anim: anim,
                 child: SlideTransition(
                   position: Tween<Offset>(
                     begin: const Offset(0, 0.12),
