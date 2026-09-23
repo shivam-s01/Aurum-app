@@ -68,29 +68,29 @@ class AurumGlass extends StatelessWidget {
     // than a plain sigma pass-through — boosting the caller's sigma here
     // (not changing call sites) gets the frost density in the same range
     // as actual iOS glass instead of looking under-blurred.
-    final effectiveSigma = sigma * 1.6;
+    final effectiveSigma = sigma * 2.4;
 
     return LiquidGlassLens(
       style: LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
           borderType: const OpticalBorder(
-            borderSaturation: 1.4,
-            ambientIntensity: 1.2,
-            borderSolidity: 0.0,
+            borderSaturation: 1.6,
+            ambientIntensity: 1.4,
+            borderSolidity: 0.15,
           ),
         ),
         appearance: LiquidGlassAppearance(
-          color: base.withValues(alpha: isDark ? 0.22 : 0.30),
+          color: base.withValues(alpha: isDark ? 0.34 : 0.42),
           blur: LiquidGlassBlur(sigmaX: effectiveSigma, sigmaY: effectiveSigma),
-          saturation: 1.6,
-          shadow: const LiquidGlassShadow(blur: 4.5, opacity: 0.22),
+          saturation: 1.8,
+          shadow: const LiquidGlassShadow(blur: 6.0, opacity: 0.28),
         ),
         refraction: const LiquidGlassRefraction(
-          distortion: 0.16,
-          distortionWidth: 36,
-          magnification: 1.02,
-          chromaticAberration: 0.008,
+          distortion: 0.22,
+          distortionWidth: 42,
+          magnification: 1.04,
+          chromaticAberration: 0.012,
         ),
       ),
       child: child,
