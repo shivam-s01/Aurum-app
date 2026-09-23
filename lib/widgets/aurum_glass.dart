@@ -70,9 +70,19 @@ class AurumGlass extends StatelessWidget {
     if (sigma <= 0) {
       // Solid fallback — identical cost/behavior to before: no blur, no
       // shader, just a flat panel. Zero extra GPU work.
+      //
+      // TEMP DIAGNOSTIC (always-on, works in release APK too): if THIS
+      // badge is the one showing on the flat bar, it's 100% confirmed
+      // the caller passed sigma<=0 — the shader/BackdropFilter code was
+      // never even reached. That means the bug is upstream, in whatever
+      // computed `sigma` (glassOn / effectiveBlurSigma / isTopRoute in
+      // main_shell.dart or mini_player.dart), not in this file's shader
+      // logic at all. REMOVE this whole diagnostic block once the cause
+      // is confirmed — it's not meant to ship long-term.
       return ClipRRect(
         borderRadius: borderRadius,
-        child: Container(
+        child: Stack(children: [
+        Container(
           decoration: BoxDecoration(
             color: tintColor ??
                 (isDark ? const Color(0xFF1B1927) : Colors.white),
@@ -80,6 +90,27 @@ class AurumGlass extends StatelessWidget {
           ),
           child: child,
         ),
+        Positioned(
+            left: 4,
+            top: 2,
+            child: IgnorePointer(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                color: Colors.black.withValues(alpha: 0.6),
+                child: const Text(
+                  'SIGMA<=0: glass never attempted (caller bug)',
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]),
       );
     }
 
@@ -168,11 +199,44 @@ class _AurumLiquidGlassBackdropState
     });
   }
 
+  // TEMP DIAGNOSTIC (always-on, works in release APK too — see
+  // main.dart's top-of-file notice on why debug overlays must normally
+  // be gated/removed; this one is intentionally always-on since the
+  // build is via GitHub Actions release, not `flutter run` debug): a
+  // tiny badge painted directly on top of this glass surface showing
+  // which render path it actually took. REMOVE once cause is confirmed.
+  Widget _debugBadge(String label) {
+    return Positioned(
+      left: 4,
+      top: 2,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          color: Colors.black.withValues(alpha: 0.6),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.limeAccent,
+              fontSize: 9,
+              fontFamily: 'monospace',
+              height: 1.0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final base = widget.tintColor ??
         (widget.isDark ? Colors.black : Colors.white);
 
+    // sigma<=0 short-circuits in the OUTER AurumGlass.build() before this
+    // State's build() ever runs — so if the flat panel is showing with
+    // NO debug badge anywhere on it, that IS the confirmed cause: the
+    // caller passed sigma<=0 (glass never attempted at all), not a
+    // shader/fallback failure inside this State.
     if (!_shaderCapable) {
       AurumGlassDebug.path = 'fallback:noimp';
     } else if (_shader == null && AurumGlassDebug.path != 'fallback:load') {
@@ -200,7 +264,8 @@ class _AurumLiquidGlassBackdropState
         ..setFloat(13, t.brightness)
         ..setFloat(14, t.saturation);
 
-      return BackdropFilter(
+      return Stack(children: [
+      BackdropFilter(
         filter: ui.ImageFilter.compose(
           outer: ui.ImageFilter.shader(shader),
           inner: ui.ImageFilter.blur(
@@ -210,7 +275,9 @@ class _AurumLiquidGlassBackdropState
           ),
         ),
         child: widget.child,
-      );
+      ),
+      _debugBadge('shader OK sigma=${widget.sigma.toStringAsFixed(0)}'),
+      ]);
     }
 
     // Fallback path (shader unsupported/still loading/failed): the
@@ -232,6 +299,7 @@ class _AurumLiquidGlassBackdropState
         fit: StackFit.passthrough,
         children: [
           Container(color: base.withValues(alpha: fillAlpha)),
+          _debugBadge('FALLBACK:${AurumGlassDebug.path} sigma=${widget.sigma.toStringAsFixed(0)}'),
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
