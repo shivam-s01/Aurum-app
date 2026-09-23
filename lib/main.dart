@@ -1,3 +1,4 @@
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
 //
@@ -224,7 +225,7 @@ Future<void> main() async {
     await AuthService.init();
   } catch (_) {} // app still works fully offline/unauthenticated if this fails
 
-  runApp(AurumApp(engine: _audioEngine = NativeAudioEngine()));
+  runApp(LiquidGlassWidgets.wrap(child: AurumApp(engine: _audioEngine = NativeAudioEngine())));
 
   // ── COLD-START HANG FIX — everything below used to run BEFORE runApp() ──
   // "app open karte hi bahut lag/hang hota hai" traced to this function
