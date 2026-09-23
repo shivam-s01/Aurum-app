@@ -825,7 +825,10 @@ class AurumBottomNavBar extends StatelessWidget {
         padding: docked
             ? EdgeInsets.zero
             : const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        // Floating glass clips itself; an outer ClipRRect would cut off
+        // its contact shadow. Docked (flat, no glass) needs no clip.
         child: ClipRRect(
+          clipBehavior: Clip.none,
           borderRadius: docked
               ? BorderRadius.zero
               : BorderRadius.circular(28),

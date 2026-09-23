@@ -28,9 +28,18 @@ class AurumGlass extends StatelessWidget {
 
   /// false (default): the glass body colour is always the neutral theme
   /// colour (black in dark / white in light). [tintColor] then only
-  /// affects the flat fallback. This is what fixes "thumbnail colour
-  /// changes the glass colour" on the mini player.
+  /// affects the flat fallback.
   final bool useTintInGlass;
+
+  /// iOS-style touch response: press = glass swells, drag = it deforms and
+  /// springs back. Only enable on small floating surfaces (mini player,
+  /// search bar). Big/full-width strips keep this false.
+  final bool interactive;
+
+  /// Contact shadow under the glass. Turn off where the caller already
+  /// draws its own border/glow (e.g. the search bar) to avoid a double
+  /// shadow.
+  final bool showShadow;
 
   const AurumGlass({
     super.key,
@@ -40,13 +49,14 @@ class AurumGlass extends StatelessWidget {
     required this.isDark,
     this.tintColor,
     this.useTintInGlass = false,
+    this.interactive = false,
+    this.showShadow = true,
   });
 
   @override
   Widget build(BuildContext context) {
     if (sigma <= 0) {
-      // Solid fallback -- identical cost/behavior to before: no blur, no
-      // lens, just a flat panel. Zero extra GPU work.
+      // Solid fallback -- zero GPU cost, unchanged.
       return ClipRRect(
         borderRadius: borderRadius,
         child: Container(
@@ -64,35 +74,70 @@ class AurumGlass extends StatelessWidget {
         ? (tintColor ?? (isDark ? Colors.black : Colors.white))
         : (isDark ? Colors.black : Colors.white);
     final radius = borderRadius.topLeft.x;
-    // iOS's real "Thin/Regular Material" blur reads noticeably stronger
-    // than a plain sigma pass-through — boosting the caller's sigma here
-    // (not changing call sites) gets the frost density in the same range
-    // as actual iOS glass instead of looking under-blurred.
-    final effectiveSigma = sigma * 2.4;
+    // Full-width strips (collapse header, radius 0) must not refract at the
+    // edges -- a flat lit pane there looks right, a bent one looks broken.
+    final isStrip = radius <= 0;
 
-    return LiquidGlassLens(
-      style: LiquidGlassStyle(
-        shape: LiquidGlassShape.continuousRoundedRectangle(
-          cornerRadius: radius,
-          borderType: const OpticalBorder(
-            borderSaturation: 1.6,
-            ambientIntensity: 1.4,
-            borderSolidity: 0.15,
-          ),
-        ),
-        appearance: LiquidGlassAppearance(
-          color: base.withValues(alpha: isDark ? 0.34 : 0.42),
-          blur: LiquidGlassBlur(sigmaX: effectiveSigma, sigmaY: effectiveSigma),
-          saturation: 1.8,
-          shadow: const LiquidGlassShadow(blur: 6.0, opacity: 0.28),
-        ),
-        refraction: const LiquidGlassRefraction(
-          distortion: 0.22,
-          distortionWidth: 42,
-          magnification: 1.04,
-          chromaticAberration: 0.012,
+    // iOS 26 glass is LIGHTLY frosted: the backdrop stays readable and is
+    // bent at the rim. Too much blur = matte plastic, so cap the boost.
+    // Reference (SimpMusic): backdrop stays CRISP through the glass --
+    // rain drops / album art still recognisable. Real iOS glass is mostly
+    // refraction, only lightly frosted. So blur is a small fraction of the
+    // caller's sigma, hard-capped low.
+    final effectiveSigma = (sigma * 0.32).clamp(2.0, 6.0);
+
+    // Small surfaces (search bar 44px, radius 14) can't carry the big
+    // 54px refraction band meant for 68px+ floating pills: it would bend
+    // the text/icons inside. Scale the whole optical effect by corner
+    // radius so a pill gets the full look and a small bar a subtler one.
+    final t = ((radius - 14) / (28 - 14)).clamp(0.0, 1.0);
+    double lerp(double a, double b) => a + (b - a) * t;
+
+    final style = LiquidGlassStyle(
+      shape: LiquidGlassShape.continuousRoundedRectangle(
+        cornerRadius: radius,
+        // Thin bright specular rim, lit from top-left like Apple's.
+        borderWidth: isStrip ? 0 : lerp(1.0, 1.3),
+        lightIntensity: isDark ? 1.9 : 1.4,
+        lightDirection: 315,
+        borderType: OpticalBorder(
+          borderSaturation: 1.5,
+          ambientIntensity: isDark ? 1.4 : 1.1,
+          borderSolidity: 0.34,
         ),
       ),
+      appearance: LiquidGlassAppearance(
+        // Much clearer body than before (was 0.34/0.42) so the refraction
+        // and the content behind actually show through.
+        color: base.withValues(alpha: isDark ? 0.10 : 0.16),
+        blur: LiquidGlassBlur(sigmaX: effectiveSigma, sigmaY: effectiveSigma),
+        // Apple glass boosts the colour of what is behind it.
+        saturation: isDark ? 1.35 : 1.25,
+        // Contact shadow: makes the pill sit IN the page instead of
+        // floating flat.
+        shadow: showShadow
+            ? LiquidGlassShadow(
+                blur: 8.0,
+                opacity: isDark ? 0.42 : 0.22,
+              )
+            : null,
+      ),
+      refraction: LiquidGlassRefraction(
+        // Strong edge bending + slight lens magnification = the
+        // "thick glass" look. Strips get none.
+        distortion: isStrip ? 0.0 : lerp(0.18, 0.40),
+        distortionWidth: isStrip ? 0 : lerp(24, 46),
+        magnification: isStrip ? 1.0 : lerp(1.02, 1.07),
+        chromaticAberration: isStrip ? 0.0 : lerp(0.006, 0.012),
+      ),
+    );
+
+    return LiquidGlassLens(
+      style: style,
+      // press -> swell, drag -> stretch + spring back (real iOS feel).
+      touch: interactive
+          ? const LiquidGlassTouch(flex: LiquidGlassFlex.subtle())
+          : null,
       child: child,
     );
   }

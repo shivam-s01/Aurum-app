@@ -1652,6 +1652,7 @@ class _SearchScreenState extends State<SearchScreen>
           ),
           child: AurumGlass(
             sigma: blurSigma,
+            showShadow: false,
             borderRadius: BorderRadius.circular(14),
             isDark: isDark,
             tintColor: isDark

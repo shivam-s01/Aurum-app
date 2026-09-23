@@ -462,9 +462,12 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                 padding: docked
                     ? const EdgeInsets.fromLTRB(6, 0, 6, 3)
                     : const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: ClipRRect(
-                  borderRadius:
-                      docked ? BorderRadius.circular(10) : BorderRadius.circular(28),
+                // Glass clips itself to its own shape; an outer ClipRRect
+                // would cut off the contact shadow that pools BELOW the
+                // glass. Docked (flat, no glass) keeps the hard clip.
+                child: _ClipIf(
+                  clip: docked,
+                  borderRadius: BorderRadius.circular(10),
                   // Spotify-style tinted background: smoothly cross-fades
                   // toward the current song's artwork color whenever it
                   // changes. TweenAnimationBuilder only runs its own short
@@ -913,4 +916,23 @@ class _NoLayerPassthrough extends StatelessWidget {
   const _NoLayerPassthrough({required this.child});
   @override
   Widget build(BuildContext context) => child;
+}
+
+
+/// Clips only when [clip] is true; otherwise passes the child through so
+/// glass shadows are not cut off.
+class _ClipIf extends StatelessWidget {
+  final bool clip;
+  final BorderRadius borderRadius;
+  final Widget child;
+  const _ClipIf({
+    required this.clip,
+    required this.borderRadius,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) => clip
+      ? ClipRRect(borderRadius: borderRadius, child: child)
+      : child;
 }
