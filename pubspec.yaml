@@ -116,6 +116,10 @@ dependencies:
   connectivity_plus: ^6.0.5
   google_sign_in: ^6.2.1
 
+  # Real iOS 26 Liquid Glass (nav bar + mini player) — drives AurumGlass,
+  # see widgets/aurum_glass.dart for the wiring.
+  liquid_glass_easy: ^4.3.1
+
 
 dev_dependencies:
   flutter_test:
@@ -129,5 +133,3 @@ flutter:
     - assets/images/
     - assets/fonts/
     - assets/data/
-  shaders:
-    - shaders/liquid_glass.frag

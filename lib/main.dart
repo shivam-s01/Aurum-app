@@ -38,6 +38,7 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -121,6 +122,12 @@ Widget aurumDebugErrorWidgetBuilder(FlutterErrorDetails details) {
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Compile the liquid glass shader (nav bar + mini player, see
+  // widgets/aurum_glass.dart) before the first frame so the very first
+  // glass surface on screen is real refracted glass immediately, not
+  // frosted-fallback for a moment while the shader warms up.
+  await LiquidGlassShaders.ensureLoaded();
 
   // GLOBAL CRASH-VISIBILITY FIX ("Library > Artists tab totally blank in
   // release build, no error, no empty state — despite per-widget try/catch

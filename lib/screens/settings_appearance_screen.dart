@@ -357,9 +357,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // ON uses fixed, tuned sigma values (18 nav bar / 12 mini
           // player) so it stays lightweight; OFF skips the
           // BackdropFilter + shader entirely (flat panel — cheapest).
-          // Rendered by shaders/liquid_glass.frag (needs Impeller) with an
-          // automatic blur fallback on devices that can't run it. The
-          // glass body is always neutral — never the song artwork colour.
+          // Rendered by the liquid_glass_easy package's LiquidGlassLens
+          // (needs Impeller). The glass body is always neutral — never
+          // the song artwork colour.
           _inlineSwitch(context,
             title: 'Enable Liquid Glass',
             subtitle: 'Liquid glass effect for the nav bar and mini player.',
