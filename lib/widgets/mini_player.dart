@@ -464,16 +464,17 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                     : const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 // Glass clips itself to its own shape; an outer ClipRRect
                 // would cut off the contact shadow that pools BELOW the
-                // glass. Docked (flat, no glass) keeps the hard clip.
-                child: _ClipIf(
-                  clip: docked,
-                  borderRadius: BorderRadius.circular(10),
-                  // Spotify-style tinted background: smoothly cross-fades
-                  // toward the current song's artwork color whenever it
-                  // changes. TweenAnimationBuilder only runs its own short
-                  // tween while _tintColor is actually changing — no
-                  // AnimationController, no continuous ticking, fully idle
-                  // between song changes.
+                // glass. Docked with glass OFF (flat, no glass) keeps the
+                // hard clip; Docked with glass ON now behaves like Floating
+                // here too, so its shadow isn't clipped away either — see
+                // the matching fix on AurumBottomNavBar in main_shell.dart.
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+                  builder: (context, glassOnForClip, clipChild) => _ClipIf(
+                    clip: docked && !glassOnForClip,
+                    borderRadius: BorderRadius.circular(10),
+                    child: clipChild!,
+                  ),
                   child: TweenAnimationBuilder<Color?>(
                     tween: ColorTween(
                         begin: _tintColor ?? const Color(0xFF1A1714),
@@ -593,14 +594,25 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // Solid/Docked bar keeps the smooth artwork-colour
                             // crossfade (animatedTint); glass ignores it.
                             final solidBg = baseTint;
-                            final useGlass =
-                                !docked && effectiveBlurSigma > 0;
+                            // FIX (nav-bar/mini-player glass mismatch):
+                            // Docked used to hard-force sigma 0 here no
+                            // matter what, so turning Liquid Glass ON would
+                            // make the bottom nav bar glassy while the mini
+                            // player sitting directly above it stayed flat
+                            // solid — an obviously mismatched, awkward pair.
+                            // Docked mini player now follows the same
+                            // glassOn toggle as the nav bar: glass ON gives
+                            // it real blur too (still capped to Docked's
+                            // own compact radius/height below), glass OFF
+                            // keeps the exact flat artwork-tinted look this
+                            // already had.
+                            final useGlass = effectiveBlurSigma > 0;
                             // GLASS MODE: the glass body is ALWAYS neutral
                             // (theme black/white) — it must never pick up
                             // the playing song's thumbnail colour. So the
                             // readable text colour is decided by the THEME
                             // brightness here, not by _tintColor's
-                            // luminance. (Docked / blur-off still use the
+                            // luminance. (Blur-off still uses the
                             // artwork-tinted solid bar and its luminance,
                             // unchanged.)
                             final Color onColor = useGlass
@@ -618,12 +630,13 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // iOS-style liquid glass via AurumGlass.
                             // useTintInGlass stays false → artwork colour
                             // is NOT mixed into the glass. tintColor is
-                            // only used for the sigma<=0 / Docked flat
-                            // fallback panel.
+                            // only used for the sigma<=0 flat fallback
+                            // panel (Docked with glass off, or blur
+                            // dragged to 0 in either style).
                             return SizedBox(
                               height: docked ? 60 : 68,
                               child: AurumGlass(
-                                sigma: docked ? 0 : effectiveBlurSigma,
+                                sigma: effectiveBlurSigma,
                                 borderRadius: barRadius,
                                 isDark: isDark,
                                 tintColor: solidBg,

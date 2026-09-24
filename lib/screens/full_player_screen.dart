@@ -19,7 +19,6 @@ import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
-import '../providers/download_provider.dart';
 import '../providers/premium_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/song.dart';
@@ -33,12 +32,12 @@ import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_snack.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/premium_gate.dart';
-import 'library_screen.dart' show showAddToPlaylistSheet;
 import '../widgets/audio_output_sheet.dart';
 import '../widgets/cast_button.dart';
-import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
+import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet;
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../widgets/aurum_song_options_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -1292,21 +1291,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final player = context.read<PlayerProvider>();
     final song = player.currentSong;
     if (song == null) return;
-    AurumHaptics.light();
-    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
-    // so the scrim always has an explicit barrierColor.
-    showAurumModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      barrierColor: Colors.black.withAlpha(150),
-      builder: (_) => _PremiumOptionsSheet(
-        song: song,
-        player: player,
-        accentColor: _targetBg1,
-        rootContext: context,
-      ),
-    );
+    // Shared SimpMusic-style sheet (lib/widgets/aurum_song_options_sheet.dart)
+    showAurumSongOptions(context, song, showPlayerTools: true);
   }
 
 
@@ -4175,22 +4161,9 @@ void shareSong(BuildContext context, Song song) {
 void showAurumFullPlayerOptionsSheet(
   BuildContext context,
   Song song, {
-  Color? accentColor,
+  Color? accentColor, // kept for call-site compatibility — intentionally unused
 }) {
-  final player = context.read<PlayerProvider>();
-  AurumHaptics.light();
-  showAurumModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    barrierColor: Colors.black.withAlpha(150),
-    builder: (_) => _PremiumOptionsSheet(
-      song: song,
-      player: player,
-      accentColor: accentColor ?? AurumTheme.accent,
-      rootContext: context,
-    ),
-  );
+  showAurumSongOptions(context, song, showPlayerTools: true);
 }
 
 void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
@@ -4332,396 +4305,6 @@ void showSongInfoDialog(BuildContext context, Song song) {
       ),
     ),
   );
-}
-
-
-class _PremiumOptionsSheet extends StatefulWidget {
-  final Song song;
-  final PlayerProvider player;
-  final Color accentColor;
-  final BuildContext rootContext;
-
-  const _PremiumOptionsSheet({
-    required this.song,
-    required this.player,
-    required this.accentColor,
-    required this.rootContext,
-  });
-
-  @override
-  State<_PremiumOptionsSheet> createState() => _PremiumOptionsSheetState();
-}
-
-class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
-  @override
-  void initState() {
-    super.initState();
-    SleepTimerService.instance.addListener(_onSleepTimerTick);
-  }
-
-  @override
-  void dispose() {
-    SleepTimerService.instance.removeListener(_onSleepTimerTick);
-    super.dispose();
-  }
-
-  void _onSleepTimerTick() {
-    if (mounted) setState(() {});
-  }
-
-  // Shared, deduped toast handler — see aurum_snack.dart for why this
-  // replaced a hand-copied per-file implementation (this one previously
-  // never set backgroundColor, so it fell back to Flutter's default
-  // Material snackbar color instead of Astra's themed elevated surface —
-  // now consistent with every other screen's toast).
-  void _snack(String msg) {
-    AurumSnack.show(context, msg);
-  }
-
-  void _downloadSong() {
-    final l10n = AppLocalizations.of(context)!;
-    final song = widget.song;
-    final downloads = context.read<DownloadProvider>();
-
-    if (downloads.isDownloaded(song.id)) {
-      _snack(l10n.fpAlreadyDownloaded);
-      return;
-    }
-    if (downloads.isDownloading(song.id)) {
-      _snack(l10n.fpAlreadyDownloading);
-      return;
-    }
-    if (song.isLocal) {
-      _snack(l10n.fpAlreadyOnDevice);
-      return;
-    }
-
-    Navigator.pop(context);
-    _snack(l10n.fpDownloadingSong(song.title));
-
-    downloads.download(song).then((started) {
-      if (!started && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l10n.fpDownloadFailed(song.title)),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-        ));
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final song = widget.song;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final fav = context.watch<FavoritesProvider>();
-    final isLiked = fav.isFavorite(song.id);
-    final downloads = context.watch<DownloadProvider>();
-    final dlItem = downloads.statusOf(song.id);
-    final isDownloaded = downloads.isDownloaded(song.id);
-    final isDownloading = downloads.isDownloading(song.id);
-
-    // FIX — dynamic theme (Material You) coverage: this sheet previously
-    // hardcoded AurumTheme.lightBgCard/lightTextPrimary/lightTextSecondary/
-    // lightBgSurface/lightDivider for its entire light-mode look, and used
-    // the *dark*-mode's own song-artwork-tinted accentColor lerp even when
-    // Dynamic Color mode was on — so the one options sheet in the app never
-    // picked up the wallpaper hue the rest of the screens now do. Routed
-    // through the same context-aware AurumTheme.*Of(context) helpers every
-    // other screen uses (they resolve straight from Theme.of(context)
-    // .colorScheme, so they're already Dynamic-Color-aware, and simply
-    // return the fixed light/dark constants when Dynamic Color is off) —
-    // dark mode's artwork-tinted background is kept as-is since that
-    // per-song lerp already looked premium.
-    final bgColor = isLight
-        ? AurumTheme.bgCardOf(context)
-        : Color.lerp(widget.accentColor, const Color(0xFF0C0C18), 0.55)!;
-    final textPrimary = isLight ? AurumTheme.textPrimaryOf(context) : Colors.white;
-    final textMuted = isLight ? AurumTheme.textMutedOf(context) : Colors.white70;
-    final tileColor = isLight
-        ? AurumTheme.bgSurfaceOf(context)
-        : Colors.white.withAlpha(10);
-    final tileBorder = isLight
-        ? AurumTheme.dividerOf(context)
-        : Colors.white.withAlpha(18);
-
-    final sleepActive = SleepTimerService.instance.isActive;
-    final sleepRemainingLabel = sleepActive
-        ? '${(SleepTimerService.instance.remaining.inSeconds / 60).ceil()}m'
-        : '';
-
-    final actions = [
-      // ECHO NIGHTLY MATCH: same reasoning as song_tile.dart's grid —
-      // Echo's own bottom-sheet buttons are all one flat neutral color
-      // (icon included), never a per-action rainbow. The press-state
-      // tint here already used `action.color` only as a brief on-tap
-      // highlight, so switching every action to `textPrimary` keeps
-      // that same press feedback mechanism while making the resting
-      // icon color neutral instead of colorful.
-      _SheetAction(Icons.skip_next_rounded, l10n.fpPlayNext, textPrimary, () {
-        Navigator.pop(context);
-        widget.player.playNext(song);
-      }),
-      _SheetAction(Icons.queue_music_rounded, l10n.fpAddToQueue, textPrimary, () {
-        Navigator.pop(context);
-        widget.player.addToQueue(song);
-        _snack(l10n.fpAddedToQueue);
-      }),
-      _SheetAction(
-        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-        isLiked ? l10n.fpLiked : l10n.fpLikeAction,
-        textPrimary,
-        () {
-          PremiumGate.guard(
-            context,
-            feature: l10n.fpLikeSongsFeature,
-            description: l10n.fpLikeSignInBuildLibrary,
-            requiresLoginOnly: true,
-            onAllowed: () {
-              fav.toggleFavorite(song);
-              final nowLiked = fav.isFavorite(song.id);
-              _snack(nowLiked ? l10n.fpAddedToLiked : l10n.fpRemovedFromLiked);
-            },
-          );
-        },
-      ),
-      _SheetAction(Icons.share_rounded, l10n.fpShare, textPrimary, () {
-        Navigator.pop(context);
-        shareSong(context, song);
-      }),
-      _SheetAction(Icons.playlist_add_rounded, l10n.fpSaveToPlaylist, textPrimary, () {
-        Navigator.pop(context);
-        showAddToPlaylistSheet(widget.rootContext, song);
-      }),
-      _SheetAction(Icons.equalizer_rounded, l10n.fpAudioEffects, textPrimary, () {
-        Navigator.pop(context);
-        Navigator.of(widget.rootContext).push(AurumPageRoute(
-          builder: (_) => EqualizerScreen(audioEngine: widget.player.handler),
-        ));
-      }),
-      _SheetAction(
-        sleepActive ? Icons.bedtime_rounded : Icons.timer_outlined,
-        sleepActive ? l10n.fpSleepRemaining(sleepRemainingLabel) : l10n.fpSleepTimer,
-        textPrimary,
-        () {
-          Navigator.pop(context);
-          showSleepTimerForSong(widget.rootContext, widget.player);
-        },
-      ),
-      _SheetAction(
-        isDownloaded
-            ? Icons.download_done_rounded
-            : isDownloading
-                ? Icons.downloading_rounded
-                : Icons.download_rounded,
-        isDownloaded
-            ? l10n.fpDownloaded
-            : isDownloading
-                ? l10n.fpDownloading
-                : l10n.fpDownload,
-        textPrimary,
-        () {
-          if (isDownloaded) {
-            _snack(l10n.fpAlreadyDownloaded);
-          } else if (isDownloading) {
-            _snack(l10n.fpAlreadyDownloading);
-          } else {
-            _downloadSong();
-          }
-        },
-      ),
-      _SheetAction(Icons.info_outline_rounded, l10n.fpSongInfo, textMuted, () {
-        Navigator.pop(context);
-        showSongInfoDialog(widget.rootContext, song);
-      }),
-    ];
-
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: bgColor.withAlpha(isLight ? 240 : 245),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border(
-              top: BorderSide(
-                color: isLight
-                    ? AurumTheme.dividerOf(context)
-                    : Colors.white.withAlpha(14),
-                width: 0.5,
-              ),
-            ),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle
-                Container(
-                  width: 36, height: 4,
-                  margin: const EdgeInsets.only(top: 12, bottom: 16),
-                  decoration: BoxDecoration(
-                    color: isLight
-                        ? AurumTheme.textMutedOf(context).withAlpha(80)
-                        : Colors.white.withAlpha(40),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // Song header
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: AurumArtwork(url: song.artworkUrl, size: 52, borderRadius: 10),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(song.title,
-                            style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 3),
-                          Text(song.artist,
-                            style: TextStyle(color: textMuted, fontSize: 12),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ],
-                      ),
-                    ),
-                  ]),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  child: Divider(
-                    color: isLight ? AurumTheme.dividerOf(context) : Colors.white.withAlpha(14),
-                    height: 1,
-                  ),
-                ),
-                // Download progress
-                if (isDownloading)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                    child: Column(children: [
-                      Row(children: [
-                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.accentOf(context)),
-                        const SizedBox(width: 8),
-                        Text('Downloading ${((dlItem?.progress ?? 0) * 100).toStringAsFixed(0)}%',
-                          style: TextStyle(color: textMuted, fontSize: 12)),
-                      ]),
-                      const SizedBox(height: 6),
-                      const AurumM3Loader(height: 3, borderRadius: 2),
-                    ]),
-                  ),
-                // Action grid
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      childAspectRatio: 2.7,
-                    ),
-                    itemCount: actions.length,
-                    itemBuilder: (_, i) => _SheetActionTile(
-                      action: actions[i],
-                      tileColor: tileColor,
-                      tileBorder: tileBorder,
-                      textColor: textPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SheetAction {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  const _SheetAction(this.icon, this.label, this.color, this.onTap);
-}
-
-class _SheetActionTile extends StatefulWidget {
-  final _SheetAction action;
-  final Color tileColor;
-  final Color tileBorder;
-  final Color textColor;
-  const _SheetActionTile({
-    required this.action,
-    required this.tileColor,
-    required this.tileBorder,
-    required this.textColor,
-  });
-
-  @override
-  State<_SheetActionTile> createState() => _SheetActionTileState();
-}
-
-class _SheetActionTileState extends State<_SheetActionTile> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        AurumHaptics.selection();
-        widget.action.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        decoration: BoxDecoration(
-          color: _pressed
-              ? widget.action.color.withAlpha(isLight ? 30 : 22)
-              : widget.tileColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _pressed
-                ? widget.action.color.withAlpha(60)
-                : widget.tileBorder,
-            width: 0.8,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Row(
-          children: [
-            Icon(widget.action.icon, size: 18, color: widget.action.color),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.action.label,
-                style: TextStyle(
-                  color: widget.textColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -8495,13 +8078,22 @@ class _RepeatMorphPainter extends CustomPainter {
     // ── Diagonal strike (repeat-off only) — fades in across the whole
     // glyph, matching Echo's path_7.
     if (mode == 'off') {
+      // FIX ("off state ka strike akward/ajeeb lagta hai"): line was drawn
+      // corner-to-corner of the full 40x40 viewport (5.2,5.2 -> 34.8,34.8),
+      // but the loop glyph itself only occupies 9.7..30.3 — so the strike
+      // overshot the actual icon shape on both ends, reading as a stray
+      // tilted line rather than a clean strike-through of the loop. Echo's
+      // own path_7 strike spans the glyph's own bounds, not the viewport's;
+      // matching that here keeps the strike inside the loop's footprint so
+      // it reads as one cohesive "repeat-off" glyph, same as the on/one
+      // states above it.
       final strikeT = t.clamp(0.0, 1.0);
       final strikePaint = Paint()
         ..color = color.withAlpha((color.alpha * strikeT).round())
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeW
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(p(5.2, 5.2), p(34.8, 34.8), strikePaint);
+      canvas.drawLine(p(9.7, 9.7), p(30.3, 30.3), strikePaint);
     }
   }
 

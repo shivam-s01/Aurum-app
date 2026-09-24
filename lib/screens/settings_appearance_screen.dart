@@ -49,7 +49,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _liquidGlass = true;
   double _navBarBlurSigma = 18.0;
   double _miniPlayerBlurSigma = 12.0;
-  String _navBarStyle = 'Floating';
   // Lyrics
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
@@ -132,7 +131,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _liquidGlass = p.getBool('liquid_glass_enabled') ?? true;
       _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
       _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
-      _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
@@ -306,13 +304,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // ── Player ──
           AurumStaggerItem(index: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(context, l10n.saPlayer),
-          _dropdownTile(context,
-            title: 'Nav Bar & Mini Player Style',
-            subtitle: 'Floating: rounded, blurred capsule. Docked: classic flat bar, edge-to-edge, no blur.',
-            value: _navBarStyle,
-            options: const ['Floating', 'Docked'],
-            onChanged: (v) { setState(() => _navBarStyle = v!); _save('nav_bar_style', v!); AudioPrefs.setNavBarStyle(v); },
-          ),
+          // FIX (user request): "Floating" nav bar style dropdown removed
+          // from Settings → Appearance entirely — the bar is now always
+          // Docked (AudioPrefs.navBarStyleNotifier defaults to, and stays,
+          // 'Docked'). Docked itself now responds to the "Liquid Glass"
+          // toggle above (see AurumBottomNavBar in main_shell.dart, and the
+          // matching fix in mini_player.dart's docked branch): glass ON
+          // gives the exact SimpMusic-style frosted pill look on both the
+          // nav bar and the mini player above it; glass OFF keeps the flat
+          // transparent SimpMusic look this already had.
           _dropdownTile(context,
             title: l10n.saPlayerBgStyle,
             subtitle: l10n.saPlayerBgStyleSubtitle,

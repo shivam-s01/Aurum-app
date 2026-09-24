@@ -302,8 +302,12 @@ class AudioPrefs {
   /// tab structure (Home/Search/Library), mini player content,
   /// and all playback behavior are completely unchanged between modes.
   /// Set from Settings → Appearance → "Nav Bar Style".
+  // FIX (user request): "Floating" removed from Settings → Appearance —
+  // the bar is always Docked now. Default flipped to 'Docked' and load()
+  // below no longer restores an old saved 'Floating' value, so existing
+  // installs that had Floating picked migrate to Docked automatically.
   static final ValueNotifier<String> navBarStyleNotifier =
-      ValueNotifier<String>('Floating');
+      ValueNotifier<String>('Docked');
 
   // ── Battery Saver Mode ───────────────────────────────────────────────
   // A separate feature from the individual animation/background toggles
@@ -446,7 +450,11 @@ class AudioPrefs {
     // Old sigma prefs intentionally NOT read (stale 0.0 killed glass).
     liquidGlassEnabledNotifier.value =
         p.getBool(_kLiquidGlass) ?? liquidGlassEnabledNotifier.value;
-    navBarStyleNotifier.value = p.getString(_kNavBarStyle) ?? navBarStyleNotifier.value;
+    // "Floating" no longer selectable — force Docked even for an old
+    // install that had 'Floating' saved from before this change. Nothing
+    // is read from SharedPreferences here anymore; the notifier's default
+    // ('Docked', set above) is authoritative.
+    navBarStyleNotifier.value = 'Docked';
     playerBgStyleNotifier.value = p.getString(_kPlayerBgStyle) ?? playerBgStyleNotifier.value;
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
     bgGradientAnimationNotifier.value = p.getBool(_kBgGradAnim) ?? bgGradientAnimationNotifier.value;

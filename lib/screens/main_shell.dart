@@ -797,17 +797,15 @@ class AurumBottomNavBar extends StatelessWidget {
     final items = _items(l10n);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Floating frosted-glass capsule (default): side margins so it doesn't
-    // touch the screen edges, ClipRRect + BackdropFilter for the blur, and
-    // a translucent tinted fill on top so page content underneath (visible
-    // thanks to Scaffold's extendBody: true) reads as a soft blurred
-    // smear rather than a flat opaque bar — the "paid app" look.
-    //
-    // Docked style (Settings → Appearance → "Nav Bar Style"): the
-    // Spotify-classic alternative — no side margins, square corners, flush
-    // against the bottom edge. Only geometry/decoration branch on the
-    // style; tab logic, highlight capsule, and tap handling below are
-    // completely unchanged either way.
+    // Nav bar is always Docked now ("Floating" removed from Settings →
+    // Appearance per user request — AudioPrefs.navBarStyleNotifier is
+    // hardcoded to 'Docked'). Edge-to-edge, no side margins, square
+    // corners, flush against the bottom edge. It now has two looks
+    // depending on the "Liquid Glass" toggle in Settings → Appearance:
+    // glass ON renders a real edge-to-edge AurumGlass blur (matching
+    // SimpMusic's glass nav bar); glass OFF keeps the flat, fully
+    // transparent SimpMusic look. Tab logic, highlight capsule, and tap
+    // handling below are unaffected either way.
     return ValueListenableBuilder<String>(
       valueListenable: AudioPrefs.navBarStyleNotifier,
       builder: (context, navStyle, _) {
@@ -825,8 +823,11 @@ class AurumBottomNavBar extends StatelessWidget {
         padding: docked
             ? EdgeInsets.zero
             : const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        // Floating glass clips itself; an outer ClipRRect would cut off
-        // its contact shadow. Docked (flat, no glass) needs no clip.
+        // Docked is always edge-to-edge/square-corner, so this outer
+        // ClipRRect uses a zero radius either way — a plain rectangle
+        // clip, which doesn't cut off AurumGlass's own contact shadow
+        // the way a rounded outer clip would (that's why Floating used
+        // to skip the clip's radius instead of matching it).
         child: ClipRRect(
           clipBehavior: Clip.none,
           borderRadius: docked
@@ -864,12 +865,29 @@ class AurumBottomNavBar extends StatelessWidget {
               // translucent "glass without the blur" look — so nothing
               // behind it shows through at all. Only the blurred variant
               // keeps the semi-transparent tint that lets BackdropFilter's
-              // blur actually be visible underneath. Docked mode is now
-              // SimpMusic-style instead: fully transparent, no fill, no
-              // border/divider, no blur — page content scrolls straight
-              // underneath the icons/labels with nothing separating them.
-              // Only the non-docked "Floating" style still gets a real
-              // Container fill (glass pill) below.
+              // blur actually be visible underneath.
+              //
+              // FIX (user request): Docked used to always stay flat/
+              // transparent no matter what, ignoring the Liquid Glass
+              // toggle entirely. Now Docked itself responds to that
+              // toggle: glass ON renders the real AurumGlass blur (edge-
+              // to-edge, square corners — matching SimpMusic's own glass
+              // nav bar exactly) instead of the flat scrim; glass OFF
+              // keeps the exact SimpMusic flat-transparent look this
+              // branch already had. Nothing here changes for glass OFF.
+              if (docked && glassOn) {
+                return SizedBox(
+                  height: _barHeight,
+                  child: AurumGlass(
+                    sigma: effectiveBlurSigma,
+                    borderRadius: BorderRadius.zero,
+                    isDark: isDark,
+                    tintColor: AurumTheme.bgCardOf(context),
+                    useTintInGlass: false,
+                    child: navBarContent!,
+                  ),
+                );
+              }
               if (docked) {
                 return SizedBox(
                   height: _barHeight,
@@ -918,19 +936,17 @@ class AurumBottomNavBar extends StatelessWidget {
                   ),
                 );
               }
-              // REAL iOS-style liquid glass (blur + specular highlight +
-              // edge hairline) via AurumGlass — a flat blurred tint alone
-              // reads as "awkward", not actual glass. sigma<=0 falls
-              // through to AurumGlass's own solid-panel branch, so
-              // "zero blur = zero extra GPU cost" is unchanged.
+              // `docked` is always true now (Floating removed), so the two
+              // branches above (glass ON / glass OFF) are exhaustive —
+              // this point is unreachable, but returning the glass-ON
+              // render here too (rather than throwing) keeps this method
+              // total or safe against a future edge case.
               return SizedBox(
                 height: _barHeight,
                 child: AurumGlass(
                   sigma: effectiveBlurSigma,
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius: BorderRadius.zero,
                   isDark: isDark,
-                  // Flat fallback only (sigma<=0). The glass body itself
-                  // is always neutral — never tinted by artwork.
                   tintColor: AurumTheme.bgCardOf(context),
                   useTintInGlass: false,
                   child: navBarContent!,
