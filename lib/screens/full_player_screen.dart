@@ -3768,21 +3768,28 @@ class _Controls extends StatelessWidget {
     // Same artwork-driven signal for shuffle/repeat's inactive color —
     // passed explicitly so _CtrlBtn never falls back to its own
     // theme-brightness default for these two buttons.
-    final inactiveToggleColor = bgIsLight
+    // Shuffle/repeat state is shown exactly like the reference: full-strength
+    // glyph when ON, dimmed glyph when OFF (no dot, no frame).
+    final toggleOnColor = bgIsLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final toggleOffColor = bgIsLight
         ? AurumTheme.lightTextMuted
-        : Colors.white.withAlpha(190);
+        : Colors.white.withAlpha(115);
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: hPad - 8),
+      // hPad - 21: each side button is a 56dp hit area holding a 24dp glyph,
+      // so this puts the shuffle/repeat glyph edges exactly on the seek
+      // bar's left/right edges (same alignment as the reference).
+      padding: EdgeInsets.symmetric(horizontal: math.max(0.0, hPad - 21)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _CtrlBtn(
             icon: Icons.shuffle_rounded,
-            size: 20,
+            size: 24,
             active: player.shuffle,
-            inactiveColor: inactiveToggleColor,
+            color: player.shuffle ? toggleOnColor : toggleOffColor,
+            inactiveColor: toggleOffColor,
             semanticLabel: l10n.fpShuffle,
             onTap: () {
               AurumHaptics.selection();
@@ -3791,7 +3798,7 @@ class _Controls extends StatelessWidget {
           ),
           _CtrlBtn(
             icon: Icons.skip_previous_rounded,
-            size: 38,
+            size: 40,
             color: prevNextColor,
             inactiveColor: prevNextColor,
             semanticLabel: l10n.fpPrevious,
@@ -3811,7 +3818,7 @@ class _Controls extends StatelessWidget {
           ),
           _CtrlBtn(
             icon: Icons.skip_next_rounded,
-            size: 38,
+            size: 40,
             color: prevNextColor,
             inactiveColor: prevNextColor,
             semanticLabel: l10n.fpNext,
@@ -3829,36 +3836,15 @@ class _Controls extends StatelessWidget {
               });
             },
           ),
-          // EXACT MATCH (Echo Nightly's own animated-vector-drawable
-          // repeat icon — verified against ic_repeat_to_repeat_one_40dp.xml,
-          // ic_repeat_one_to_repeat_off_40dp.xml, ic_repeat_off_to_repeat_40dp.xml
-          // in Echo's own res/drawable): those aren't an icon swap at
-          // all — the loop's line segments animate their own pathData
-          // (growing/shrinking stroke-by-stroke) while the arrowhead
-          // group rotates 180° and translates along the loop, and a
-          // diagonal strike (off state) or "1" badge (repeat-one state)
-          // fades/slides in on top. A Material Icon cross-fade/rotate can
-          // only ever approximate that; this CustomPainter reproduces the
-          // exact same path geometry (scaled from Echo's 40x40 viewport)
-          // and the exact same 3-state animation Echo itself plays, so
-          // the motion itself is the real thing, not a lookalike.
-          //
-          // FIX ("colour hata do, match na rahe" / no gold tint): checked
-          // Echo's own applyColors() in PlayerFragment.kt — trackRepeat
-          // and trackShuffle are NEVER given colors.accent (only seekBar,
-          // playingIndicator, bufferBar and text get the accent tint).
-          // Echo's repeat/shuffle icons stay the same on-background color
-          // whether active or not — the MODE change is communicated
-          // entirely by the icon's own shape morphing (loop vs loop-with-
-          // one vs loop-with-strike), never by a color swap. Passing the
-          // same inactiveColor for both active and inactive here matches
-          // that exactly — the animation itself is the only signal now,
-          // same as the real app.
-          _RepeatMorphButton(
-            loopMode: player.loopMode,
-            size: 20,
-            activeColor: inactiveToggleColor,
-            inactiveColor: inactiveToggleColor,
+          // Repeat: plain Material glyphs, same as the reference —
+          // repeat (off / all) and repeat-one (loop with "1" inside).
+          // ON = full-strength glyph, OFF = dimmed glyph.
+          _CtrlBtn(
+            icon: isLoopOne ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+            size: 24,
+            active: isLoopOne || isLoopAll,
+            color: (isLoopOne || isLoopAll) ? toggleOnColor : toggleOffColor,
+            inactiveColor: toggleOffColor,
             semanticLabel: l10n.fpRepeat,
             onTap: () {
               AurumHaptics.selection();
@@ -7757,16 +7743,6 @@ class _CtrlBtnState extends State<_CtrlBtn> {
     // stays the same on-background color whether active or not.
     final c = widget.color ?? widget.inactiveColor;
 
-    // EXACT MATCH (Echo's own ic_shuffle_on_40dp.xml vs ic_shuffle_40dp.xml
-    // — diffed byte-for-byte): the "on" drawable is the identical shuffle
-    // glyph with exactly one thing added — a rounded-square outline frame
-    // drawn around it. No color change on the arrows themselves, no path
-    // morph, just a frame appearing/disappearing on state_checked. That's
-    // reproduced here as a real border box (only ever shown when
-    // widget.active, so prev/next — which never pass active — are
-    // completely unaffected), rather than a color-based state signal.
-    final showActiveFrame = widget.active;
-
     return Semantics(
       label: widget.semanticLabel,
       button: true,
@@ -7776,17 +7752,9 @@ class _CtrlBtnState extends State<_CtrlBtn> {
         onTap: widget.onTap,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
+          child: SizedBox(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: showActiveFrame
-                  ? Border.all(color: c, width: 1.4)
-                  : Border.all(color: Colors.transparent, width: 1.4),
-            ),
             child: Center(
               child: AnimatedSwitcher(
                 // Fast — a real tap-triggered morph, not a lingering
@@ -7846,260 +7814,3 @@ class _CtrlBtnState extends State<_CtrlBtn> {
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Repeat button — real path-morph, matching Echo Nightly's own
-// AnimatedVectorDrawables (ic_repeat_to_repeat_one_40dp.xml,
-// ic_repeat_one_to_repeat_off_40dp.xml, ic_repeat_off_to_repeat_40dp.xml)
-// coordinate-for-coordinate rather than approximating with an icon swap.
-//
-// Echo's own geometry (40x40 viewport, normalized to 0..1 below):
-//   - Two mirrored "L" line segments (bottom + top) forming the loop's
-//     sides, each ending in a small arrowhead.
-//   - On repeat -> repeat-one: the arrowhead group rotates 0->90->180
-//     while translating along the loop path (staged over 3 sub-steps:
-//     100ms + 100ms + 50ms), and the connecting line segments animate
-//     their own endpoints (pathData growing/shrinking) rather than
-//     fading — a real stroke redraw, not a cross-fade.
-//   - A small "1" badge fades+slides up 10px over 400ms
-//     (fast-out-slow-in) once the loop settles, only in repeat-one state.
-//   - On repeat -> repeat-off: same loop redraw, plus a diagonal
-//     strike-through fades in across the whole glyph.
-// All of this is reproduced below with real Path objects animated by a
-// single AnimationController — the actual geometry moves, nothing is
-// swapped or fabricated to fake the look.
-// ─────────────────────────────────────────────────────────────────────────────
-class _RepeatMorphButton extends StatefulWidget {
-  final Object loopMode; // LoopMode.off / .all / .one
-  final double size;
-  final Color activeColor;
-  final Color inactiveColor;
-  final String? semanticLabel;
-  final VoidCallback onTap;
-
-  const _RepeatMorphButton({
-    required this.loopMode,
-    required this.onTap,
-    required this.activeColor,
-    required this.inactiveColor,
-    this.size = 20,
-    this.semanticLabel,
-  });
-
-  @override
-  State<_RepeatMorphButton> createState() => _RepeatMorphButtonState();
-}
-
-class _RepeatMorphButtonState extends State<_RepeatMorphButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late String _modeName;
-
-  String _nameOf(Object m) => m.toString().split('.').last; // 'off'|'all'|'one'
-
-  @override
-  void initState() {
-    super.initState();
-    _modeName = _nameOf(widget.loopMode);
-    // 400ms total — matches Echo's own drawables (100+100+50ms staged
-    // line/arrow choreography, plus the 400ms badge/strike fade running
-    // in parallel).
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    )..value = 1.0; // start settled, no morph on first build
-  }
-
-  @override
-  void didUpdateWidget(covariant _RepeatMorphButton old) {
-    super.didUpdateWidget(old);
-    final newName = _nameOf(widget.loopMode);
-    if (newName != _modeName) {
-      _modeName = newName;
-      // Echo itself always restarts the Animatable on tap regardless of
-      // direction (trackRepeat's onClick) — same here: every mode change
-      // replays the morph from 0, every time.
-      _ctrl.forward(from: 0.0);
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final active = _modeName != 'off';
-    final c = active ? widget.activeColor : widget.inactiveColor;
-
-    return Semantics(
-      label: widget.semanticLabel,
-      button: true,
-      child: AurumPressable(
-        scaleAmount: 0.85,
-        haptic: false,
-        onTap: widget.onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Center(
-              child: AnimatedBuilder(
-                animation: _ctrl,
-                builder: (context, _) {
-                  return CustomPaint(
-                    size: Size(widget.size, widget.size),
-                    painter: _RepeatMorphPainter(
-                      t: Curves.linear.transform(_ctrl.value),
-                      mode: _modeName,
-                      color: c,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RepeatMorphPainter extends CustomPainter {
-  final double t; // 0..1 — morph progress into `mode`
-  final String mode; // 'off' | 'all' | 'one'
-  final Color color;
-  const _RepeatMorphPainter({
-    required this.t,
-    required this.mode,
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Echo's viewport is 40x40 — normalize every coordinate below by /40
-    // then scale into this painter's actual size, so the proportions
-    // (line length, arrowhead size, corner radius) match Echo exactly
-    // regardless of what pixel size this button renders at.
-    final s = size.width / 40.0;
-    Offset p(double x, double y) => Offset(x * s, y * s);
-
-    // FIX ("suffer/shuffle se repeat button ka weight/balance alag lagta
-    // hai"): shuffle uses Flutter's built-in Icons.shuffle_rounded glyph,
-    // whose visual stroke weight at 20px reads noticeably bolder than
-    // this hand-drawn CustomPaint repeat icon used to. The old stroke
-    // width here was `2.5 * s` where s = size.width / 40 — at size=20
-    // that's s=0.5, so strokeW came out to only 1.25px, visibly thinner
-    // than shuffle's glyph at the same 20px box. Raised the base stroke
-    // constant so the two icons carry matching visual weight at the same
-    // size — a real top-grade UI never has one icon in a symmetric pair
-    // reading heavier/lighter than its sibling.
-    final strokeW = 3.4 * s;
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeW
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // FIX ("ek button akward/adhura lag raha hai" — screenshot showed the
-    // repeat icon missing its second arrowhead): the loop shape needs
-    // BOTH arrowheads — one at the bottom-left, one at the top-right —
-    // to read as a complete repeat symbol at rest, exactly like Echo's
-    // own two <group>/<path name="arrow"/"arrow2"> pairs in
-    // ic_repeat_to_repeat_one_40dp.xml. The previous version only ever
-    // drew ONE of them (and rotated it away entirely once settled),
-    // leaving the icon permanently incomplete in its resting state, not
-    // just mid-animation. Both are now drawn always, each fixed at its
-    // own correct resting orientation — the animation below only adds a
-    // brief accent flourish on top of this always-complete base shape,
-    // it never removes either arrowhead.
-    canvas.drawLine(p(9.7, 30), p(30.3, 30), paint); // bottom segment
-    canvas.drawLine(p(9.7, 10), p(30.3, 10), paint); // top segment
-    canvas.drawLine(p(30.3, 16.7), p(30.3, 30), paint); // right riser (bottom half)
-    canvas.drawLine(p(9.7, 10), p(9.7, 23.3), paint); // left riser (top half)
-
-    // Bottom-left arrowhead — points left, sitting on the bottom-left
-    // corner (Echo's `arrow` path, pivot ~10.28,29.98).
-    final arrow1 = Path()
-      ..moveTo(p(12.7, 25.2).dx, p(12.7, 25.2).dy)
-      ..lineTo(p(7.9, 30).dx, p(7.9, 30).dy)
-      ..lineTo(p(12.6, 34.7).dx, p(12.6, 34.7).dy);
-    canvas.drawPath(arrow1, paint);
-
-    // Top-right arrowhead — points right, sitting on the top-right
-    // corner (Echo's `arrow2` path, mirrored 180° around the icon's
-    // center from arrow1).
-    final arrow2 = Path()
-      ..moveTo(p(27.3, 14.8).dx, p(27.3, 14.8).dy)
-      ..lineTo(p(32.1, 10).dx, p(32.1, 10).dy)
-      ..lineTo(p(27.4, 5.3).dx, p(27.4, 5.3).dy);
-    canvas.drawPath(arrow2, paint);
-
-    // ── Transition accent: a brief pulse on whichever arrowhead is the
-    // "active" side of the just-completed morph, plus the badge/strike
-    // for repeat-one/repeat-off. Purely additive — never removes or
-    // repositions the always-complete base shape drawn above, so even
-    // if this widget is rebuilt mid-animation-value there is no frame
-    // where the icon reads as broken.
-    final pulseT = Curves.easeOut.transform(t.clamp(0.0, 1.0));
-    if (pulseT < 1.0) {
-      final pulseOpacity = 1.0 - pulseT;
-      final glowPaint = Paint()
-        ..color = color.withAlpha((color.alpha * pulseOpacity * 0.5).round())
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeW * 1.8
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-      canvas.drawPath(arrow1, glowPaint);
-      canvas.drawPath(arrow2, glowPaint);
-    }
-
-    // ── "1" badge (repeat-one only) — fades + slides up 10px, exactly
-    // Echo's own group_3/path_1 timing (fast-out-slow-in, offset to the
-    // tail end of the sequence).
-    if (mode == 'one') {
-      final badgeEase = Curves.fastOutSlowIn.transform(t.clamp(0.0, 1.0));
-      final dy = (1 - badgeEase) * 2.5 * s;
-      final badgePaint = Paint()
-        ..color = color.withAlpha((color.alpha * badgeEase).round())
-        ..style = PaintingStyle.fill;
-      final rect = Rect.fromCenter(
-        center: Offset(20 * s, 20 * s + dy),
-        width: 4.6 * s,
-        height: 10 * s,
-      );
-      canvas.drawRect(rect, badgePaint);
-    }
-
-    // ── Diagonal strike (repeat-off only) — fades in across the whole
-    // glyph, matching Echo's path_7.
-    if (mode == 'off') {
-      // FIX ("off state ka strike akward/ajeeb lagta hai"): line was drawn
-      // corner-to-corner of the full 40x40 viewport (5.2,5.2 -> 34.8,34.8),
-      // but the loop glyph itself only occupies 9.7..30.3 — so the strike
-      // overshot the actual icon shape on both ends, reading as a stray
-      // tilted line rather than a clean strike-through of the loop. Echo's
-      // own path_7 strike spans the glyph's own bounds, not the viewport's;
-      // matching that here keeps the strike inside the loop's footprint so
-      // it reads as one cohesive "repeat-off" glyph, same as the on/one
-      // states above it.
-      final strikeT = t.clamp(0.0, 1.0);
-      final strikePaint = Paint()
-        ..color = color.withAlpha((color.alpha * strikeT).round())
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeW
-        ..strokeCap = StrokeCap.round;
-      canvas.drawLine(p(9.7, 9.7), p(30.3, 30.3), strikePaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RepeatMorphPainter old) =>
-      old.t != t || old.mode != mode || old.color != color;
-}
-
-

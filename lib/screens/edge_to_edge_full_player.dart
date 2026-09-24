@@ -37,6 +37,7 @@ import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
 import '../widgets/aurum_seek_bar.dart';
+import '../widgets/aurum_stream_quality_chip.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
@@ -803,34 +804,8 @@ class _ScrubBar extends StatelessWidget {
       activeColor: tint,
       inactiveColor: Colors.white.withOpacity(0.22),
       timeColor: Colors.white.withOpacity(0.75),
-      // Center codec-style pill — same slot the ArchiveTune reference fills
-      // with "OPUS"; this app doesn't expose a codec badge, so it's
-      // relabeled to the app's own name as a simple center brand mark
-      // instead of leaving the slot empty (which would put the two time
-      // labels far apart with nothing to visually anchor the middle).
-      centerLabel: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.graphic_eq_rounded, color: Colors.white.withOpacity(0.85), size: 13),
-            const SizedBox(width: 5),
-            Text(
-              'Astra',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-        ),
-      ),
+      // Center pill: live equalizer wave + real stream quality (codec/kbps).
+      centerLabel: AurumStreamQualityChip(player: player),
     );
   }
 }
