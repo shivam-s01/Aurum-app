@@ -22,6 +22,7 @@ import 'browse_service.dart' show BrowseAlbum, BrowseArtist;
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
+import 'user_region.dart';
 import 'music_source.dart';
 import 'lightweight_stream_cache.dart';
 import 'lyrics_cache.dart';
@@ -848,9 +849,19 @@ class ApiService {
     'hindi':     'Hindi',
   };
 
-  static List<String> _filterMainstream(List<String> artists) => artists
-      .where((a) => _mainstreamArtists.contains(a.toLowerCase().trim()))
-      .toList();
+  // USER-CHOSEN (pinned) artists whitelist se EXEMPT: user ne khud chuna to
+  // woh hamesha feed me aayega, chahe woh fixed _mainstreamArtists list me na
+  // ho (US/K-pop/Punjabi indie/regional). Baaki artists ke liye quality gate
+  // pehle jaisa.
+  static List<String> _filterMainstream(List<String> artists) {
+    final pinned = RecommendationEngine.pinnedArtists
+        .map((e) => e.toLowerCase().trim())
+        .toSet();
+    return artists.where((a) {
+      final k = a.toLowerCase().trim();
+      return pinned.contains(k) || _mainstreamArtists.contains(k);
+    }).toList();
+  }
 
   static List<String> _filterHomeGenres(List<String> genres) =>
       genres.where((g) => _homeEligibleGenres.contains(g.toLowerCase().trim())).toList();
@@ -2101,6 +2112,12 @@ class ApiService {
               .any((a) => a.trim().toLowerCase() == artistName)) {
         tasteBoost += 5;
       }
+      // User-chosen (pinned) artist: sabse strong signal.
+      if (artistName.isNotEmpty &&
+          RecommendationEngine.pinnedArtists
+              .any((a) => a.trim().toLowerCase() == artistName)) {
+        tasteBoost += 8;
+      }
       if (RecommendationEngine.topAffinityGenres(count: 3)
           .contains(RecommendationEngine.detectGenre(song))) {
         tasteBoost += 3;
@@ -2633,8 +2650,8 @@ class ApiService {
             'client': {
               'clientName': 'WEB_REMIX',
               'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
+              'hl': UserRegion.hl,
+              'gl': UserRegion.gl,
             },
           },
           'query': query,
@@ -2672,8 +2689,8 @@ class ApiService {
             'client': {
               'clientName': 'WEB_REMIX',
               'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
+              'hl': UserRegion.hl,
+              'gl': UserRegion.gl,
             },
           },
           'browseId': browseId,
@@ -2710,8 +2727,8 @@ class ApiService {
             'client': {
               'clientName': 'WEB_REMIX',
               'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
+              'hl': UserRegion.hl,
+              'gl': UserRegion.gl,
             },
           },
           'continuation': continuationToken,
@@ -3371,23 +3388,130 @@ class ApiService {
     String? artistImageUrl,
     RelatedArtist? relatedArtist,
     List<ArtistAlbum> albums,
-  })?> fetchSimilarArtistAlbums(String artistName, {int albumCount = 10}) async {
+  })?> fetchSimilarArtistAlbums(String artistName, {int albumCount = 10, int rotate = 0}) async {
     try {
       final id = await resolveArtistId(artistName);
       if (id == null) return null;
 
-      final artist = await fetchArtist(id, songCount: 5, albumCount: albumCount);
+      // LIGHTWEIGHT: sirf artist browse page (albums + related chip). Pehle
+      // fetchArtist() chalta tha jo songs kam hone pe extra YT-uploads fetch
+      // + 45s search top-up bhi karta tha — Similar-to row ko sirf albums
+      // chahiye, low-end device pe woh sab bekar ka data/CPU tha.
+      Artist? artist;
+      if (id.startsWith('yt_')) {
+        artist = await _fetchArtistFromYtMusicBrowse(id.substring(3), songCount: 0)
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
+      }
+      artist ??= await fetchArtist(id, songCount: 5, albumCount: 100);
       if (artist == null || artist.topAlbums.isEmpty) return null;
+      final ranked = _rankSimilarArtistAlbums(artist.topAlbums,
+          rotate: rotate, keep: albumCount);
+      final picked = (ranked.length >= 3 ? ranked : artist.topAlbums)
+          .take(albumCount)
+          .toList();
       return (
         artistName: artistName,
         artistImageUrl: artist.imageUrl,
         relatedArtist:
             artist.relatedArtists.isNotEmpty ? artist.relatedArtists.first : null,
-        albums: artist.topAlbums.take(albumCount).toList(),
+        albums: picked,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  // "Similar to <artist>" = TOP-GRADE albums only.
+  // YT Music artist page ka Albums shelf pehle se popularity-ordered hota
+  // hai (sabse zyada suni gayi pehle) — wahi asli quality signal hai, isliye
+  // original position ko sabse zyada weight milta hai. Uske upar:
+  //  * regional-script / karaoke / remix / bhajan / cover / mashup /
+  //    compilation-junk hata do
+  //  * duplicate versions (Deluxe/Remastered/Original Motion Picture
+  //    Soundtrack, same name) collapse -> ek hi card
+  //  * film-soundtrack / hits / classic words + 1990-2015 era ko boost
+  //  * 2024+ random fresh drops ko penalty
+  //  * refreshKey se top-pool ke andar rotate, taaki har baar wahi same
+  //    albums na aayein (par kabhi junk nahi)
+  static final RegExp _nonLatinScript = RegExp(
+      r'[\u0980-\u09FF\u0B80-\u0BFF\u0C00-\u0C7F\u0A80-\u0AFF\u0A00-\u0A7F\u0C80-\u0CFF\u0D00-\u0D7F\u0B00-\u0B7F]');
+  static final RegExp _junkAlbumWords = RegExp(
+      r'\b(karaoke|remix(es)?|lofi|lo-fi|slowed|reverb|8d|instrumental|cover|tribute|'
+      r'bhajan(s)?|aarti|mantra|chalisa|devotional|ringtone|dj|mashup|reprise|'
+      r'live at|podcast|nursery|kids|ghazals? by|gazals? by|recipe|reciprocation|'
+      r'meditation|sleep|study|workout|lullaby|birthday|wedding|dance hits|'
+      r'bengali|bangla|tamil|telugu|kannada|malayalam|marathi|punjabi|bhojpuri|'
+      r'haryanvi|odia|assamese|gujarati)\b',
+      caseSensitive: false);
+  static final RegExp _goodAlbumWords = RegExp(
+      r'\b(original (motion picture )?soundtrack|ost|hits|best of|greatest|'
+      r'super ?hits|evergreen|golden|classics?|jukebox|unplugged|memories|'
+      r'love songs?|romantic hits?|forever)\b',
+      caseSensitive: false);
+  static final RegExp _editionNoise = RegExp(
+      r'\s*[\(\[][^\)\]]*(deluxe|remaster(ed)?|original motion picture soundtrack|'
+      r'original soundtrack|ost|expanded|anniversary|edition|version)[^\)\]]*[\)\]]',
+      caseSensitive: false);
+
+  static String _albumDedupKey(String name) => name
+      .replaceAll(_editionNoise, '')
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  static List<ArtistAlbum> _rankSimilarArtistAlbums(
+      List<ArtistAlbum> input, {int rotate = 0, int keep = 10}) {
+    final scored = <(ArtistAlbum, double)>[];
+    final seen = <String>{};
+    for (var i = 0; i < input.length; i++) {
+      final a = input[i];
+      final n = a.name.trim();
+      if (n.isEmpty || n.length > 60) continue;
+      if (a.type == 'single') continue;
+      if (a.artworkUrl.trim().isEmpty) continue;            // bina cover wale skip
+      if (RegExp(r'^[\d\s\W]+$').hasMatch(n)) continue;       // "2020", "###" jaise
+      if (RegExp(r'\b(vol(ume)?\.?\s*\d+|part\s*\d+|ep|mixtape|compilation|various)\b',
+              caseSensitive: false).hasMatch(n) &&
+          !_goodAlbumWords.hasMatch(n)) {
+        continue;
+      }
+      if (_nonLatinScript.hasMatch(n)) continue;
+      if (_junkAlbumWords.hasMatch(n)) continue;
+      if (RecommendationEngine.isLowQualityUpload(n)) continue;
+      final dk = _albumDedupKey(n);
+      if (dk.isEmpty || !seen.add(dk)) continue;
+
+      // Shelf position = popularity (YT already sorted). Rank 0 => 60 pts.
+      var score = (60.0 - i * 2.5).clamp(0.0, 60.0);
+      if (_goodAlbumWords.hasMatch(n)) score += 25;
+      final y = int.tryParse(a.year ?? '') ?? 0;
+      if (y >= 1990 && y <= 2015) {
+        score += 30;
+      } else if (y >= 2016 && y <= 2023) {
+        score += 12;
+      } else if (y >= 1970 && y < 1990) {
+        score += 15;
+      } else if (y > 2023) {
+        score -= 20;
+      } else if (y == 0) {
+        score -= 5;
+      }
+      scored.add((a, score));
+    }
+    scored.sort((x, y) => y.$2.compareTo(x.$2));
+    final ranked = scored.map((e) => e.$1).toList();
+    if (ranked.length <= keep) return ranked;
+
+    // Top-pool (best 2x) ke andar hi rotate — quality gir'ti nahi, variety milti hai.
+    final poolSize = math.min(ranked.length, keep * 2);
+    final pool = ranked.take(poolSize).toList();
+    final anchor = pool.take(3).toList();       // top-3 hamesha stable
+    final rest = pool.skip(3).toList();
+    if (rest.isEmpty) return anchor;
+    final start = rotate.abs() % rest.length;
+    final rotated = <ArtistAlbum>[
+      for (var k = 0; k < rest.length; k++) rest[(start + k) % rest.length],
+    ];
+    return [...anchor, ...rotated].take(keep).toList();
   }
 
   static Future<HomeShelf?> _searchAsHomeShelf(String query, String label,
@@ -3459,11 +3583,14 @@ class ApiService {
   }
 
   static Future<HomeShelf?> fetchFeaturedPlaylistsForYou() async {
-    const queries = [
-      'weekly top videos tamil',
-      'weekly top videos punjabi',
-      'weekly top videos hindi',
-    ];
+    await UserRegion.load();
+    final queries = UserRegion.code == 'IN'
+        ? const [
+            'weekly top videos tamil',
+            'weekly top videos punjabi',
+            'weekly top videos hindi',
+          ]
+        : ['weekly top videos ${UserRegion.name}'];
     final perQuery = await Future.wait(
       queries.map((q) => _searchAsHomeShelf(q, 'Featured playlists for you', take: 1)),
     );
@@ -3534,19 +3661,47 @@ class ApiService {
   }
 
   static Future<List<HomeShelf>> fetchHomeShelvesForDisplay({int? refreshSeed}) async {
+    // LOW-END / NEW-USER FAST LOAD: pehle har cold start pe ~10 network calls
+    // ek saath (real + similar + featured + 6 seeded) — weak phone/net pe
+    // heavy aur slow. Ab pehle sirf `real` (+ personalized similar) aata hai;
+    // seeded/featured fillers tabhi fetch hote hain jab real+similar ne 7
+    // shelves nahi bhare, aur tab bhi sirf utne jitne kam pade (rotating,
+    // capped) — extra calls skip.
     final realFuture = fetchRealHomeShelves();
     final similarFuture = fetchSimilarToArtistShelves(seed: refreshSeed);
-    final featuredFuture = fetchFeaturedPlaylistsForYou();
-    final seededFuture = Future.wait<HomeShelf?>(
-      _kSeedHomeShelfQueries.map(
-        (sq) => _searchAsHomeShelf(sq.query, sq.label, strapline: sq.strapline),
-      ),
-    );
-
     final real = await realFuture;
     final similar = await similarFuture;
-    final featured = await featuredFuture;
-    final seeded = (await seededFuture).whereType<HomeShelf>().toList();
+
+    const maxShelvesLocal = 7;
+    HomeShelf? featured;
+    var seeded = <HomeShelf>[];
+    final have = real.length + similar.length;
+    if (have < maxShelvesLocal) {
+      final need = maxShelvesLocal - have;
+      final rot = (refreshSeed ?? 0).abs();
+      await UserRegion.load();
+      // COUNTRY-AWARE fillers: user ki chuni country ke local shelves
+      // (US -> Hip-Hop/Country, KR -> K-Pop, NG -> Afrobeats ...), sirf India
+      // ke Bollywood shelves har country ko nahi.
+      final regional = UserRegion.seedShelves();
+      final pool = <({String label, String query, String? strapline})>[
+        for (final r in regional)
+          (label: r.label, query: r.query, strapline: r.strapline),
+      ];
+      final start = rot % pool.length;
+      final picked = <({String label, String query, String? strapline})>[
+        for (var k = 0; k < pool.length && k < need + 1; k++)
+          pool[(start + k) % pool.length],
+      ];
+      final results = await Future.wait<HomeShelf?>([
+        if (need >= 3) fetchFeaturedPlaylistsForYou(),
+        ...picked.map((sq) =>
+            _searchAsHomeShelf(sq.query, sq.label, strapline: sq.strapline)),
+      ]);
+      var idx = 0;
+      if (need >= 3) featured = results[idx++];
+      seeded = results.skip(idx).whereType<HomeShelf>().toList();
+    }
 
     // FIX ("home page pe ek hi category kitne baar aa raha hai" — same
     // shelf, e.g. "Dancing on your own", showing up 2-3 times in a row):
@@ -3648,8 +3803,8 @@ class ApiService {
             'client': {
               'clientName': 'WEB_REMIX',
               'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
+              'hl': UserRegion.hl,
+              'gl': UserRegion.gl,
             },
           },
           'videoId': videoId,
@@ -3961,7 +4116,7 @@ class ApiService {
             'clientName': 'WEB_REMIX',
             'clientVersion': _ytmClientVersion,
             'hl': 'en',
-            'gl': 'IN',
+            'gl': UserRegion.gl,
           },
         },
         if (continuationToken == null) 'query': query,
@@ -6118,6 +6273,63 @@ class ApiService {
       });
     }
     return completer.future;
+  }
+
+  /// Seedha naam se artist search (picker ke search box ke liye). Sirf real
+  /// artist-type results (YT filter), exact/prefix name match sabse upar,
+  /// Saavn sirf India/unset ke liye.
+  static Future<List<ArtistSimple>> searchArtistsByName(
+    String query, {
+    int limit = 12,
+    bool includeSaavn = false,
+  }) async {
+    final q = query.trim();
+    if (q.length < 2) return const [];
+    List<ArtistSimple> raw;
+    try {
+      raw = await _searchArtistsInternal(q, limit: limit + 6, includeSaavn: includeSaavn)
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {
+      return const [];
+    }
+    final ql = q.toLowerCase();
+    int rank(ArtistSimple a) {
+      final n = a.name.toLowerCase();
+      if (n == ql) return 0;
+      if (n.startsWith(ql)) return 1;
+      if (n.contains(ql)) return 2;
+      return 3;
+    }
+    final list = List<ArtistSimple>.from(raw)..sort((a, b) => rank(a).compareTo(rank(b)));
+    return list.take(limit).toList();
+  }
+
+  /// Curated artist NAMES ko real ArtistSimple (id + photo) me resolve karta
+  /// hai — parallel, har ek 3s timeout, fail hone wale skip. Picker ke top
+  /// section ke liye (guaranteed top-tier artists).
+  static Future<List<ArtistSimple>> resolveCuratedArtists(
+    List<String> names, {
+    int max = 24,
+    bool includeSaavn = false,
+  }) async {
+    final picks = names.take(max).toList();
+    final results = await Future.wait(picks.map((n) async {
+      try {
+        final r = await _searchArtistsAttempt(n, 4,
+                useArtistFilter: true, timeout: const Duration(seconds: 3))
+            .timeout(const Duration(seconds: 4));
+        if (r.isEmpty) return null;
+        final nl = n.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+        for (final a in r) {
+          final al = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+          if (al == nl || al.startsWith(nl) || nl.startsWith(al)) return a;
+        }
+        return null; // exact match nahi mila to galat artist mat dikhao
+      } catch (_) {
+        return null;
+      }
+    }));
+    return results.whereType<ArtistSimple>().toList();
   }
 
   static Future<List<ArtistSimple>> _searchArtistsSaavn(String query, int limit) async {

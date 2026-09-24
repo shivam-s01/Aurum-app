@@ -31,6 +31,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
+import 'user_region.dart';
 
 // =============================================================================
 // ENUMS & VALUE OBJECTS
@@ -127,6 +128,7 @@ class RecommendationEngine {
   static const _kReplays   = 'aurum_rec_replays';
   static const _kArtistW   = 'aurum_rec_artist_w';
   static const _kArtistDisplayName = 'aurum_rec_artist_display_name';
+  static const _kPinnedArtists = 'aurum_rec_pinned_artists';
   static const _kGenreW    = 'aurum_rec_genre_w';
   static const _kLangW     = 'aurum_rec_lang_w';
   static const _kSession   = 'aurum_rec_session';
@@ -162,6 +164,12 @@ class RecommendationEngine {
   // normalized key is boosted, so rotatingAffinityArtists can return real,
   // searchable names instead of the normalized key.
   static Map<String, String> _artistDisplayName = {};
+  // USER-CHOSEN ("followed") artists — onboarding/settings me jo artists user
+  // ne khud chune. Ye decay se nahi ghatte aur organic listening se dab nahi
+  // sakte: Home ke "Similar to" rows aur Quick Picks me hamesha in ka hissa
+  // rehta hai (Spotify "followed artists" / YT Music "your artists" jaisa).
+  static List<String> _pinnedArtists = [];
+  static const int _maxPinned = 30;
   static Map<String, double> _genreW    = {};
   static Map<String, double> _langW     = {};
   static _SessionState?      _session;
@@ -260,6 +268,7 @@ class RecommendationEngine {
   /// Load all stored data into memory. Call once at app startup.
   static Future<void> load() async {
     if (_loaded) return;
+    await UserRegion.load();
     final p = await SharedPreferences.getInstance();
 
     _plays     = _loadIntMap(p, _kPlays);
@@ -275,6 +284,11 @@ class RecommendationEngine {
               .map((k, v) => MapEntry(k, v as String));
     } catch (_) {
       _artistDisplayName = {};
+    }
+    try {
+      _pinnedArtists = List<String>.from(p.getStringList(_kPinnedArtists) ?? const []);
+    } catch (_) {
+      _pinnedArtists = [];
     }
     _genreW    = _loadDoubleMap(p, _kGenreW);
     _langW     = _loadDoubleMap(p, _kLangW);
@@ -329,6 +343,8 @@ class RecommendationEngine {
     await p.remove(_kReplays);
     await p.remove(_kArtistW);
     await p.remove(_kArtistDisplayName);
+    await p.remove(_kPinnedArtists);
+    _pinnedArtists = [];
     await p.remove(_kGenreW);
     await p.remove(_kLangW);
     await p.remove(_kSession);
@@ -501,11 +517,52 @@ class RecommendationEngine {
   /// weight entries rather than silently diverging on casing/whitespace).
   static Future<void> applyOnboardingArtistPreferences(List<String> artists) async {
     if (!_loaded) await load();
+    // MERGE, replace nahi: naye pick purane pins ke saath judte hain (pehle
+    // Settings me ek artist add karne pe purane pinned gayab ho jaate the).
+    // Hatana ho to setPinnedArtists()/unpinArtist() use hota hai.
     for (final a in artists) {
-      _boostArtist(a, delta: 0.35);
+      final t = a.trim();
+      if (t.isEmpty) continue;
+      _boostArtist(t, delta: 0.35);
+      final k = _normalizeKey(t);
+      _pinnedArtists.removeWhere((x) => _normalizeKey(x) == k);
+      _pinnedArtists.insert(0, t); // latest pick sabse aage
+    }
+    if (_pinnedArtists.length > _maxPinned) {
+      _pinnedArtists = _pinnedArtists.take(_maxPinned).toList();
     }
     _saveAll();
   }
+
+  /// Settings ka final selection = exact pinned list (add + remove dono).
+  static Future<void> setPinnedArtists(List<String> artists) async {
+    if (!_loaded) await load();
+    final next = <String>[];
+    for (final a in artists) {
+      final t = a.trim();
+      if (t.isEmpty) continue;
+      if (next.any((x) => _normalizeKey(x) == _normalizeKey(t))) continue;
+      next.add(t);
+    }
+    final nextKeys = next.map(_normalizeKey).toSet();
+    // Jo hataye gaye unka artificial boost wapas neutral ki taraf.
+    for (final old in _pinnedArtists) {
+      final k = _normalizeKey(old);
+      if (!nextKeys.contains(k) && (_artistW[k] ?? 0.5) > 0.5) {
+        _artistW[k] = 0.5 + ((_artistW[k]! - 0.5) * 0.4);
+      }
+    }
+    for (final a in next) {
+      if (!_pinnedArtists.any((x) => _normalizeKey(x) == _normalizeKey(a))) {
+        _boostArtist(a, delta: 0.35);
+      }
+    }
+    _pinnedArtists = next.take(_maxPinned).toList();
+    await _saveAll();
+  }
+
+  /// User ke chune hue (pinned) artists — real display names.
+  static List<String> get pinnedArtists => List.unmodifiable(_pinnedArtists);
 
   // ---------------------------------------------------------------------------
   // SECTION 5: AFFINITY WEIGHT HELPERS
@@ -2415,7 +2472,56 @@ class RecommendationEngine {
   /// was happening underneath. This keeps personalization (still only real
   /// affinity artists, never a random stranger) while actually rotating
   /// which of the person's top artists get featured each pull.
+  // NEW-USER STARTER POOL: bilkul naye user (koi listening history nahi) ke
+  // liye top-tier, universally-loved Bollywood artists — taaki pehle hi din
+  // "Similar to X" rows me asli top-level albums aayein, khaali/random feed
+  // nahi. Sirf tab use hota hai jab real affinity artists < count ho.
+  static List<String> get _starterArtists => UserRegion.starterArtists();
+
   static List<String> rotatingAffinityArtists({int count = 4, int? seed}) {
+    var real = _rotatingAffinityArtistsReal(count: count, seed: seed);
+    // USER-CHOSEN artists ka guaranteed hissa: har pull pe kam se kam 1
+    // pinned artist (rotating), baaki organic/recent listening — taaki jo
+    // artist user ne khud chuna uska feed hamesha aaye, par sirf wahi na
+    // aaye (YT/Spotify blend).
+    if (_loaded && _pinnedArtists.isNotEmpty && count > 0) {
+      final have = real.map(_normalizeKey).toSet();
+      final pinPool = _pinnedArtists
+          .where((a) => (_artistW[_normalizeKey(a)] ?? 0.5) >= 0.5)
+          .toList();
+      if (pinPool.isNotEmpty) {
+        final want = count >= 3 ? 2 : 1;
+        final start = ((seed ?? 0).abs()) % pinPool.length;
+        final picks = <String>[];
+        for (var i = 0; i < pinPool.length && picks.length < want; i++) {
+          final a = pinPool[(start + i) % pinPool.length];
+          if (!have.contains(_normalizeKey(a))) picks.add(a);
+        }
+        if (picks.isNotEmpty) {
+          // Recent-listening artist (real[0]) ko sabse aage rakho, pinned
+          // uske baad, phir baaki — total hamesha `count`.
+          final merged = <String>[
+            if (real.isNotEmpty) real.first,
+            ...picks,
+            ...real.skip(1),
+          ];
+          real = merged.take(count).toList();
+        }
+      }
+    }
+    if (real.length >= count) return real;
+    // Top-up with starter artists (rotating by seed), skipping duplicates.
+    final have = real.map((e) => _normalizeKey(e)).toSet();
+    final start = ((seed ?? 0).abs()) % _starterArtists.length;
+    final out = List<String>.from(real);
+    for (var i = 0; i < _starterArtists.length && out.length < count; i++) {
+      final a = _starterArtists[(start + i) % _starterArtists.length];
+      if (have.add(_normalizeKey(a))) out.add(a);
+    }
+    return out;
+  }
+
+  static List<String> _rotatingAffinityArtistsReal({int count = 4, int? seed}) {
     if (!_loaded) return [];
     final sorted = _artistW.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -2426,10 +2532,33 @@ class RecommendationEngine {
     // in home_screen.dart, plus every other rotatingAffinityArtists call
     // site in api_service.dart).
     var pool = sorted
-        .where((e) => e.value > 0.5)
+        .where((e) => e.value > 0.52)
         .take(12)
         .map((e) => _artistDisplayName[e.key] ?? e.key)
         .toList();
+    // RECENCY BLEND (YouTube-style): jo artists user ne abhi/isi session me
+    // sune wo pool me sabse aage, taaki naye taste pe feed turant shift ho
+    // aur sirf purane favourites hi na repeat hote rahein.
+    final recentNow = sessionRecentArtists
+        .map((a) => a.trim())
+        .where((a) => a.isNotEmpty)
+        .toList();
+    if (recentNow.isNotEmpty) {
+      final lowPool = pool.map((e) => _normalizeKey(e)).toSet();
+      final front = <String>[];
+      for (final a in recentNow) {
+        final k = _normalizeKey(a);
+        if (k.isEmpty) continue;
+        if ((_artistW[k] ?? 0.5) < 0.5) continue; // skipped artist mat lao
+        if (front.any((f) => _normalizeKey(f) == k)) continue;
+        front.add(_artistDisplayName[k] ?? a);
+        lowPool.remove(k);
+      }
+      pool = [
+        ...front.take(2),
+        ...pool.where((e) => lowPool.contains(_normalizeKey(e))),
+      ];
+    }
     // FIX ("refresh pr cards change nahi ho rahe, artist/album same
     // rehte hain" — 2026-09-15): the whole point of this function over
     // topAffinityArtists is to rotate on every pull instead of freezing
@@ -2757,9 +2886,26 @@ class RecommendationEngine {
 
   static Future<void> applyDecay() async {
     if (!_loaded) await load();
-    _artistW.updateAll((_, v) => (v * _decayFactor).clamp(0.0, 1.0));
-    _genreW.updateAll((_, v)  => (v * _decayFactor).clamp(0.0, 1.0));
-    _langW.updateAll((_, v)   => (v * _decayFactor).clamp(0.0, 1.0));
+    // FIX: decay ab NEUTRAL (0.5) ki taraf khinchta hai, zero ki taraf nahi.
+    // Pehle v*0.92 se untouched 0.5 bhi roz ghat-ke <0.5 ho jaata tha aur
+    // kuch dino me saare artists "similar to"/affinity pool se bahar ho
+    // jaate the. Ab purani aadat dheere-dheere neutral hoti hai, aur jo
+    // artist abhi sun rahe ho wo upar rehta hai (naye signals >> purane).
+    double toNeutral(double v) =>
+        (0.5 + (v - 0.5) * _decayFactor).clamp(0.0, 1.0);
+    _artistW.updateAll((_, v) => toNeutral(v));
+    _genreW.updateAll((_, v)  => toNeutral(v));
+    _langW.updateAll((_, v)   => toNeutral(v));
+    // Bahut purane, ab-neutral ho chuke artists ko map se hata do (size cap).
+    // Pinned (user-chosen) artists kabhi neutral me nahi girte.
+    for (final a in _pinnedArtists) {
+      final k = _normalizeKey(a);
+      if (k.isEmpty) continue;
+      if ((_artistW[k] ?? 0.5) < 0.75) _artistW[k] = 0.75;
+    }
+    final pinnedKeys = _pinnedArtists.map(_normalizeKey).toSet();
+    _artistW.removeWhere(
+        (k, v) => (v - 0.5).abs() < 0.02 && !pinnedKeys.contains(k));
     await _saveAll();
   }
 
@@ -2780,6 +2926,7 @@ class RecommendationEngine {
       p.setString(_kReplays,   jsonEncode(_replays)),
       p.setString(_kArtistW,   jsonEncode(_artistW)),
       p.setString(_kArtistDisplayName, jsonEncode(_artistDisplayName)),
+      p.setStringList(_kPinnedArtists, _pinnedArtists),
       p.setString(_kGenreW,    jsonEncode(_genreW)),
       p.setString(_kLangW,     jsonEncode(_langW)),
       p.setString(_kAlbumPlays, jsonEncode(_albumPlays)),

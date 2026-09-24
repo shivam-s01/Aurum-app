@@ -53,6 +53,8 @@ import '../services/recommendation_engine.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../config/region_catalog.dart';
+import '../services/user_region.dart';
+import '../services/artist_picker_loader.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root screen — steps through Country -> Genres -> Artists
@@ -165,6 +167,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         if (_selectedCountry != null) {
           await p.setString('onboarding_country_code', _selectedCountry!.code);
           await p.setString('onboarding_country_name', _selectedCountry!.name);
+          UserRegion.update(_selectedCountry!.code, _selectedCountry!.name);
         }
         await p.setBool('onboarding_complete', true);
         // Read it back rather than trusting setBool()'s return value —
@@ -1370,6 +1373,48 @@ class _ArtistStepState extends State<_ArtistStep> {
   List<ArtistSimple>? _artists; // null = loading, [] = failed/empty
   bool _saving = false;
 
+  // ARTIST SEARCH: user apna pasandida artist naam se dhoondh sake (pehle
+  // picker me search hi nahi tha — sirf jo grid me aaya wahi choose hota).
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  List<ArtistSimple>? _searchResults; // null = search band
+  bool _searching = false;
+  int _searchToken = 0;
+  // Selected artists ki photo yaad rakhne ke liye (chips me dikhane ko).
+  final Map<String, ArtistSimple> _known = {};
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    final q = v.trim();
+    if (q.length < 2) {
+      setState(() {
+        _searchResults = null;
+        _searching = false;
+      });
+      return;
+    }
+    setState(() => _searching = true);
+    _searchDebounce = Timer(const Duration(milliseconds: 380), () async {
+      final token = ++_searchToken;
+      final res = await ArtistPickerLoader.search(q);
+      if (!mounted || token != _searchToken) return;
+      for (final a in res) {
+        _known.putIfAbsent(a.name, () => a);
+      }
+      setState(() {
+        _searchResults = res;
+        _searching = false;
+      });
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1436,26 +1481,15 @@ class _ArtistStepState extends State<_ArtistStep> {
         onTimeout: () => <MapEntry<String, List<ArtistSimple>>>[],
       );
 
-      // Round-robin merge across genre buckets so the grid represents
-      // every selected genre/country combo fairly instead of one query's
-      // results dominating.
-      final merged = <ArtistSimple>[];
-      final seenNames = <String>{};
-      final buckets = results.map((e) => e.value).toList();
-      var addedAny = true;
-      var col = 0;
-      while (addedAny && merged.length < 60) {
-        addedAny = false;
-        for (final bucket in buckets) {
-          if (col < bucket.length) {
-            final a = bucket[col];
-            if (a.name.isNotEmpty && seenNames.add(a.name.toLowerCase())) {
-              merged.add(a);
-            }
-            addedAny = true;
-          }
-        }
-        col++;
+      // CURATED-FIRST merge: country ke top artists pehle (guaranteed
+      // quality), phir genre-wise search results round-robin, dedup.
+      final merged = await ArtistPickerLoader.buildInitialList(
+        genreBuckets: results.map((e) => e.value).toList(),
+        includeSaavn: isIndiaOrUnset,
+      );
+      final seenNames = <String>{for (final m in merged) m.name.toLowerCase()};
+      for (final m in merged) {
+        _known.putIfAbsent(m.name, () => m);
       }
 
       // FIX: if the genre-scoped queries still come back under the
@@ -1598,7 +1632,7 @@ class _ArtistStepState extends State<_ArtistStep> {
           const SizedBox(height: 8),
           Text(
             hasArtists
-                ? 'Tap the ones you love — this fine-tunes your\nrecommendations even further.'
+                ? 'Pick your favourites or search any artist —\nyour feed will be built around them.'
                 : loading
                     ? 'Finding artists picked for you...'
                     : 'We couldn\'t load artist picks right now — no\nworries, you can skip this step.',
@@ -1608,10 +1642,89 @@ class _ArtistStepState extends State<_ArtistStep> {
               height: 1.4,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+          if (!loading)
+            _SearchField(
+              hint: 'Search any artist',
+              onChanged: _onSearchChanged,
+            ),
+          if (widget.selected.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 38,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: widget.selected.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final name = widget.selected.elementAt(i);
+                  return GestureDetector(
+                    onTap: () {
+                      AurumHaptics.selection();
+                      widget.onToggle(name);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(19),
+                        border: Border.all(color: accent, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(name,
+                              style: TextStyle(
+                                  color: accent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 6),
+                          Icon(Icons.close_rounded, size: 15, color: accent),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
           Expanded(
             child: loading
                 ? const Center(child: CircularProgressIndicator())
+                : (_searchResults != null || _searching)
+                    ? (_searching && (_searchResults ?? const []).isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : (_searchResults ?? const []).isEmpty
+                            ? Center(
+                                child: Text('No artists found',
+                                    style: TextStyle(
+                                        color: AurumTheme.textMutedOf(context))))
+                            : GridView.builder(
+                                physics: const BouncingScrollPhysics(),
+                                itemCount: _searchResults!.length,
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 3,
+                                  mainAxisSpacing: 16,
+                                  crossAxisSpacing: 12,
+                                  childAspectRatio: 0.78,
+                                ),
+                                itemBuilder: (context, i) {
+                                  final artist = _searchResults![i];
+                                  return _ArtistCard(
+                                    artist: artist,
+                                    selected:
+                                        widget.selected.contains(artist.name),
+                                    accent: accent,
+                                    onTap: () {
+                                      AurumHaptics.selection();
+                                      widget.onToggle(artist.name);
+                                    },
+                                  );
+                                },
+                              ))
                 : hasArtists
                     ? GridView.builder(
                         physics: const BouncingScrollPhysics(),

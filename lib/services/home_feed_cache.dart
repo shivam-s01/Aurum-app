@@ -163,6 +163,34 @@ class RefreshStage {
 }
 
 class HomeFeedCache {
+  /// Country badalne pe purana region ka cached feed (Quick Picks, shelves,
+  /// similar rows, sections, artists) galat country ka dikhega — saare
+  /// timestamps hata do taaki agla load fresh (naye region ka) fetch kare.
+  /// Data delete nahi hota (instant paint ka fallback rahe), bas "stale" ho
+  /// jaata hai.
+  static Future<void> invalidateForRegionChange() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final k in [
+        _savedAtKey,
+        _artistsSavedAtKey,
+        _quickPicksSavedAtKey,
+        _similarArtistRowsSavedAtKey,
+        _similarSongRowsSavedAtKey,
+        _homeShelvesSavedAtKey,
+      ]) {
+        await prefs.remove(k);
+      }
+      for (final k in prefs.getKeys().toList()) {
+        if (k.contains('playlists_saved_at') ||
+            k.contains('albums_saved_at') ||
+            k.contains('SavedAt')) {
+          await prefs.remove(k);
+        }
+      }
+    } catch (_) {}
+  }
+
   static const _sectionsKey = 'home_feed_cache_sections_v1';
   // BUMPED v1 -> v2 ("home page pe artist ke real images nahi aate" —
   // stale-cache root cause, 2026-09-06): devices that had already cached
@@ -588,7 +616,7 @@ class HomeFeedCache {
   // this cache entirely), so refreshing never shows stale data on
   // purpose — this only shortcuts the passive "just reopened the app"
   // path.
-  static const _similarArtistRowsKey = 'home_similar_artist_rows_v1';
+  static const _similarArtistRowsKey = 'home_similar_artist_rows_v2';
   static const _similarArtistRowsSavedAtKey =
       'home_similar_artist_rows_saved_at_ms';
 

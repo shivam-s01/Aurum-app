@@ -34,6 +34,8 @@
 //     onboarding gives a first-time pick.
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -44,6 +46,9 @@ import '../services/recommendation_engine.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../widgets/aurum_morph_loader.dart';
+import '../services/user_region.dart';
+import '../services/home_feed_cache.dart';
+import '../services/artist_picker_loader.dart';
 
 class SettingsRegionScreen extends StatefulWidget {
   const SettingsRegionScreen({super.key});
@@ -69,6 +74,46 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
   bool _countryExpanded = false;
   String _countryQuery = '';
 
+  // Artist name-search (onboarding jaisa) + pinned artists ki photo.
+  final TextEditingController _artistSearchCtrl = TextEditingController();
+  Timer? _artistSearchDebounce;
+  List<ArtistSimple>? _artistSearchResults; // null = search band
+  bool _artistSearching = false;
+  int _artistSearchToken = 0;
+  final Map<String, ArtistSimple> _knownArtists = {};
+
+  @override
+  void dispose() {
+    _artistSearchDebounce?.cancel();
+    _artistSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onArtistSearchChanged(String v) {
+    _artistSearchDebounce?.cancel();
+    final q = v.trim();
+    if (q.length < 2) {
+      setState(() {
+        _artistSearchResults = null;
+        _artistSearching = false;
+      });
+      return;
+    }
+    setState(() => _artistSearching = true);
+    _artistSearchDebounce = Timer(const Duration(milliseconds: 380), () async {
+      final token = ++_artistSearchToken;
+      final res = await ArtistPickerLoader.search(q);
+      if (!mounted || token != _artistSearchToken) return;
+      for (final a in res) {
+        _knownArtists.putIfAbsent(a.name, () => a);
+      }
+      setState(() {
+        _artistSearchResults = res;
+        _artistSearching = false;
+      });
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +138,13 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
       // showing a garbled or wrong-cased artist chip. Starting blank
       // means every pick made here is unambiguous and additive on top
       // of whatever the feed has already learned.
+      // Pehle se chune (pinned) artists ab REAL naam ke saath store hote
+      // hain (RecommendationEngine.pinnedArtists), to Settings unhe
+      // pre-select karke dikhata hai — user add/remove dono kar sake.
+      try {
+        await RecommendationEngine.load();
+        _selectedArtists.addAll(RecommendationEngine.pinnedArtists);
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _country = savedCountry;
@@ -166,24 +218,15 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
         onTimeout: () => <List<ArtistSimple>>[],
       );
 
-      // Round-robin merge across genre buckets, same as onboarding, so
-      // the grid represents every selected genre fairly.
-      final merged = <ArtistSimple>[];
-      final seenNames = <String>{};
-      var addedAny = true;
-      var col = 0;
-      while (addedAny && merged.length < 60) {
-        addedAny = false;
-        for (final bucket in results) {
-          if (col < bucket.length) {
-            final a = bucket[col];
-            if (a.name.isNotEmpty && seenNames.add(a.name.toLowerCase())) {
-              merged.add(a);
-            }
-            addedAny = true;
-          }
-        }
-        col++;
+      // CURATED-FIRST (onboarding jaisa): country ke top artists pehle,
+      // phir genre results round-robin.
+      final merged = await ArtistPickerLoader.buildInitialList(
+        genreBuckets: results,
+        includeSaavn: isIndiaOrUnset,
+      );
+      final seenNames = <String>{for (final m in merged) m.name.toLowerCase()};
+      for (final m in merged) {
+        _knownArtists.putIfAbsent(m.name, () => m);
       }
 
       if (merged.length < 6) {
@@ -222,11 +265,8 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
           _selectedGenres.toList(),
         );
       }
-      if (_selectedArtists.isNotEmpty) {
-        await RecommendationEngine.applyOnboardingArtistPreferences(
-          _selectedArtists.toList(),
-        );
-      }
+      // Exact final selection: jo add kiye wo pinned, jo hataye wo unpinned.
+      await RecommendationEngine.setPinnedArtists(_selectedArtists.toList());
     } catch (_) {
       // Never block on a preference-save failure — worst case the country
       // still saves below and genres/artists just don't get their boost.
@@ -234,12 +274,18 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
 
     try {
       final p = await SharedPreferences.getInstance();
+      final prevCode = UserRegion.code;
       if (_country != null) {
         await p.setString('onboarding_country_code', _country!.code);
         await p.setString('onboarding_country_name', _country!.name);
+        UserRegion.update(_country!.code, _country!.name);
       } else {
         await p.remove('onboarding_country_code');
         await p.remove('onboarding_country_name');
+        UserRegion.update(null, null);
+      }
+      if (UserRegion.code != prevCode) {
+        await HomeFeedCache.invalidateForRegionChange();
       }
     } catch (_) {}
 
@@ -345,8 +391,75 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AurumTheme.bgCardOf(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AurumTheme.dividerOf(context), width: 0.5),
+                  ),
+                  child: TextField(
+                    controller: _artistSearchCtrl,
+                    onChanged: _onArtistSearchChanged,
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context), fontSize: 15),
+                    decoration: InputDecoration(
+                      hintText: 'Search any artist',
+                      hintStyle:
+                          TextStyle(color: AurumTheme.textMutedOf(context)),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: AurumTheme.textMutedOf(context), size: 20),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                if (_selectedArtists.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 38,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: _selectedArtists.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) {
+                        final name = _selectedArtists.elementAt(i);
+                        return GestureDetector(
+                          onTap: () => _onArtistToggled(name),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(19),
+                              border: Border.all(color: accent, width: 1),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(name,
+                                    style: TextStyle(
+                                        color: accent,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(width: 6),
+                                Icon(Icons.close_rounded,
+                                    size: 15, color: accent),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
                 _ArtistPickerGrid(
-                  artists: _artists,
+                  artists: (_artistSearchResults != null || _artistSearching)
+                      ? (_artistSearching && (_artistSearchResults ?? const []).isEmpty
+                          ? null
+                          : _artistSearchResults ?? const [])
+                      : _artists,
                   selected: _selectedArtists,
                   accent: accent,
                   onToggle: _onArtistToggled,

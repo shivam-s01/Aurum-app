@@ -4494,13 +4494,25 @@ class _HomeShelvesAndSimilarSectionState
       Future<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})?>
           fetchOne(String artist) async {
         try {
-          return await ApiService.fetchSimilarArtistAlbums(artist);
+          return await ApiService.fetchSimilarArtistAlbums(artist,
+              rotate: widget.refreshKey);
         } catch (_) {
           return null;
         }
       }
-      final results = await Future.wait(seedArtists.map(fetchOne));
-      return results.where((r) => r != null).map((r) => r!).toList();
+      // LOW-END: teeno artists ek saath (har ek 1 browse + 2-3 grid calls =
+      // ~10 parallel requests) weak phone/net ko choke karta tha. Pehle 2
+      // parallel, teesra baad me — total time lagbhag same, peak load kam.
+      final first = await Future.wait(seedArtists.take(2).map(fetchOne));
+      final rest = <({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})?>[];
+      for (final a in seedArtists.skip(2)) {
+        rest.add(await fetchOne(a));
+      }
+      final results = [...first, ...rest];
+      return results
+          .where((r) => r != null && r.albums.length >= 3)
+          .map((r) => r!)
+          .toList();
     } catch (_) {
       return const [];
     }
