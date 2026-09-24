@@ -24,6 +24,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
+import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
