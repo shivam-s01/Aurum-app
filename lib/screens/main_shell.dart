@@ -796,277 +796,353 @@ class AurumBottomNavBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final items = _items(l10n);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Nav bar is always Docked now ("Floating" removed from Settings →
-    // Appearance per user request — AudioPrefs.navBarStyleNotifier is
-    // hardcoded to 'Docked'). Edge-to-edge, no side margins, square
-    // corners, flush against the bottom edge. It now has two looks
-    // depending on the "Liquid Glass" toggle in Settings → Appearance:
-    // glass ON renders a real edge-to-edge AurumGlass blur (matching
-    // SimpMusic's glass nav bar); glass OFF keeps the flat, fully
-    // transparent SimpMusic look. Tab logic, highlight capsule, and tap
-    // handling below are unaffected either way.
-    return ValueListenableBuilder<String>(
-      valueListenable: AudioPrefs.navBarStyleNotifier,
-      builder: (context, navStyle, _) {
-        final docked = navStyle == 'Docked';
+    // FIX ("nav bar + search collapse ekdam SimpMusic jaisa hona chahiye,
+    // glass ON rahe tab"): two structural changes from the previous
+    // Docked-only version, both driven purely by existing toggles/state —
+    // no new Settings entries added.
+    //
+    // 1) Shape now follows the Liquid Glass toggle directly instead of
+    //    being hardcoded to Docked: glass ON → floating rounded capsule
+    //    (side margins, full rounded corners, real refracting glass —
+    //    matches SimpMusic's own floating glass nav bar exactly). Glass
+    //    OFF → the previous Docked edge-to-edge/square-corner look,
+    //    completely unchanged.
+    // 2) When the Search tab (index 1) is the active tab, the whole
+    //    3-tab row collapses down to just a single round floating search
+    //    button — matching SimpMusic's own search-screen nav bar exactly
+    //    — and expands back to the full 3-tab row the instant another
+    //    tab becomes active. Purely presentational: currentIndex/onTap
+    //    wiring below is completely unchanged, so tapping the collapsed
+    //    search button still calls onTap(1) same as before.
+    return ValueListenableBuilder<bool>(
+      valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+      builder: (context, glassOn, __) {
+        final docked = !glassOn;
+        final searchActive = currentIndex == 1;
         return SafeArea(
-      top: false,
-      // FIX (potential tap-through bug on 3-button/gesture-nav devices):
-      // bottom safe-area padding must always be respected regardless of
-      // Docked/Floating style — turning it off would let the nav bar's
-      // tap targets slide under the system's own gesture/button bar on
-      // devices with a real inset there, making the bottom row of icons
-      // unreliable to tap. Docked only changes the bar's own visual shape
-      // (margins/radius/border) below — never the safe inset.
-      child: Padding(
-        padding: docked
-            ? EdgeInsets.zero
-            : const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        // Docked is always edge-to-edge/square-corner, so this outer
-        // ClipRRect uses a zero radius either way — a plain rectangle
-        // clip, which doesn't cut off AurumGlass's own contact shadow
-        // the way a rounded outer clip would (that's why Floating used
-        // to skip the clip's radius instead of matching it).
-        child: ClipRRect(
-          clipBehavior: Clip.none,
-          borderRadius: docked
-              ? BorderRadius.zero
-              : BorderRadius.circular(28),
-          // PERF/HEAT SETTING: nav bar sits on screen on every tab, so its
-          // BackdropFilter blur runs every single frame it's visible — a
-          // real, continuous GPU cost that shows up as device heat on
-          // weaker hardware during long sessions. Wrapping just this shell
-          // in a ValueListenableBuilder (not the whole nav bar) means only
-          // the blur/decoration re-renders when the user changes the
-          // setting in Settings → Appearance — the tab icons/labels Stack
-          // below is completely unaffected. sigma == 0 skips BackdropFilter
-          // entirely (cheapest possible option: flat tinted bar, same look
-          // FullPlayerScreen's own route-transition fallback already uses).
-          child: ValueListenableBuilder<bool>(
-            valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
-            builder: (context, glassOn, navBarContent) {
-              final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
-              // PERF/BATTERY FIX (zero-tolerance heating/battery request):
-              // same fix as mini_player.dart's effectiveBlurSigma — this
-              // nav bar sits underneath every pushed screen too (MainShell
-              // never leaves the tree), and opaque:false route transitions
-              // keep it actively compositing/blurring behind whatever is
-              // pushed on top. Gate on ModalRoute.of(context)?.isCurrent
-              // exactly the same way: not the top route → treat as
-              // sigma 0 (solid, no BackdropFilter), so the blur's
-              // continuous GPU/heat cost only ever runs while the nav bar
-              // itself is actually the thing on screen.
-              final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
-              final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
-              // blurSigma <= 0 means the user explicitly turned blur OFF
-              // (Settings → Appearance → "Nav Bar Blur" dragged to 0).
-              // That should read as a fully solid, opaque bar — not a
-              // translucent "glass without the blur" look — so nothing
-              // behind it shows through at all. Only the blurred variant
-              // keeps the semi-transparent tint that lets BackdropFilter's
-              // blur actually be visible underneath.
-              //
-              // FIX (user request): Docked used to always stay flat/
-              // transparent no matter what, ignoring the Liquid Glass
-              // toggle entirely. Now Docked itself responds to that
-              // toggle: glass ON renders the real AurumGlass blur (edge-
-              // to-edge, square corners — matching SimpMusic's own glass
-              // nav bar exactly) instead of the flat scrim; glass OFF
-              // keeps the exact SimpMusic flat-transparent look this
-              // branch already had. Nothing here changes for glass OFF.
-              if (docked && glassOn) {
-                return SizedBox(
-                  height: _barHeight,
-                  child: AurumGlass(
-                    sigma: effectiveBlurSigma,
-                    borderRadius: BorderRadius.zero,
-                    isDark: isDark,
-                    tintColor: AurumTheme.bgCardOf(context),
-                    useTintInGlass: false,
-                    child: navBarContent!,
-                  ),
-                );
-              }
-              if (docked) {
-                return SizedBox(
-                  height: _barHeight,
-                  child: Stack(
-                    children: [
-                      // FIX (user wanted the SimpMusic look restored after
-                      // the per-tab selection capsule was removed): this is
-                      // NOT that capsule coming back — it's a shared, static
-                      // gradient behind the entire bar (not per-tab, not
-                      // tied to selection state), purely so icons/labels
-                      // stay readable over busy scrolling album art. Fades
-                      // from transparent at the top edge to a soft dark
-                      // tint at the very bottom, matching the scrim visible
-                      // behind SimpMusic's own bottom nav.
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.0),
-                                  Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
-                                ],
-                              ),
-                            ),
+          top: false,
+          // Bottom safe-area padding is always respected regardless of
+          // shape — see original FIX comment: this never changes tap
+          // reliability on gesture-nav devices either way below.
+          child: Padding(
+            padding: docked
+                ? EdgeInsets.zero
+                : const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: AnimatedSwitcher(
+              duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+              switchInCurve: AurumMotion.standard,
+              switchOutCurve: AurumMotion.standardReverse,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.9, end: 1.0).animate(anim),
+                  alignment: Alignment.bottomCenter,
+                  child: child,
+                ),
+              ),
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
+              ),
+              // Keyed on (searchActive, docked) — either changing plays
+              // the collapse/expand or shape-swap animation smoothly
+              // instead of an instant cut.
+              child: searchActive
+                  ? _CollapsedSearchButton(
+                      key: const ValueKey('nav_collapsed_search'),
+                      docked: docked,
+                      isDark: isDark,
+                      onTap: () => onTap(1),
+                    )
+                  : _FullNavRow(
+                      key: ValueKey('nav_full_$docked'),
+                      docked: docked,
+                      isDark: isDark,
+                      items: items,
+                      currentIndex: currentIndex,
+                      onTap: onTap,
+                    ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The normal 3-tab Home/Search/Library row, in either Docked
+/// (edge-to-edge, square, unchanged from before) or Floating (rounded
+/// capsule with real glass, active whenever Liquid Glass is ON) shape.
+class _FullNavRow extends StatelessWidget {
+  final bool docked;
+  final bool isDark;
+  final List<({dynamic outline, dynamic filled, String label})> items;
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+  const _FullNavRow({
+    super.key,
+    required this.docked,
+    required this.isDark,
+    required this.items,
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Docked is always edge-to-edge/square-corner, so this outer
+    // ClipRRect uses a zero radius either way — a plain rectangle
+    // clip, which doesn't cut off AurumGlass's own contact shadow
+    // the way a rounded outer clip would (that's why Floating used
+    // to skip the clip's radius instead of matching it).
+    return ClipRRect(
+      clipBehavior: Clip.none,
+      borderRadius: docked
+          ? BorderRadius.zero
+          : BorderRadius.circular(28),
+      // PERF/HEAT SETTING: nav bar sits on screen on every tab, so its
+      // BackdropFilter blur runs every single frame it's visible — a
+      // real, continuous GPU cost that shows up as device heat on
+      // weaker hardware during long sessions. Wrapping just this shell
+      // in a ValueListenableBuilder (not the whole nav bar) means only
+      // the blur/decoration re-renders when the user changes the
+      // setting in Settings → Appearance — the tab icons/labels Stack
+      // below is completely unaffected. sigma == 0 skips BackdropFilter
+      // entirely (cheapest possible option: flat tinted bar, same look
+      // FullPlayerScreen's own route-transition fallback already uses).
+      child: ValueListenableBuilder<bool>(
+        valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+        builder: (context, glassOn, navBarContent) {
+          final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
+          // PERF/BATTERY FIX (zero-tolerance heating/battery request):
+          // same fix as mini_player.dart's effectiveBlurSigma — this
+          // nav bar sits underneath every pushed screen too (MainShell
+          // never leaves the tree), and opaque:false route transitions
+          // keep it actively compositing/blurring behind whatever is
+          // pushed on top. Gate on ModalRoute.of(context)?.isCurrent
+          // exactly the same way: not the top route → treat as
+          // sigma 0 (solid, no BackdropFilter), so the blur's
+          // continuous GPU/heat cost only ever runs while the nav bar
+          // itself is actually the thing on screen.
+          final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+          final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
+          if (docked && glassOn) {
+            return SizedBox(
+              height: AurumBottomNavBar._barHeight,
+              child: AurumGlass(
+                sigma: effectiveBlurSigma,
+                borderRadius: BorderRadius.zero,
+                isDark: isDark,
+                tintColor: AurumTheme.bgCardOf(context),
+                useTintInGlass: false,
+                child: navBarContent!,
+              ),
+            );
+          }
+          if (docked) {
+            return SizedBox(
+              height: AurumBottomNavBar._barHeight,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.0),
+                              Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
+                            ],
                           ),
                         ),
                       ),
-                      // FIX (CI build error "Widget? can't be assigned to
-                      // list type Widget"): ValueListenableBuilder's
-                      // `child` callback param is typed Widget? by the
-                      // Flutter SDK (it's nullable there because `child`
-                      // itself is an optional constructor parameter on
-                      // ValueListenableBuilder in general) — but THIS
-                      // builder is always constructed with a non-null
-                      // `child: LayoutBuilder(...)` a few lines below, so
-                      // navBarContent is never actually null at runtime.
-                      // The analyzer can't see that guarantee across the
-                      // builder boundary, so it flags the direct
-                      // Widget?-into-List<Widget> assignment here. `!` is
-                      // safe and correct given that guarantee.
-                      navBarContent!,
-                    ],
+                    ),
                   ),
-                );
-              }
-              // `docked` is always true now (Floating removed), so the two
-              // branches above (glass ON / glass OFF) are exhaustive —
-              // this point is unreachable, but returning the glass-ON
-              // render here too (rather than throwing) keeps this method
-              // total or safe against a future edge case.
-              return SizedBox(
-                height: _barHeight,
-                child: AurumGlass(
-                  sigma: effectiveBlurSigma,
-                  borderRadius: BorderRadius.zero,
-                  isDark: isDark,
-                  tintColor: AurumTheme.bgCardOf(context),
-                  useTintInGlass: false,
-                  child: navBarContent!,
-                ),
+                  navBarContent!,
+                ],
+              ),
+            );
+          }
+          // Floating (glass ON, not docked): real refracting glass
+          // capsule — matches SimpMusic's own floating glass nav bar.
+          return SizedBox(
+            height: AurumBottomNavBar._barHeight,
+            child: AurumGlass(
+              sigma: effectiveBlurSigma,
+              borderRadius: BorderRadius.circular(28),
+              isDark: isDark,
+              tintColor: AurumTheme.bgCardOf(context),
+              useTintInGlass: false,
+              child: navBarContent!,
+            ),
+          );
+        },
+        child: LayoutBuilder(
+            builder: (context, constraints) {
+              // SimpMusic-exact indicator: the selected tab's icon and
+              // label sit side-by-side in a Row, wrapped in a soft grey
+              // pill sized to that content (not a fixed guessed size) —
+              // so the pill always hugs exactly what's inside it.
+              // Unselected tabs stay icon-over-label with no pill at
+              // all, matching the reference screenshots exactly. Each
+              // tab gets an equal-width slot so tap targets stay large
+              // and consistent regardless of which tab is selected.
+              final slotWidth = constraints.maxWidth / items.length;
+              return Row(
+                children: List.generate(items.length, (i) {
+                  final item = items[i];
+                  final selected = i == currentIndex;
+                  return SizedBox(
+                    width: slotWidth,
+                    height: AurumBottomNavBar._barHeight,
+                    child: _NavTabTapPump(
+                      onTap: () {
+                        if (!selected) AurumHaptics.selection();
+                        onTap(i);
+                      },
+                      child: Center(
+                        child: AnimatedContainer(
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+                        curve: AurumMotion.standard,
+                        padding: selected
+                            ? const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8)
+                            : const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? (isDark ? Colors.white : Colors.black)
+                                  .withValues(alpha: isDark ? 0.14 : 0.08)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: selected
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    item.filled,
+                                    size: 22,
+                                    color: AurumTheme.textPrimaryOf(context),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    item.label,
+                                    style: TextStyle(
+                                      fontFamily: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.fontFamily,
+                                      fontSize: 13,
+                                      height: 1.0,
+                                      fontWeight: FontWeight.w600,
+                                      color: AurumTheme.textPrimaryOf(context),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    item.outline,
+                                    size: 24,
+                                    color: AurumTheme.textMutedOf(context),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item.label,
+                                    style: TextStyle(
+                                      fontFamily: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.fontFamily,
+                                      fontSize: 11,
+                                      height: 1.0,
+                                      fontWeight: FontWeight.w500,
+                                      color: AurumTheme.textMutedOf(context),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               );
             },
-            child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // SimpMusic-exact indicator: the selected tab's icon and
-                  // label sit side-by-side in a Row, wrapped in a soft grey
-                  // pill sized to that content (not a fixed guessed size) —
-                  // so the pill always hugs exactly what's inside it.
-                  // Unselected tabs stay icon-over-label with no pill at
-                  // all, matching the reference screenshots exactly. Each
-                  // tab gets an equal-width slot so tap targets stay large
-                  // and consistent regardless of which tab is selected.
-                  final slotWidth = constraints.maxWidth / items.length;
-                  return Row(
-                    children: List.generate(items.length, (i) {
-                      final item = items[i];
-                      final selected = i == currentIndex;
-                      return SizedBox(
-                        width: slotWidth,
-                        height: _barHeight,
-                        child: _NavTabTapPump(
-                          onTap: () {
-                            if (!selected) AurumHaptics.selection();
-                            onTap(i);
-                          },
-                          // SimpMusic-exact: the selected tab's own
-                          // icon+label pair (laid out as a Row, side by
-                          // side) sits directly inside a soft grey pill
-                          // that hugs that content — width/height come
-                          // from the content itself (icon + gap + text),
-                          // not a guessed fixed size, so it can never
-                          // look too tight or too loose around either
-                          // icon-only or icon+label layouts. Unselected
-                          // tabs stay icon-over-label with no box at all,
-                          // matching the reference exactly. The whole
-                          // slot (SizedBox above) stays the tap target so
-                          // unselected tabs are just as easy to hit as
-                          // selected ones, even though only the pill's
-                          // own content is visually boxed.
-                          child: Center(
-                            child: AnimatedContainer(
-                            duration: AurumMotion.durationOrZero(AurumMotion.medium2),
-                            curve: AurumMotion.standard,
-                            padding: selected
-                                ? const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8)
-                                : const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: isDark ? 0.14 : 0.08)
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: selected
-                                ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        item.filled,
-                                        size: 22,
-                                        color: AurumTheme.textPrimaryOf(context),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        item.label,
-                                        style: TextStyle(
-                                          fontFamily: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.fontFamily,
-                                          fontSize: 13,
-                                          height: 1.0,
-                                          fontWeight: FontWeight.w600,
-                                          color: AurumTheme.textPrimaryOf(context),
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        item.outline,
-                                        size: 24,
-                                        color: AurumTheme.textMutedOf(context),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        item.label,
-                                        style: TextStyle(
-                                          fontFamily: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.fontFamily,
-                                          fontSize: 11,
-                                          height: 1.0,
-                                          fontWeight: FontWeight.w500,
-                                          color: AurumTheme.textMutedOf(context),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  );
-                },
+        ),
+      ),
+    );
+  }
+}
+
+/// Collapsed single round floating search button — replaces the full
+/// 3-tab row whenever the Search tab is active, matching SimpMusic's own
+/// search-screen nav bar exactly (a lone round glass button, bottom-left,
+/// everything else given back to the page). Tapping it just calls back
+/// into the same onTap(1) the full row's Search tab already used, so the
+/// tab-switching logic in MainShell needs zero changes.
+class _CollapsedSearchButton extends StatelessWidget {
+  final bool docked;
+  final bool isDark;
+  final VoidCallback onTap;
+  const _CollapsedSearchButton({
+    super.key,
+    required this.docked,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  static const double _size = 56.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomLeft,
+      child: Padding(
+        // Same left/bottom breathing room either shape uses for its own
+        // edge inset, so the button sits in a consistent spot whether
+        // Docked or Floating is active underneath it.
+        padding: EdgeInsets.only(
+          left: docked ? 12 : 0,
+          bottom: docked ? 8 : 0,
+        ),
+        child: ValueListenableBuilder<bool>(
+          valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+          builder: (context, glassOn, button) {
+            final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
+            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+            final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
+            return SizedBox(
+              width: _size,
+              height: _size,
+              child: AurumGlass(
+                sigma: effectiveBlurSigma,
+                borderRadius: BorderRadius.circular(_size / 2),
+                isDark: isDark,
+                tintColor: AurumTheme.bgCardOf(context),
+                useTintInGlass: false,
+                interactive: true,
+                child: button!,
+              ),
+            );
+          },
+          child: _NavTabTapPump(
+            onTap: onTap,
+            child: Icon(
+              Icons.search,
+              size: 24,
+              color: AurumTheme.textPrimaryOf(context),
             ),
           ),
         ),
       ),
-    );
-      },
     );
   }
 }

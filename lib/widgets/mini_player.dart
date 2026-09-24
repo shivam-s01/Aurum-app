@@ -447,21 +447,18 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                 builder: (context, navStyle, _) {
                   final docked = navStyle == 'Docked';
                   return Padding(
-                // FIX ("mini player bahut upar/floaty lagta hai"): 8px
-                // bottom gap plus the nav bar's own internal padding
-                // stacked up to a visibly large empty gap between the
-                // mini player and the nav bar in the screenshot. Tightened
-                // to sit snug just above the nav bar, matching the tight
-                // Spotify-style stacked look instead of floating.
-                //
-                // Docked style (Settings → Appearance → "Nav Bar Style"):
-                // a small consistent 6px side margin (not full edge-to-edge)
-                // plus a small 3px bottom gap — matches the reference look
-                // of a classic docked bar that still breathes slightly off
-                // the screen edges instead of touching them directly.
+                // FIX ("glass/floating mini player ekdam SimpMusic jaisa
+                // chahiye — Docked jaisa hi rehne do"): Floating mode used
+                // to carry a large 16px side margin, turning it into a
+                // rounded "island" pill floating separately above the nav
+                // bar — nothing like SimpMusic's own mini player, which is
+                // a near-edge-to-edge glass strip sitting snugly directly
+                // on top of the nav bar with only a tiny side inset. Docked
+                // mode's own padding (6,0,6,3) is completely untouched
+                // below — only the Floating branch changes.
                 padding: docked
                     ? const EdgeInsets.fromLTRB(6, 0, 6, 3)
-                    : const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    : const EdgeInsets.fromLTRB(8, 0, 8, 0),
                 // Glass clips itself to its own shape; an outer ClipRRect
                 // would cut off the contact shadow that pools BELOW the
                 // glass. Docked with glass OFF (flat, no glass) keeps the
@@ -624,9 +621,23 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                                 context, player,
                                 onTint: onColor,
                                 compact: docked);
+                            // FIX ("Floating/glass mini player ekdam
+                            // SimpMusic jaisa chahiye"): 28px full-pill
+                            // radius on all four corners made this read as
+                            // a separate rounded island sitting apart from
+                            // the nav bar below it. SimpMusic's own glass
+                            // mini player only rounds its TOP corners —
+                            // the bottom edge sits flush/square directly on
+                            // top of the nav bar, so the two read as one
+                            // continuous glass surface instead of two
+                            // separate floating shapes stacked with a gap
+                            // between them. Docked's own 10px radius
+                            // (all corners, unchanged) is untouched below.
                             final barRadius = docked
                                 ? BorderRadius.circular(10)
-                                : BorderRadius.circular(28);
+                                : const BorderRadius.vertical(
+                                    top: Radius.circular(20),
+                                  );
                             // iOS-style liquid glass via AurumGlass.
                             // useTintInGlass stays false → artwork colour
                             // is NOT mixed into the glass. tintColor is

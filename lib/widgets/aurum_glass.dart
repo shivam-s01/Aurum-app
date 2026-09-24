@@ -74,9 +74,28 @@ class AurumGlass extends StatelessWidget {
         ? (tintColor ?? (isDark ? Colors.black : Colors.white))
         : (isDark ? Colors.black : Colors.white);
     final radius = borderRadius.topLeft.x;
-    // Full-width strips (collapse header, radius 0) must not refract at the
-    // edges -- a flat lit pane there looks right, a bent one looks broken.
-    final isStrip = radius <= 0;
+    // FIX ("liquid glass jab ON ho tab bhi Docked/edge-to-edge nav bar pe
+    // real iOS glass jaisa lagna chahiye — Docked ka layout/shape touch
+    // nahi karna"): this used to treat ANY zero-radius surface as a flat
+    // "strip" and hard-zero every refraction parameter below
+    // (distortion, distortionWidth, magnification, chromaticAberration,
+    // borderWidth all forced to 0/1.0) — so Docked's own edge-to-edge,
+    // square-corner nav bar always rendered as a flat frosted tint with
+    // no real lens bending at all, even with Liquid Glass switched ON.
+    // SimpMusic's own reference nav bar is ALSO edge-to-edge/square and
+    // still shows real glass refraction — square corners were never the
+    // reason to disable it. What actually still needs to stay flat is a
+    // corner-less surface with essentially no edge to bend at all (i.e.
+    // near-zero height/width band), not "radius is 0". Since every call
+    // site already caps this widget to genuine bar/strip heights, the
+    // isStrip special-case is simply removed: refraction now always
+    // scales purely off the corner-radius lerp below (t=0 at small/no
+    // radius still yields the "subtler" end of the range, never an
+    // outright zero), so a square Docked bar gets the same lightly-
+    // refracting real glass SimpMusic has, and nothing about Docked's
+    // own shape/margins/height changes here — only this file's optical
+    // parameters.
+    final isStrip = false;
 
     // iOS 26 glass is LIGHTLY frosted: the backdrop stays readable and is
     // bent at the rim. Too much blur = matte plastic, so cap the boost.
