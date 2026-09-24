@@ -116,7 +116,14 @@ class _LikedScreenState extends State<LikedScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Scaffold(
+    // BACK FIX: system back used to pop the whole screen while multi-select
+    // was active. Now it exits select mode first (same as the X button).
+    return PopScope(
+      canPop: !_selectMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selectMode) _exitSelectMode();
+      },
+      child: Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER: this screen is pushed via
       // Navigator.push from Library, so it builds its own Scaffold on top
@@ -402,6 +409,7 @@ class _LikedScreenState extends State<LikedScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }

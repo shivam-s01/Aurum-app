@@ -84,6 +84,40 @@ import '../utils/aurum_motion.dart';
 // Library Root — tabbed shell
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+/// BACK COORDINATION between MainShell and the Library tab.
+///
+/// Library is a root tab (inside MainShell's IndexedStack), so it can't
+/// use its own PopScope to intercept system back — MainShell owns the root
+/// route. LibraryScreen registers a callback here that undoes exactly ONE
+/// inner step (Artists multi-select, or a sub-tab -> Library overview) and
+/// reports whether it did. MainShell calls it at the moment of the back
+/// press, so back walks: select-mode -> sub-tab -> Home -> exit, one level
+/// per press, never skipping a level.
+class LibraryBackScope {
+  LibraryBackScope._();
+
+  // The State that currently owns Library's back handling. Tracked by
+  // owner (not just the callback) so a disposed old instance can never
+  // clear the handler a newer instance has since registered.
+  static Object? _owner;
+  static bool Function()? _handler;
+
+  static void _register(Object owner, bool Function() handler) {
+    _owner = owner;
+    _handler = handler;
+  }
+
+  static void _unregister(Object owner) {
+    if (identical(_owner, owner)) {
+      _owner = null;
+      _handler = null;
+    }
+  }
+
+  /// Undoes ONE inner step. Returns true if it handled the back press.
+  static bool handleBack() => _handler?.call() ?? false;
+}
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -96,8 +130,39 @@ enum _LibTab { library, playlists, songs, artists, albums }
 class _LibraryScreenState extends State<LibraryScreen> {
   _LibTab _tab = _LibTab.library;
 
+  // true while the Artists tab has multi-select active (reported by
+  // _AurumArtistsTab through onSelectModeChanged below).
+  bool _artistsSelecting = false;
+
+  // Bumped to make _AurumArtistsTab drop its own select mode when back is
+  // pressed — the tab owns that state, so it is asked, not reached into.
+  final ValueNotifier<int> _exitArtistsSelect = ValueNotifier<int>(0);
+
+  // One step per press: exit multi-select first, then return from a
+  // sub-tab to the Library overview. Returns false when there is nothing
+  // left to undo, which lets MainShell continue to Home.
+  bool _handleInnerBack() {
+    if (_artistsSelecting) {
+      _exitArtistsSelect.value++;
+      return true;
+    }
+    if (_tab != _LibTab.library) {
+      setState(() => _tab = _LibTab.library);
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    LibraryBackScope._register(this, _handleInnerBack);
+  }
+
   @override
   void dispose() {
+    LibraryBackScope._unregister(this);
+    _exitArtistsSelect.dispose();
     super.dispose();
   }
 
@@ -278,7 +343,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       case _LibTab.songs:
         return const _AurumSongsTab();
       case _LibTab.artists:
-        return const _AurumArtistsTab();
+        return _AurumArtistsTab(
+          exitSelectSignal: _exitArtistsSelect,
+          onSelectModeChanged: (v) => _artistsSelecting = v,
+        );
       case _LibTab.albums:
         return const _AurumAlbumsTab();
     }
@@ -1125,7 +1193,11 @@ class _AurumPermissionState extends StatelessWidget {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class _AurumArtistsTab extends StatefulWidget {
-  const _AurumArtistsTab();
+  // Back-coordination hooks from LibraryScreen (see LibraryBackScope).
+  // Both optional so any other construction site keeps working unchanged.
+  final ValueNotifier<int>? exitSelectSignal;
+  final ValueChanged<bool>? onSelectModeChanged;
+  const _AurumArtistsTab({this.exitSelectSignal, this.onSelectModeChanged});
 
   @override
   State<_AurumArtistsTab> createState() => _AurumArtistsTabState();
@@ -1133,6 +1205,46 @@ class _AurumArtistsTab extends StatefulWidget {
 
 class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   bool _newestFirst = true;
+
+  // System back while multi-select is active: LibraryScreen bumps this
+  // signal, and we drop select mode here (we own that state).
+  void _onExitSelectSignal() {
+    if (_selectMode) _exitSelectMode();
+  }
+
+  // Report the CURRENT select state upward after each frame in which it
+  // changed, so LibraryScreen/MainShell always know if back has a step to
+  // undo here. Deduped so it never spams.
+  bool _lastReportedSelect = false;
+  void _reportSelect() {
+    if (_lastReportedSelect == _selectMode) return;
+    _lastReportedSelect = _selectMode;
+    widget.onSelectModeChanged?.call(_selectMode);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.exitSelectSignal?.addListener(_onExitSelectSignal);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AurumArtistsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.exitSelectSignal != widget.exitSelectSignal) {
+      oldWidget.exitSelectSignal?.removeListener(_onExitSelectSignal);
+      widget.exitSelectSignal?.addListener(_onExitSelectSignal);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.exitSelectSignal?.removeListener(_onExitSelectSignal);
+    // Leaving the tab (or Library) must never leave a stale "select active"
+    // flag behind, or back would think there is still a step to undo.
+    if (_lastReportedSelect) widget.onSelectModeChanged?.call(false);
+    super.dispose();
+  }
 
   // MULTI-SELECT ("select pr all unfollow ka option rahe"): mirrors the
   // same select-mode pattern added to Liked Songs below — a Set of
@@ -1226,6 +1338,14 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
 
   @override
   Widget build(BuildContext context) {
+    // Publish select-mode changes to LibraryScreen after the frame so back
+    // handling always knows whether there's a step to undo (no setState
+    // during build).
+    if (_lastReportedSelect != _selectMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reportSelect();
+      });
+    }
     final followedProvider = context.watch<FollowedArtistsProvider>();
     // DEBUG VISIBILITY (temporary, ungated — release build confirmed via
     // the previous screenshot round showing NEITHER the isLoading
@@ -7285,7 +7405,16 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
     final lib = context.watch<LibraryProvider>();
     final filtered = _filtered(lib.allSongs);
 
-    return Scaffold(
+    // BACK FIX: system/gesture back used to pop this whole screen even
+    // while the search field was open (only the toolbar arrow closed
+    // search first). Now back closes search first, then leaves the screen —
+    // identical to what the toolbar arrow already did.
+    return PopScope(
+      canPop: !_searching,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _searching) _closeSearch();
+      },
+      child: Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
       // matching comment for the full reasoning.
@@ -7437,6 +7566,7 @@ class _LocalFilesScreenState extends State<_LocalFilesScreen> {
                               index: i,
                               curatedQueue: true),
                         ),
+    ),
     );
   }
 }
@@ -8737,7 +8867,14 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
     final l10n = AppLocalizations.of(context)!;
     final followed = context.watch<FollowedArtistsProvider>().followed;
 
-    return Scaffold(
+    // BACK FIX: system back used to pop the whole screen while multi-select
+    // was active. Now it exits select mode first (same as the X button).
+    return PopScope(
+      canPop: !_selectMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selectMode) _exitSelectMode();
+      },
+      child: Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
       // matching comment for the full reasoning.
@@ -8899,6 +9036,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 }

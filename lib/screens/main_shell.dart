@@ -487,7 +487,30 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // BACK-BUTTON FIX (Spotify/YT Music parity): MainShell is the root
+    // route, so with no PopScope, back on Search/Library exited the app.
+    // Back now walks exactly ONE level per press:
+    //   Library inner step (multi-select / sub-tab)  ->  Library overview
+    //   any non-Home tab                              ->  Home
+    //   Home                                          ->  exit app
+    // Pushed routes (album/artist/playlist/full player...) sit on top of
+    // MainShell, so Navigator pops those first and never reaches this.
+    // canPop only depends on _tab: on Library the shell always intercepts
+    // (canPop=false), and Library's own inner step is resolved at the moment
+    // of the back press via LibraryBackScope.handleBack() — no need to
+    // rebuild the shell every time Library's inner state changes.
+    return PopScope(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _tab == 0) return;
+        // Library first: undo its own inner step (select mode / sub-tab)
+        // before ever leaving the Library tab.
+        if (_tab == 2 && LibraryBackScope.handleBack()) return;
+        primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+        SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+        setState(() => _tab = 0);
+      },
+      child: Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // FIX (root cause of "keyboard khulte hi search bar/header/pura tab
       // host upar tak khisak/squeeze ho jaata hai", found while rechecking
@@ -682,6 +705,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
         ),
       ),
+    ),
     );
   }
 }

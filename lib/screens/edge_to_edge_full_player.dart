@@ -2339,7 +2339,7 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
   }
 }
 
-class _QueueModeButton extends StatelessWidget {
+class _QueueModeButton extends StatefulWidget {
   const _QueueModeButton({
     required this.icon,
     required this.active,
@@ -2352,17 +2352,79 @@ class _QueueModeButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_QueueModeButton> createState() => _QueueModeButtonState();
+}
+
+// FIX ("shuffle/repeat button click pe hil rahe hain, awkward"): the old
+// version was a bare GestureDetector with no press feedback of its own —
+// but it sat directly under a Selector<(bool, LoopMode)> that rebuilds
+// BOTH buttons together, and the active-state background color + the
+// repeat icon (repeat_one_rounded ↔ all_inclusive_rounded, two glyphs
+// with different visual weight/bounding boxes) both changed with a hard,
+// unanimated cut on every tap. That's what read as a "jump"/wobble on
+// press — nothing was actually shifting position, but an instant color
+// snap + instant icon swap on every tap, with zero tap-down feedback in
+// between, reads exactly like an unstable/jittery button. Fixed with the
+// same self-contained press-scale + smooth cross-fade every other
+// premium button in the app already uses (AurumPressable pattern),
+// scoped to just the icon/background inside this button so it can never
+// nudge sibling layout — pure Spotify-style "settle" on release, no
+// vertical shift ever.
+class _QueueModeButtonState extends State<_QueueModeButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 100),
+    reverseDuration: const Duration(milliseconds: 180),
+  );
+  late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 0.94)
+      .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut, reverseCurve: Curves.easeOutCubic));
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: active ? panel.glow.withOpacity(0.38) : Colors.white.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(26),
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) => _ctrl.reverse(),
+      onTapCancel: () => _ctrl.reverse(),
+      onTap: () {
+        AurumHaptics.selection();
+        widget.onTap();
+      },
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          height: 52,
+          decoration: BoxDecoration(
+            color: widget.active
+                ? widget.panel.glow.withOpacity(0.38)
+                : Colors.white.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(26),
+          ),
+          alignment: Alignment.center,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: ScaleTransition(scale: anim, child: child),
+            ),
+            child: Icon(
+              widget.icon,
+              key: ValueKey(widget.icon),
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
         ),
-        alignment: Alignment.center,
-        child: Icon(icon, color: Colors.white, size: 22),
       ),
     );
   }

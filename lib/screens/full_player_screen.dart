@@ -7734,6 +7734,18 @@ class _CtrlBtn extends StatefulWidget {
 // (press-pulse backdrop, active-state underline bar) is removed — Echo
 // has none of it, and this pass is about matching Echo exactly, not
 // adding to it.
+// FIX ("repeat/shuffle button click pe hil rahe hain — upar niche move ho
+// raha hai, awkward"): the previous version slid the icon vertically on
+// every tap (outgoing icon down-and-out, incoming icon in from above via
+// Offset(0, -0.35)) to mimic an AnimatedVectorDrawable morph. On a real
+// device that reads exactly as "the button is jumping/moving" — which is
+// the complaint — because a directional slide on a static-position icon
+// looks like a shift, not a shape change. Spotify's own shuffle/repeat
+// icons never travel: tapping them plays a tight scale+fade in place and
+// nothing else, so the icon reads as "this shape became a new shape"
+// without ever appearing to move up, down, or sideways. Replaced the
+// slide with exactly that — same fast 180ms timing, but purely
+// scale+opacity, anchored dead-center, zero directional offset.
 class _CtrlBtnState extends State<_CtrlBtn> {
   @override
   Widget build(BuildContext context) {
@@ -7747,7 +7759,7 @@ class _CtrlBtnState extends State<_CtrlBtn> {
       label: widget.semanticLabel,
       button: true,
       child: AurumPressable(
-        scaleAmount: 0.85,
+        scaleAmount: 0.90,
         haptic: false, // callers already fire their own haptic per action
         onTap: widget.onTap,
         child: Padding(
@@ -7764,31 +7776,14 @@ class _CtrlBtnState extends State<_CtrlBtn> {
                 duration: const Duration(milliseconds: 180),
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeInCubic,
-                // FIX ("Echo se alag/ajeeb lag raha hai"): the previous
-                // version spun the icon -45° on every switch — on a 24px
-                // glyph that reads as the icon literally spinning in
-                // place, a completely different visual language than
-                // Echo's AnimatedVectorDrawable (which morphs the path
-                // itself with no rotation at all — see
-                // ic_repeat_to_repeat_one_40dp etc. in Echo's own
-                // PlayerFragment.kt). Swapped the rotation for a vertical
-                // unroll: the outgoing icon dips down and fades while the
-                // incoming one drops in from above and fades up to meet
-                // it — a directional in/out along one axis only, no spin,
-                // no diagonal motion. That's the same "this shape became
-                // a different shape" read a real path-morph gives,
-                // without introducing a rotation Echo's own animation
-                // never has.
+                // Pure scale+fade, dead-center, no directional slide —
+                // see FIX comment above. Both old and new icon share the
+                // exact same anchor point the whole time, so nothing
+                // ever appears to shift position on tap.
                 transitionBuilder: (child, anim) {
                   return FadeTransition(
                     opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, -0.35),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
+                    child: ScaleTransition(scale: anim, child: child),
                   );
                 },
                 // Keyed on icon shape + color together — unlike the
