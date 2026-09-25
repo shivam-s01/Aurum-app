@@ -1,4 +1,4 @@
-name: Build Aurum Music APK
+name: Build Astra Music APK
 
 on:
   push:
@@ -243,11 +243,16 @@ jobs:
           echo "Generated changelog:"
           cat /tmp/changelog_body.md
 
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+             build/app/outputs/flutter-apk/astra-music-arm64-v8a-release.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: aurum-music-release
-          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          name: astra-music-release
+          path: build/app/outputs/flutter-apk/astra-music-arm64-v8a-release.apk
 
       - name: Create Release
         # Gate removed (per explicit request): every successful push to
@@ -261,9 +266,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build${{ steps.build_number.outputs.build }}
-          name: Build ${{ steps.build_number.outputs.build }}
+          name: Astra Music — Build ${{ steps.build_number.outputs.build }}
           body_path: /tmp/changelog_body.md
-          files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          files: build/app/outputs/flutter-apk/astra-music-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish check.json to 'update' branch
@@ -282,7 +287,7 @@ jobs:
         run: |
           set -e
           BUILD_NUM="${{ steps.build_number.outputs.build }}"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/build${BUILD_NUM}/app-arm64-v8a-release.apk"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/build${BUILD_NUM}/astra-music-arm64-v8a-release.apk"
 
           cat > /tmp/check.json <<EOF
           {
@@ -409,7 +414,7 @@ jobs:
                 \"topic\": \"updates\",
                 \"notification\": {
                   \"title\": \"Update available\",
-                  \"body\": \"A new version of Aurum is ready to install.\"
+                  \"body\": \"A new version of Astra Music is ready to install.\"
                 }
               }
             }"
