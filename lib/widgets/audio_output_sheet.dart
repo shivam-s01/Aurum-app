@@ -28,8 +28,10 @@ import 'package:provider/provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
+import '../models/song.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
+import '../services/stream_quality_store.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../screens/settings_player_screen.dart' show SettingsPlayerScreen;
@@ -172,14 +174,45 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
     }
   }
 
-  /// Live label for the currently playing stream's resolved quality —
-  /// e.g. "320 kbps" — falling back to "Auto" when the current source
-  /// has no discrete tier reported (matches Settings → Player & Audio's
-  /// own "Auto" default label, so the two screens never disagree).
-  String get _qualityLabel {
-    final kbps = AudioPrefs.lastResolvedKbps;
-    if (kbps == null) return 'Auto';
-    return '$kbps kbps';
+  /// Quality row = exactly what the user picked in Settings > Player &
+  /// Audio, shown as the same kbps text Settings prints under that tier
+  /// (High = 320 kbps, Medium = up to 160 kbps, Low = 48-96 kbps).
+  ///
+  /// FIX ("setting mein user ne jo select kiya wahi kbps show ho"): the
+  /// sheet used to show a raw resolved kbps / bare "Auto". Now it follows
+  /// the Settings choice so the two screens can never disagree.
+  ///   - High       -> "320 kbps"
+  ///   - Medium     -> "Up to 160 kbps"
+  ///   - Low        -> "48-96 kbps"
+  ///   - Smart Saver / Auto -> no fixed kbps exists (Smart Saver adapts to
+  ///     the network, Auto = best per song), so the tier name is shown,
+  ///     plus the real resolved kbps when the current stream reported one.
+  ///   - local file -> "Local · MP3" (Settings tier doesn't apply)
+  String _qualityLabel(AppLocalizations l10n) {
+    final song = context.read<PlayerProvider>().currentSong;
+    if (song != null && song.isLocal) {
+      final codec = StreamQualityStore.instance.codecFor(song);
+      return codec != null ? 'Local · $codec' : 'Local file';
+    }
+    final resolved = (song != null && song.source == SongSource.youtube)
+        ? null
+        : AudioPrefs.lastResolvedKbps;
+    switch (AudioPrefs.streamQuality) {
+      case 'High':
+        return '320 kbps';
+      case 'Medium':
+        return 'Up to 160 kbps';
+      case 'Low':
+        return '48-96 kbps';
+      case 'DataSaver':
+        return resolved != null
+            ? '${l10n.spQualityDataSaver} · $resolved kbps'
+            : l10n.spQualityDataSaver;
+      default:
+        return resolved != null
+            ? '${l10n.spQualityAuto} · $resolved kbps'
+            : l10n.spQualityAuto;
+    }
   }
 
   Future<void> _onSelect(AudioOutputDevice device) async {
@@ -258,6 +291,9 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final engine = context.read<PlayerProvider>().engine;
+    // Rebuild only when the track changes, so the Quality row below never
+    // stays stale if the user skips a song while this sheet is open.
+    context.select<PlayerProvider, String>((p) => p.currentSong?.id ?? '');
 
     return StreamBuilder<AudioOutputDevices?>(
       stream: engine.outputDevicesStream,
@@ -474,7 +510,7 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                 _SheetInfoRow(
                   icon: Icons.high_quality_rounded,
                   label: 'Quality',
-                  value: _qualityLabel,
+                  value: _qualityLabel(l10n),
                   // FIX ("Bluetooth sheet ki Quality row tappable honi
                   // chahiye, seedha Settings > Player mein le jaaye"):
                   // this row used to be purely informational (see the

@@ -95,15 +95,13 @@ class AurumGlass extends StatelessWidget {
     // refracting real glass SimpMusic has, and nothing about Docked's
     // own shape/margins/height changes here — only this file's optical
     // parameters.
-    final isStrip = false;
-
     // iOS 26 glass is LIGHTLY frosted: the backdrop stays readable and is
     // bent at the rim. Too much blur = matte plastic, so cap the boost.
     // Reference (SimpMusic): backdrop stays CRISP through the glass --
     // rain drops / album art still recognisable. Real iOS glass is mostly
     // refraction, only lightly frosted. So blur is a small fraction of the
     // caller's sigma, hard-capped low.
-    final effectiveSigma = (sigma * 0.32).clamp(2.0, 6.0);
+    final effectiveSigma = (sigma * 0.45).clamp(3.0, 9.0);
 
     // Small surfaces (search bar 44px, radius 14) can't carry the big
     // 54px refraction band meant for 68px+ floating pills: it would bend
@@ -115,39 +113,33 @@ class AurumGlass extends StatelessWidget {
     final style = LiquidGlassStyle(
       shape: LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: radius,
-        // Thin bright specular rim, lit from top-left like Apple's.
-        borderWidth: isStrip ? 0 : lerp(1.0, 1.3),
-        lightIntensity: isDark ? 1.9 : 1.4,
+        // Hairline, soft rim (iOS 26): no hot specular spots on corners.
+        borderWidth: lerp(0.6, 0.8),
+        lightIntensity: isDark ? 0.35 : 0.4,
         lightDirection: 315,
         borderType: OpticalBorder(
-          borderSaturation: 1.5,
-          ambientIntensity: isDark ? 1.4 : 1.1,
-          borderSolidity: 0.34,
+          borderSaturation: 1.0,
+          ambientIntensity: isDark ? 0.30 : 0.4,
+          borderSolidity: 0.6,
         ),
       ),
       appearance: LiquidGlassAppearance(
-        // Much clearer body than before (was 0.34/0.42) so the refraction
-        // and the content behind actually show through.
-        color: base.withValues(alpha: isDark ? 0.10 : 0.16),
+        color: base.withValues(alpha: isDark ? 0.22 : 0.20),
         blur: LiquidGlassBlur(sigmaX: effectiveSigma, sigmaY: effectiveSigma),
-        // Apple glass boosts the colour of what is behind it.
-        saturation: isDark ? 1.35 : 1.25,
-        // Contact shadow: makes the pill sit IN the page instead of
-        // floating flat.
+        saturation: isDark ? 1.15 : 1.1,
         shadow: showShadow
             ? LiquidGlassShadow(
-                blur: 8.0,
-                opacity: isDark ? 0.42 : 0.22,
+                blur: 10.0,
+                opacity: isDark ? 0.30 : 0.14,
               )
             : null,
       ),
       refraction: LiquidGlassRefraction(
-        // Strong edge bending + slight lens magnification = the
-        // "thick glass" look. Strips get none.
-        distortion: isStrip ? 0.0 : lerp(0.18, 0.40),
-        distortionWidth: isStrip ? 0 : lerp(24, 46),
-        magnification: isStrip ? 1.0 : lerp(1.02, 1.07),
-        chromaticAberration: isStrip ? 0.0 : lerp(0.006, 0.012),
+        // Gentle bend, no colour fringing: premium, not "junky".
+        distortion: lerp(0.08, 0.20),
+        distortionWidth: lerp(14, 26),
+        magnification: lerp(1.0, 1.03),
+        chromaticAberration: 0.0,
       ),
     );
 

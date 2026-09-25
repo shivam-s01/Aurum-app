@@ -842,7 +842,9 @@ class AurumBottomNavBar extends StatelessWidget {
       valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
       builder: (context, glassOn, __) {
         final docked = !glassOn;
-        final searchActive = currentIndex == 1;
+        // Docked: identical full 3-tab bar on every tab (no collapse).
+        // Glass ON: Search tab collapses to the lone round glass button.
+        final searchActive = currentIndex == 1 && !docked;
         return SafeArea(
           top: false,
           // Bottom safe-area padding is always respected regardless of
