@@ -15,6 +15,9 @@ import 'package:sensors_plus/sensors_plus.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/aurum_glass.dart';
+import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_play_pause_icon.dart';
 import '../models/song.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
@@ -1129,46 +1132,207 @@ class _CollapsedSearchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.bottomLeft,
-      child: Padding(
-        // Same left/bottom breathing room either shape uses for its own
-        // edge inset, so the button sits in a consistent spot whether
-        // Docked or Floating is active underneath it.
-        padding: EdgeInsets.only(
-          left: docked ? 12 : 0,
-          bottom: docked ? 8 : 0,
-        ),
-        child: ValueListenableBuilder<bool>(
-          valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
-          builder: (context, glassOn, button) {
-            final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
-            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
-            final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
-            return SizedBox(
-              width: _size,
-              height: _size,
-              child: AurumGlass(
+    return Padding(
+      // Same left/bottom breathing room either shape uses for its own
+      // edge inset, so the row sits in a consistent spot whether Docked
+      // or Floating is active underneath it.
+      padding: EdgeInsets.only(
+        left: docked ? 12 : 0,
+        right: docked ? 12 : 0,
+        bottom: docked ? 8 : 0,
+      ),
+      // FIX (recheck — CRASH): this Row holds an Expanded child (the
+      // compact mini player chip) below. Row defaults its cross axis
+      // fine, but MainAxisSize.min here is invalid together with a
+      // flexible (Expanded/Flexible) child — Flutter throws
+      // "RenderFlex children have non-zero flex but incoming width
+      // constraints are unbounded" the instant a song plays and this
+      // row's Expanded actually tries to claim space, because .min
+      // tells Row to size itself to content while Expanded simultaneously
+      // demands to fill available space — a direct contradiction. This
+      // never surfaced while the row only ever held the plain search
+      // button (no flexible child existed yet), which is exactly why
+      // adding the mini player chip here is what exposed it. Row's
+      // default (MainAxisSize.max) is correct and required whenever an
+      // Expanded/Flexible child is present — removed the override.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // FIX ("search ke bagal mai mini player dalna hai, SimpMusic
+          // jaisa"): SimpMusic's Search screen keeps the mini player
+          // sitting beside the collapsed round search button instead of
+          // hiding it — a compact chip here, not the full-width
+          // MiniPlayer widget (which assumes the whole row's width for
+          // its drag-to-dismiss gesture and text layout; cramming that
+          // into half a row would break both). Hidden entirely when
+          // nothing is playing, exactly like the full MiniPlayer already
+          // does on every other tab.
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: _CompactMiniPlayerChip(docked: docked, isDark: isDark),
+            ),
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+            builder: (context, glassOn, button) {
+              final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
+              final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+              final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
+              return SizedBox(
+                width: _size,
+                height: _size,
+                child: AurumGlass(
+                  sigma: effectiveBlurSigma,
+                  borderRadius: BorderRadius.circular(_size / 2),
+                  isDark: isDark,
+                  tintColor: AurumTheme.bgCardOf(context),
+                  useTintInGlass: false,
+                  interactive: true,
+                  child: button!,
+                ),
+              );
+            },
+            child: _NavTabTapPump(
+              onTap: onTap,
+              child: Icon(
+                Icons.search,
+                size: 24,
+                color: AurumTheme.textPrimaryOf(context),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small artwork + title + play/pause chip shown beside the collapsed
+/// search button on the Search tab, matching SimpMusic's own layout.
+/// Deliberately its own tiny widget rather than reusing the full-width
+/// [MiniPlayer] — that widget's swipe-to-dismiss drag math and text
+/// layout both assume the full row width, and it already lives in its
+/// own AnimatedSwitcher slot right above this nav bar (still driving the
+/// real Now Playing state) — this chip is purely a compact, read-only
+/// mirror of it for the one tab where the nav row is otherwise mostly
+/// empty space. Tapping it opens the same Full Player as everywhere else.
+class _CompactMiniPlayerChip extends StatelessWidget {
+  final bool docked;
+  final bool isDark;
+  const _CompactMiniPlayerChip({required this.docked, required this.isDark});
+
+  static const double _height = 52.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<PlayerProvider, Song?>(
+      selector: (_, p) => p.miniPlayerVisible ? p.currentSong : null,
+      builder: (context, song, __) {
+        if (song == null) return const SizedBox.shrink();
+        return SizedBox(
+          height: _height,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+            builder: (context, glassOn, content) {
+              final blurSigma = glassOn ? AudioPrefs.glassNavSigma : 0.0;
+              final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+              final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
+              return AurumGlass(
                 sigma: effectiveBlurSigma,
-                borderRadius: BorderRadius.circular(_size / 2),
+                borderRadius: BorderRadius.circular(_height / 2),
                 isDark: isDark,
                 tintColor: AurumTheme.bgCardOf(context),
                 useTintInGlass: false,
                 interactive: true,
-                child: button!,
+                child: content,
+              );
+            },
+            child: AurumPressable(
+              scaleAmount: 0.97,
+              haptic: false,
+              onTap: () => pushFullPlayer(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                // FIX (recheck): was `mainAxisSize: MainAxisSize.min`.
+                // This chip sits inside an Expanded (in the row above),
+                // which DOES hand this Row a tight/definite width — but
+                // MainAxisSize.min tells Row to still size itself to its
+                // CONTENT's width rather than fill that available space,
+                // which starves the Flexible(Text) below of any width to
+                // actually shrink within. On a long song title this meant
+                // the ellipsis logic never truly kicked in at the size
+                // that matters, and on some widths the play button could
+                // sit flush against — or clip past — the glass pill's
+                // rounded edge instead of staying inset. Removing
+                // mainAxisSize (Row defaults to MainAxisSize.max) makes
+                // this Row actually fill the Expanded width it's given,
+                // so Flexible gets a real, definite width to shrink text
+                // into and the trailing play button always stays fully
+                // inside the pill with its intended padding.
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(_height / 2 - 4),
+                      child: AurumArtwork(
+                        url: song.artworkUrl,
+                        size: _height - 8,
+                        borderRadius: _height / 2 - 4,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AurumTheme.textPrimaryOf(context),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Selector<PlayerProvider, ({bool isLoading, bool isPlaying})>(
+                      selector: (_, p) =>
+                          (isLoading: p.isLoading, isPlaying: p.isPlaying),
+                      builder: (context, state, _) {
+                        if (state.isLoading) {
+                          return const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        return AurumPressable(
+                          scaleAmount: 0.85,
+                          haptic: false,
+                          onTap: () {
+                            AurumHaptics.heavy();
+                            context.read<PlayerProvider>().togglePlay();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: AurumPlayPauseIcon(
+                              isPlaying: state.isPlaying,
+                              color: AurumTheme.textPrimaryOf(context),
+                              size: 20,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            );
-          },
-          child: _NavTabTapPump(
-            onTap: onTap,
-            child: Icon(
-              Icons.search,
-              size: 24,
-              color: AurumTheme.textPrimaryOf(context),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
