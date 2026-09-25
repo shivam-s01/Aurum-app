@@ -96,4 +96,52 @@ class AuthService {
     } catch (_) {}
     await _client.auth.signOut();
   }
+
+  // ── Delete account data ──────────────────────────────────────────────────
+  //
+  // "Delete account" here means: every row this user owns across all 5
+  // Supabase tables (favorites, playlists, followed_artists,
+  // followed_albums, history) is permanently deleted, then the local
+  // on-device cache of the same is cleared, then the session is signed
+  // out. What it does NOT do: delete the auth.users row itself — the
+  // email stays registered (deleting that requires the service_role key,
+  // which must never ship inside the app). The Supabase row deletes below
+  // run under RLS with the user's own anon-key session, so a user can
+  // only ever delete their own rows — never anyone else's.
+  //
+  // Returns null on full success, or a short user-facing message if any
+  // table failed to delete (so the UI can be honest about it rather than
+  // silently claiming "all done" when something didn't actually clear).
+  Future<String?> deleteAllUserData() async {
+    final uid = currentUser?.id;
+    if (uid == null) return 'Not signed in.';
+
+    const tables = [
+      'favorites',
+      'playlists',
+      'followed_artists',
+      'followed_albums',
+      'history',
+    ];
+
+    final failed = <String>[];
+    for (final table in tables) {
+      try {
+        await _client.from(table).delete().eq('user_id', uid);
+      } catch (e) {
+        if (kDebugMode) debugPrint('[AuthService] delete "$table" failed: $e');
+        failed.add(table);
+      }
+    }
+
+    if (failed.isNotEmpty) {
+      // Partial failure — don't sign the user out or touch local data.
+      // Leaving the session alive lets them retry instead of getting
+      // stuck signed-out with server-side data still hanging around.
+      return 'Some data could not be deleted (${failed.join(', ')}). '
+          'Check your connection and try again.';
+    }
+
+    return null;
+  }
 }

@@ -5,9 +5,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
+import '../services/auth_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/sync_service.dart';
+import '../providers/auth_provider.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/playlist_provider.dart';
+import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
+import '../providers/favorites_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../widgets/aurum_settings_tile.dart';
@@ -31,6 +37,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   // the stored preference.
   String _lockDelayKey    = 'after10';
   bool   _dontLockPlaying = false;
+  bool   _deletingAccount = false;
 
   // FIX (toggle flash — same root cause across every settings screen):
   // all the fields above are given hardcoded defaults, but the real saved
@@ -260,11 +267,38 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         title: l10n.sprClearAllData,
         subtitle: l10n.sprClearAllDataSubtitle,
         onTap: () { AurumHaptics.heavy(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
+          // Subtitle promises "playlists, settings, history" — the old
+          // implementation only ever cleared SharedPreferences (settings),
+          // silently leaving playlists/favorites/follows/history/download
+          // cache untouched. This is local-device-only (unlike "Delete
+          // Account" above, it never touches Supabase — the cloud copy is
+          // left alone so it's still there if the user signs in again).
+          final ctx = context;
+          if (ctx.mounted) {
+            await ctx.read<PlaylistProvider>().clearAll();
+            await ctx.read<FollowedArtistsProvider>().clearAll();
+            await ctx.read<FollowedAlbumsProvider>().clearAll();
+            await ctx.read<FavoritesProvider>().clearAll();
+            await ctx.read<RecentlyPlayedProvider>().clearHistory();
+          }
+          await RecommendationEngine.resetAll();
           final p = await SharedPreferences.getInstance();
           await p.clear();
         }); },
         isDanger: true,
       ),
+
+      // ── DANGER ZONE — ACCOUNT DELETION ───────────────────────────────
+      if (context.watch<AuthProvider>().isSignedIn) ...[
+        _sectionLabel(context, 'DANGER ZONE'),
+        AurumSettingsTile.danger(context,
+          icon: Icons.person_remove_rounded,
+          title: 'Delete Account',
+          subtitle: 'Permanently erase your favorites, playlists, follows and listening history',
+          onTap: () { if (!_deletingAccount) _showDeleteAccountSheet(context); },
+          isDanger: true,
+        ),
+      ],
     ];
 
     return Scaffold(
@@ -287,6 +321,66 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
           for (int i = 0; i < rows.length; i++)
             AurumStaggerItem(index: i, child: rows[i]),
         ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountSheet(BuildContext context) {
+    showAurumModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: !_deletingAccount,
+      enableDrag: !_deletingAccount,
+      backgroundColor: AurumTheme.bgCardOf(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => _DeleteAccountSheet(
+        onConfirmed: () async {
+          if (!mounted) return;
+          setState(() => _deletingAccount = true);
+
+          final providerContext = context;
+          final error = await AuthService.instance.deleteAllUserData();
+
+          if (error != null) {
+            // Server-side delete didn't fully succeed — say so plainly,
+            // leave the session and local data untouched so nothing is
+            // half-deleted, and let the user retry.
+            if (mounted) setState(() => _deletingAccount = false);
+            if (sheetContext.mounted) Navigator.pop(sheetContext);
+            if (providerContext.mounted) {
+              ScaffoldMessenger.of(providerContext).showSnackBar(
+                SnackBar(content: Text(error), backgroundColor: Colors.redAccent),
+              );
+            }
+            return;
+          }
+
+          // Server-side rows are gone — now clear the local mirrors so
+          // nothing stale flashes on screen, then sign out.
+          if (providerContext.mounted) {
+            await providerContext.read<PlaylistProvider>().clearAll();
+            await providerContext.read<FollowedArtistsProvider>().clearAll();
+            await providerContext.read<FollowedAlbumsProvider>().clearAll();
+            await providerContext.read<FavoritesProvider>().clearAll();
+            await providerContext.read<RecentlyPlayedProvider>().clearHistory();
+            await providerContext.read<AuthProvider>().signOut();
+          }
+
+          if (sheetContext.mounted) Navigator.pop(sheetContext);
+
+          if (providerContext.mounted) {
+            // Pop back out of the settings stack to the app root, where
+            // the signed-out state naturally lands on the login screen —
+            // avoids leaving the user stranded deep in a settings screen
+            // that now has nothing signed-in left to show.
+            Navigator.of(providerContext).popUntil((route) => route.isFirst);
+            ScaffoldMessenger.of(providerContext).showSnackBar(
+              const SnackBar(content: Text('Your account data has been deleted.')),
+            );
+          }
+        },
       ),
     );
   }
@@ -460,6 +554,185 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
       ),
     );
   }
+}
+
+// =============================================================================
+// Delete Account Sheet
+// =============================================================================
+// Type-to-confirm pattern (same idea as GitHub/Spotify) so this can never
+// fire from an accidental tap. onConfirmed handles the actual delete +
+// sign-out; this widget only owns the confirmation UI and its own
+// in-flight/error state.
+class _DeleteAccountSheet extends StatefulWidget {
+  final Future<void> Function() onConfirmed;
+  const _DeleteAccountSheet({required this.onConfirmed});
+
+  @override
+  State<_DeleteAccountSheet> createState() => _DeleteAccountSheetState();
+}
+
+class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
+  final _controller = TextEditingController();
+  bool _submitting = false;
+  bool get _canConfirm => _controller.text.trim().toUpperCase() == 'DELETE';
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 36,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AurumTheme.dividerOf(context),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 22),
+              const SizedBox(width: 10),
+              Text('Delete account data',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18, fontWeight: FontWeight.w700,
+                )),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'This permanently deletes:',
+            style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          ..._points.map((p) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.close_rounded, color: Colors.redAccent.withOpacity(0.8), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(p, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13.5)),
+                    ),
+                  ],
+                ),
+              )),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.redAccent.withOpacity(0.25)),
+            ),
+            child: Text(
+              'This cannot be undone. Everything above — including your '
+              'Google account link — will be removed, and you will be signed '
+              'out. Your email stays registered so you can sign back in with '
+              'Google later.',
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Type DELETE to confirm',
+            style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          AurumFocusField(
+            builder: (focusNode) => TextField(
+              controller: _controller,
+              focusNode: focusNode,
+              enabled: !_submitting,
+              textCapitalization: TextCapitalization.characters,
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 15, letterSpacing: 2),
+              decoration: InputDecoration(
+                hintText: 'DELETE',
+                hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), letterSpacing: 2),
+                filled: true,
+                fillColor: AurumTheme.bgOf(context),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AurumTheme.dividerOf(context)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(children: [
+            Expanded(
+              child: TextButton(
+                onPressed: _submitting ? null : () => Navigator.pop(context),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                child: Text('Cancel',
+                  style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                onPressed: (!_canConfirm || _submitting) ? null : () async {
+                  AurumHaptics.heavy();
+                  setState(() => _submitting = true);
+                  await widget.onConfirmed();
+                  // Sheet is popped by the caller once the flow finishes
+                  // (success or error) — if it's still mounted here,
+                  // something kept it open, so just release the lock.
+                  if (mounted) setState(() => _submitting = false);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.redAccent.withOpacity(0.3),
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: _submitting
+                    ? const SizedBox(
+                        height: 18, width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Delete permanently',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  static const _points = [
+    'Your favorites',
+    'Your playlists',
+    'Followed artists and albums',
+    'Your listening history',
+    'Your Google account, including its link to the app',
+    'You will be signed out',
+  ];
 }
 
 // =============================================================================
