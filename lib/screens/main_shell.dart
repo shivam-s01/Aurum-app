@@ -661,40 +661,58 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // simply present or absent — never animated as a
               // continuous size change that could tug at page content
               // above it.
-              Selector<PlayerProvider, bool>(
-                selector: (_, p) => p.miniPlayerVisible,
-                builder: (context, visible, __) => AnimatedSwitcher(
-                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                  switchInCurve: AurumMotion.standard,
-                  switchOutCurve: AurumMotion.standardReverse,
-                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                    alignment: Alignment.bottomCenter,
-                    children: [
-                      ...previousChildren,
-                      if (currentChild != null) currentChild,
-                    ],
-                  ),
-                  // NO FadeTransition: Opacity/fade < 1 forces a saveLayer that
-                  // cuts the glass BackdropFilter off from the page behind it, so
-                  // the glass flashes flat during show/hide. Slide+scale only.
-                  transitionBuilder: (child, anim) => GlassSafeEnter(
-                    anim: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.12),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: ScaleTransition(
-                        scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+              // FIX ("2 mini player ek saath dikh rahe hai" — bug from the
+              // compact chip added beside the collapsed search button):
+              // this full-width MiniPlayer used to show/hide purely on
+              // p.miniPlayerVisible, with no awareness of which tab was
+              // active. Once the Search tab started showing its own
+              // compact mini player chip inside the collapsed nav row
+              // (glass ON), this one kept rendering ABOVE it too whenever
+              // something was playing — hence two mini players stacked on
+              // screen at once. Now also hidden whenever the compact chip
+              // is the one showing (Search tab + glass ON), exactly
+              // mirroring the same `searchActive` condition the nav bar
+              // itself already uses to decide whether to collapse.
+              ValueListenableBuilder<bool>(
+                valueListenable: AudioPrefs.liquidGlassEnabledNotifier,
+                builder: (context, glassOn, _unusedChild) {
+                  final chipShowsInstead = _activeBarIndex == 1 && glassOn;
+                  return Selector<PlayerProvider, bool>(
+                    selector: (_, p) => p.miniPlayerVisible && !chipShowsInstead,
+                    builder: (context, visible, __) => AnimatedSwitcher(
+                      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                      switchInCurve: AurumMotion.standard,
+                      switchOutCurve: AurumMotion.standardReverse,
+                      layoutBuilder: (currentChild, previousChildren) => Stack(
                         alignment: Alignment.bottomCenter,
-                        child: child,
+                        children: [
+                          ...previousChildren,
+                          if (currentChild != null) currentChild,
+                        ],
                       ),
+                      // NO FadeTransition: Opacity/fade < 1 forces a saveLayer that
+                      // cuts the glass BackdropFilter off from the page behind it, so
+                      // the glass flashes flat during show/hide. Slide+scale only.
+                      transitionBuilder: (child, anim) => GlassSafeEnter(
+                        anim: anim,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, 0.12),
+                            end: Offset.zero,
+                          ).animate(anim),
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+                            alignment: Alignment.bottomCenter,
+                            child: child,
+                          ),
+                        ),
+                      ),
+                      child: visible
+                          ? const MiniPlayer(key: ValueKey('mini_player_visible'))
+                          : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
                     ),
-                  ),
-                  child: visible
-                      ? const MiniPlayer(key: ValueKey('mini_player_visible'))
-                      : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
-                ),
+                  );
+                },
               ),
               // The nav bar no longer paints any top divider/gradient line
               // (removed permanently in AurumBottomNavBar — see the
