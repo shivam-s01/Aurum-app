@@ -1245,7 +1245,15 @@ class _CompactMiniPlayerChip extends StatelessWidget {
                 tintColor: AurumTheme.bgCardOf(context),
                 useTintInGlass: false,
                 interactive: true,
-                child: content,
+                // FIX (build error: "Widget?' can't be assigned to
+                // 'Widget'"): ValueListenableBuilder's builder passes its
+                // static `child` back as Widget? (nullable), even though
+                // it's always non-null here since one is always provided
+                // below. The other AurumGlass callers in this same file
+                // (_FullNavRow, _CollapsedSearchButton's own search
+                // button) already unwrap this identically with `button!`
+                // — this one just used the wrong bare variable name.
+                child: content!,
               );
             },
             child: AurumPressable(
