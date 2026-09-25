@@ -601,13 +601,29 @@ class _HomeScreenState extends State<HomeScreen> {
     // left that can populate or display it again.
     // Artist strip follows the exact same freshness rule as the section
     // feed above — its own separate 6-hour-gated timestamp.
+    // FIX ("loading jaisa flash" right after the splash animation ends):
+    // LibraryProvider.load() used to only be kicked off inside the
+    // addPostFrameCallback below — i.e. one full frame AFTER HomeScreen's
+    // first frame had already painted, which itself happens only after
+    // the splash overlay (screens/splash_screen.dart) has faded out and
+    // been removed. That ordering meant the library's loading→loaded
+    // rebuild (a real, visible UI change once local songs finish
+    // scanning) was guaranteed to happen in full view of the user, right
+    // after the splash was gone — reading exactly like a stray loading
+    // flash. Calling it here instead, synchronously in initState (before
+    // the first frame, while the splash overlay is very likely still
+    // showing/fading on top), lets that same load happen in the
+    // background during the splash's own ~3s window instead of after it.
+    // context.read is safe here: Provider is mounted above MaterialApp/
+    // SplashScreen in main.dart, so it's already available by the time
+    // HomeScreen (inside SplashScreen's `child`) is constructed.
+    final lib = context.read<LibraryProvider>();
+    if (!lib.hasLoaded) lib.load();
     HomeFeedCache.isArtistsFresh().then((fresh) {
       if (!mounted) return;
       if (!fresh) _loadArtists();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final lib = context.read<LibraryProvider>();
-      if (!lib.hasLoaded) lib.load();
 
       // Surface real playback failures immediately via SnackBar — no
       // logcat/adb needed to see exactly why a tap didn't start sound.

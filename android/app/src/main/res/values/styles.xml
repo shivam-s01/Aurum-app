@@ -68,13 +68,16 @@
              painting) takes over on the very next frame regardless. -->
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="windowSplashScreenAnimationDuration">0</item>
-        <!-- Matches Echo Nightly's own values/themes.xml exactly:
-             icon_preferred, gated to TIRAMISU (API 33)+ via targetApi,
-             same as Echo's own tools:targetApi="TIRAMISU" on this same
-             attribute. Below API 33 this item is simply ignored by the
-             platform (no crash, no fallback needed) — same as it is for
-             Echo on those same older API levels. -->
-        <item name="android:windowSplashScreenBehavior" tools:targetApi="TIRAMISU">icon_preferred</item>
+        <!-- FIX (icon rendering oversized): "icon_preferred" tells the
+             platform to render the launcher's adaptive-icon layers at
+             full bleed instead of masking them down to the platform's
+             standard small centered splash-icon size — that full-bleed
+             behavior is exactly why the icon filled so much of the
+             screen. Removing this line reverts to the platform default
+             (icon_default), which applies the normal small, centered,
+             masked splash icon sizing/padding used by every other app's
+             cold-start splash. -->
+        <!-- <item name="android:windowSplashScreenBehavior" tools:targetApi="TIRAMISU">icon_preferred</item> -->
         <item name="postSplashScreenTheme">@style/NormalTheme</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">

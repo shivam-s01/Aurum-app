@@ -104,6 +104,13 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _webController = WebViewController()
+      // FIX (black gap before animation starts): the surrounding
+      // Container already paints AurumTheme.darkBg immediately, but the
+      // WebView's own native surface briefly shows plain black while it
+      // attaches and the HTML asset is read/parsed — setBackgroundColor
+      // here makes that surface start out matching the same dark color
+      // instead of default black, so the handoff reads as one continuous
+      // dark screen rather than a black flash before the animation.
       ..setBackgroundColor(AurumTheme.darkBg)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
@@ -124,7 +131,21 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
     _fadeController.forward().whenComplete(() {
-      if (mounted) setState(() => _showSplash = false);
+      if (!mounted) return;
+      // FIX ("bump" on reaching home): the fade-out finishing does not
+      // guarantee `child` (MainShell/Home) has actually painted a real,
+      // settled frame underneath yet — its first frame can still be a
+      // loading/skeleton state mid-flight, so cutting straight to
+      // `_showSplash = false` here could reveal that half-built frame,
+      // reading as a jarring "bump". Waiting for two post-frame callbacks
+      // (one full extra rendered frame of `child` alone, underneath the
+      // now-fully-transparent splash) gives `child` a real chance to
+      // settle before we remove the splash layer entirely.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _showSplash = false);
+        });
+      });
     });
   }
 

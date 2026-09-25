@@ -299,7 +299,7 @@
   (function () {
     const replayBtn = document.getElementById('replay');
     if (replayBtn) replayBtn.style.display = 'none';
-    const notifyDoneMs = 2400 + 200; // underline end + small settle beat
+    const notifyDoneMs = 2400 + 800; // underline end + longer settle beat (was 200 — animation read as under 3s total)
     setTimeout(() => {
       if (window.AurumSplash && window.AurumSplash.postMessage) {
         window.AurumSplash.postMessage('done');
