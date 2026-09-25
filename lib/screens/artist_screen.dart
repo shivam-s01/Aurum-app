@@ -190,7 +190,7 @@ class _ArtistScreenState extends State<ArtistScreen>
       // walk keeps collecting until the artist's real upload catalog
       // (or the walk's own maxPages/time budget) genuinely runs out,
       // not an arbitrary round number.
-      await ApiService.fetchArtistStreaming(id, songCount: 1000, onUpdate: (artist) {
+      await ApiService.fetchArtistStreaming(id, songCount: 200, onUpdate: (artist) {
         if (!mounted) return;
         gotAny = true;
         setState(() {

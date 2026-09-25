@@ -75,6 +75,7 @@ import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
 import 'screens/app_lock_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/splash_screen.dart';
 import 'utils/aurum_transitions.dart';
 import 'utils/aurum_haptics.dart';
 import 'utils/aurum_motion.dart';
@@ -739,24 +740,29 @@ class AurumApp extends StatelessWidget {
                 child: child ?? const SizedBox.shrink(),
               );
             },
-            // Splash is entirely native now (android:windowSplashScreenAnimatedIcon
-            // in styles.xml + art_splash_anim.xml) — matching Echo Nightly's
-            // own approach exactly: Echo has no Dart/Compose-side splash
-            // widget at all, only the OS-level animated vector. Aurum
-            // previously ALSO ran a Dart-side SplashScreen overlay here
-            // (_SplashOnEveryEntry) with its own independent 2400ms
-            // animation — since the native OS splash already runs its own
-            // separate 900ms animation before Flutter's first frame even
-            // exists, the two would play back-to-back with a visible
-            // restart/discontinuity between them (native finishes at 900ms,
-            // then the Dart one starts over from its own beginning and
-            // runs a further 2400ms) — a combined ~3.3s with a jarring
-            // "it restarted" moment in the middle, not a single smooth
-            // animation. Removed entirely so only the one native animation
-            // plays, exactly once, exactly like Echo.
-            home: _BlurShaderWarmup(
-              child: AppLockScreen(
-                child: const _OnboardingGate(child: MainShell()),
+            // Splash: native OS splash (styles.xml, animationDuration=0)
+            // hands off to Flutter's first frame instantly, then
+            // SplashScreen (screens/splash_screen.dart) plays ONE
+            // ~1.9s animated "ASTRA MUSIC" wordmark reveal as an
+            // overlay on top of the already-mounted app — not a
+            // separate screen swapped in before it. This is a
+            // deliberate reintroduction of a Dart-side splash after an
+            // earlier one (_SplashOnEveryEntry) was removed — see that
+            // class's leftover doc comment further down this file for
+            // why: the old one played AFTER the native splash finished,
+            // as a fully separate ~2400ms animation with its own
+            // restart/discontinuity. SplashScreen avoids that failure
+            // mode structurally: it does not gate `child` behind
+            // itself (child is always the first thing composited, the
+            // overlay just paints on top and fades out), so there is
+            // no route swap, no rebuild-from-scratch, and no visible
+            // "restart" — one continuous motion from the instant
+            // Flutter's first frame paints.
+            home: SplashScreen(
+              child: _BlurShaderWarmup(
+                child: AppLockScreen(
+                  child: const _OnboardingGate(child: MainShell()),
+                ),
               ),
             ),
             ); // closes MaterialApp
@@ -825,21 +831,22 @@ class _OnboardingGateState extends State<_OnboardingGate> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _SplashOnEveryEntry
+// _SplashOnEveryEntry — HISTORICAL NOTE (class no longer exists)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Shows the Aurum intro animation ONLY on a true cold start (first process
-// launch). Background-resume (Home button → reopen, recents → reopen) skips
-// straight back to whatever the user was doing — no repeated animation.
+// This project previously had a class by this name implementing a
+// Dart-side splash overlay. It was removed because it played AFTER the
+// native OS splash finished, as a fully separate ~2400ms animation,
+// producing a visible restart/discontinuity between the two.
 //
-// How: a static bool `_played` is set to true the first time the splash
-// completes. It lives on the class (not in State) so it survives hot-reload
-// and background/foreground cycles for the entire Dart VM lifetime. On
-// Android, AurumMediaSessionService (the native Kotlin foreground service)
-// keeps the process alive in the background while music plays, so the Dart
-// VM is not restarted on a normal resume — `_played` stays true and the
-// splash is skipped. Only a genuine force-close + relaunch resets the
-// process and clears `_played`, giving a fresh cold-start animation.
+// The Dart-side splash has since been reintroduced correctly as
+// SplashScreen (screens/splash_screen.dart, wired in MaterialApp.home
+// above) — it composites as an overlay on top of the already-mounted
+// app rather than gating a route swap, so it cannot reproduce the
+// restart bug this class's removal was fixing. See splash_screen.dart's
+// file-level doc comment for the full reasoning. Do not recreate a
+// route-swap-based splash architecture; if touching splash behavior,
+// prefer extending SplashScreen's overlay approach.
 // ─────────────────────────────────────────────────────────────────────────────
 // _BlurShaderWarmup
 // ─────────────────────────────────────────────────────────────────────────────

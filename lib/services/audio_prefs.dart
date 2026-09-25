@@ -281,13 +281,16 @@ class AudioPrefs {
       ValueNotifier<double>(12.0);
 
   /// Single master switch for the liquid glass on the nav bar + mini
-  /// player. Default ON. This REPLACES reading the old per-widget blur
-  /// sigma prefs: an older build stored `nav_bar_blur_sigma = 0.0` on many
-  /// devices, and that stale 0 silently forced the flat solid panel
-  /// forever (glass looked "off" even though the code was fine). The old
-  /// sigma keys are now ignored; sigma is a fixed tuned constant below.
+  /// player. Default OFF (user request): a fresh install should land on
+  /// the plain flat Docked nav bar first, not the glass look — people can
+  /// still turn it on themselves in Settings → Appearance. This REPLACES
+  /// reading the old per-widget blur sigma prefs: an older build stored
+  /// `nav_bar_blur_sigma = 0.0` on many devices, and that stale 0
+  /// silently forced the flat solid panel forever (glass looked "off"
+  /// even though the code was fine). The old sigma keys are now ignored;
+  /// sigma is a fixed tuned constant below.
   static final ValueNotifier<bool> liquidGlassEnabledNotifier =
-      ValueNotifier<bool>(true);
+      ValueNotifier<bool>(false);
   static const double glassNavSigma = 18.0;
   static const double glassMiniSigma = 12.0;
 

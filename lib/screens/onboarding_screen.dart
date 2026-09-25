@@ -1471,13 +1471,33 @@ class _ArtistStepState extends State<_ArtistStep> {
         );
         return ApiService.searchArtistsRegionScoped(seed,
                 limit: 16, includeSaavn: isIndiaOrUnset)
-            .timeout(const Duration(seconds: 4))
+            .timeout(const Duration(seconds: 3))
             .catchError((_) => <ArtistSimple>[])
             .then((list) => MapEntry(g.key, list));
       }).toList();
 
+      // PERF FIX ("artist select screen bahut time leta hai"): the India
+      // top-up pool below has zero dependency on the genre queries above
+      // — it's a completely separate curated-pool fetch — but it used to
+      // only ever get kicked off AFTER `results` resolved, purely because
+      // it was written as a later step. That's pure added latency stacked
+      // on top of an already-slow first screen: worst case was queries
+      // (6s) + topUp (4s) + extra-genre widen (6s) + fallback (4s) = up to
+      // 20s of sequential network waiting before this step ever finishes.
+      // Starting it here, right alongside the genre queries, means it's
+      // already in flight (or already done) by the time it's actually
+      // needed a few lines down — for the common India/unset case this
+      // removes one whole sequential round-trip from the critical path
+      // for free. Only actually awaited/used later if merged still comes
+      // up short, exactly as before.
+      final earlyIndiaTopUp = isIndiaOrUnset
+          ? ApiService.fetchHomeArtists()
+              .timeout(const Duration(seconds: 3))
+              .catchError((_) => <ArtistSimple>[])
+          : null;
+
       final results = await Future.wait(queries).timeout(
-        const Duration(seconds: 6),
+        const Duration(seconds: 5),
         onTimeout: () => <MapEntry<String, List<ArtistSimple>>>[],
       );
 
@@ -1512,8 +1532,8 @@ class _ArtistStepState extends State<_ArtistStep> {
 
       if (merged.length < 40 && isIndiaOrUnset) {
         try {
-          final topUp = await ApiService.fetchHomeArtists()
-              .timeout(const Duration(seconds: 4));
+          final topUp = await (earlyIndiaTopUp ?? ApiService.fetchHomeArtists()
+              .timeout(const Duration(seconds: 3)));
           for (final a in topUp) {
             if (merged.length >= 40) break;
             if (a.name.isEmpty) continue;
@@ -1543,12 +1563,12 @@ class _ArtistStepState extends State<_ArtistStep> {
             );
             return ApiService.searchArtistsRegionScoped(seed,
                     limit: 16, includeSaavn: isIndiaOrUnset)
-                .timeout(const Duration(seconds: 4))
+                .timeout(const Duration(seconds: 3))
                 .catchError((_) => <ArtistSimple>[]);
           }).toList();
 
           final extraResults = await Future.wait(extraQueries).timeout(
-            const Duration(seconds: 6),
+            const Duration(seconds: 5),
             onTimeout: () => <List<ArtistSimple>>[],
           );
 
@@ -1569,8 +1589,8 @@ class _ArtistStepState extends State<_ArtistStep> {
       // fetchHomeArtists() itself returned an overlapping/small set.
       if (merged.length < 6) {
         try {
-          final fallback = await ApiService.fetchHomeArtists()
-              .timeout(const Duration(seconds: 4));
+          final fallback = await (earlyIndiaTopUp ?? ApiService.fetchHomeArtists()
+              .timeout(const Duration(seconds: 3)));
           for (final a in fallback) {
             if (a.name.isEmpty) continue;
             if (seenNames.add(a.name.toLowerCase())) merged.add(a);

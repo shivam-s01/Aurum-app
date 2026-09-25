@@ -69,18 +69,12 @@ class MainActivity : FlutterFragmentActivity() {
     // own once real playback starts (see AurumMediaSessionService.kt).
     private var mediaSessionServiceConnection: ServiceConnection? = null
 
-    // UPDATE: We DO now call androidx.core.splashscreen's
-    // installSplashScreen() (see onCreate() below) — this comment used
-    // to explain why we deliberately avoided it. That avoidance is what
-    // caused this whole splash saga: the raw platform attributes alone
-    // (windowSplashScreenAnimatedIcon etc., still set in styles.xml)
-    // turned out to be byte-identical to Echo Nightly's own working
-    // setup, yet silently fell back to the bare static launcher icon
-    // specifically on Realme UI 6.0 (Android 15) — see styles.xml's
-    // LaunchTheme doc comment and build.gradle's core-splashscreen
-    // dependency comment for the full investigation. The compat library
-    // is now doing exactly the job it exists for: normalizing this kind
-    // of per-OEM platform-API inconsistency.
+    // We call androidx.core.splashscreen's installSplashScreen() (see
+    // onCreate() below) for the compat library's per-OEM normalization
+    // (see styles.xml's LaunchTheme doc comment). Splash icon is now the
+    // plain static app logo (ic_launcher) with animationDuration=0 — no
+    // animated-vector spin/morph anymore, just the logo shown while the
+    // app starts.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // installSplashScreen() MUST be called before super.onCreate() —
@@ -95,15 +89,6 @@ class MainActivity : FlutterFragmentActivity() {
         // manual call is removed to avoid two different code paths
         // trying to manage the same theme transition.
         //
-        // See build.gradle's core-splashscreen dependency comment for
-        // why this library is here at all: the raw platform
-        // SplashScreen attributes (still declared in styles.xml,
-        // unchanged) are confirmed byte-identical to Echo Nightly's own
-        // working setup, but were silently falling back to the bare
-        // static launcher icon specifically on Realme UI 6.0 (Android
-        // 15). This compat call gives the animated icon a second,
-        // library-managed path to actually render instead of relying
-        // solely on the OEM honoring the theme attributes.
         installSplashScreen()
 
         // FIX (gray/white screen flash on cold start, swipe-down full-player

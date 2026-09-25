@@ -282,20 +282,21 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       //
       // PERF FIX (2026-08 — "app takes ~30s after splash before it feels
       // smooth"): this used to add an extra hardcoded 2700ms
-      // Future.delayed here, on top of the splash's own 2.7s animation,
-      // under the assumption that MainShell mounted from frame 1
-      // (alongside the splash) and therefore needed its own separate
-      // wait before the Activity was safely resumed enough for
-      // permission_handler. That assumption is stale: SplashScreen
-      // (see its SEQUENCING comment) now only builds/mounts widget.child
-      // — i.e. this MainShell — AFTER its own animation has already
-      // fully completed. By the time this initState even runs, the
-      // splash is long gone and the Activity has been resumed and
-      // interactive for a full frame already. The extra 2700ms here was
-      // pure dead time stacked on top of the splash's own 2.7s, reading
-      // to the user as "smooth for a moment, then ~30s more of stutter"
-      // while update-check/permissions/sync all sat idle waiting on a
-      // timer that no longer protected against anything.
+      // Future.delayed here, stacked on top of a then-current splash
+      // animation, under a stale assumption about when MainShell
+      // mounted relative to the splash. That extra delay was removed —
+      // it was pure dead time. The safety this section actually needs
+      // (permission_handler needs a fully attached/resumed Activity)
+      // comes from being several async hops into a postFrameCallback
+      // already — a SharedPreferences read plus an update-check network
+      // call both complete before this point runs, which is what
+      // reliably gives the Activity time to finish resuming, regardless
+      // of whatever splash/overlay is or isn't showing at the same
+      // moment. Do not reintroduce a hardcoded delay tied to a splash
+      // animation's duration — if a real crash-on-launch resurfaces
+      // here, prefer awaiting a concrete signal (e.g. the first
+      // post-frame callback already used above) over a magic-number
+      // timer.
       if (!mounted) return;
 
       final askedPermissions = prefs.getBool('asked_launch_permissions') ?? false;

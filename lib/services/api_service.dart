@@ -6662,7 +6662,7 @@ class ApiService {
 
     try {
       final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-          .timeout(const Duration(seconds: 100), onTimeout: () => null);
+          .timeout(const Duration(seconds: 25), onTimeout: () => null);
       if (uploadsArtist != null) addAll(uploadsArtist.topSongs);
       onUpdate(snapshot());
     } catch (e) {
@@ -6677,7 +6677,7 @@ class ApiService {
           browseArtist.name,
           songCount * 2,
           filterParam: _ytmSongsFilterParam,
-        ).timeout(const Duration(seconds: 45), onTimeout: () => <Song>[]);
+        ).timeout(const Duration(seconds: 20), onTimeout: () => <Song>[]);
         final filtered = extra.where((s) {
           if (RecommendationEngine.isNonMusicContent(s)) return false;
           if (s.artistChannelId != null) return s.artistChannelId == channelId;

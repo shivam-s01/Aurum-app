@@ -46,7 +46,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // confusing flash of the wrong value on a screen about performance
   // settings specifically. Keeping both sides in sync avoids that.
   bool _showBlurredBg = false;
-  bool _liquidGlass = true;
+  bool _liquidGlass = false;
   double _navBarBlurSigma = 18.0;
   double _miniPlayerBlurSigma = 12.0;
   // Lyrics
@@ -128,7 +128,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       // launch, but every time this specific key was never explicitly
       // set.
       _showBlurredBg = p.getBool('show_blurred_bg') ?? false;
-      _liquidGlass = p.getBool('liquid_glass_enabled') ?? true;
+      _liquidGlass = p.getBool('liquid_glass_enabled') ?? false;
       _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
       _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';

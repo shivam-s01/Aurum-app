@@ -51,8 +51,23 @@
          still needs it). -->
     <style name="LaunchTheme" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/bgColor</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/art_splash_anim</item>
-        <item name="windowSplashScreenAnimationDuration">900</item>
+        <!-- Animation intentionally static, duration 0: the animated
+             intro is now owned entirely by Flutter's SplashScreen
+             widget (lib/screens/splash_screen.dart), not by this native
+             layer. Keeping any animation here (art_splash_anim, 900ms)
+             would play BEFORE Flutter's first frame, and the Dart
+             splash would then play AFTER it as a second, unrelated
+             animation — exactly the "native splash finishes, then a
+             visibly different animation restarts" discontinuity this
+             project has already hit once before (see main.dart's
+             SplashScreen wiring comment). windowSplashScreenAnimatedIcon
+             still needs a value (the platform requires one), so it
+             points at the plain static launcher icon with
+             animationDuration=0 — effectively invisible, since
+             Flutter's first frame (with SplashScreen's overlay already
+             painting) takes over on the very next frame regardless. -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
         <!-- Matches Echo Nightly's own values/themes.xml exactly:
              icon_preferred, gated to TIRAMISU (API 33)+ via targetApi,
              same as Echo's own tools:targetApi="TIRAMISU" on this same
