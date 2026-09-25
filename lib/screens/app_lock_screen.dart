@@ -1,4 +1,3 @@
-import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
@@ -150,9 +149,32 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return Scaffold(
-        backgroundColor: AurumTheme.bgOf(context),
-        body: const Center(child: AurumMorphLoader(size: 56, contained: true)),
+      // FIX (awkward loading flash right after the splash animation ends):
+      // this state is reached while the splash's SplashScreen overlay is
+      // STILL painting on top (this whole widget is splash's `child`, so
+      // it mounts and starts _init()'s SharedPreferences read immediately,
+      // in parallel with the ~3.2s splash animation). Two things made a
+      // brief, already-resolving state read as a jarring flash instead of
+      // an invisible non-event:
+      //   1. AurumMorphLoader here was a spinner — any real content in
+      //      this frame reads as "something is loading", even at ~16-32ms.
+      //      No spinner is genuinely correct: this state is normally only
+      //      up for a couple of frames, and a spinner appearing then
+      //      vanishing looks worse than no spinner at all, not better.
+      //   2. AurumTheme.bgOf(context) is the THEME's scaffold background,
+      //      which can be light-mode white while splash's overlay is
+      //      always AurumTheme.darkBg (fixed, theme-independent). If the
+      //      SharedPreferences read hadn't resolved by the time splash's
+      //      fade finished, this frame could momentarily flash a
+      //      different (even light) color underneath a dark splash —
+      //      the actual "awkward flash" being reported, not just timing.
+      // Now: plain darkBg-colored screen, no spinner, no theme dependency
+      // — if this state is ever visible for a frame or two under/after
+      // splash's fade, it is visually indistinguishable from the splash
+      // background itself, so there is nothing to perceive as a flash.
+      return const Scaffold(
+        backgroundColor: AurumTheme.darkBg,
+        body: SizedBox.shrink(),
       );
     }
     if (!_locked) return widget.child;

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FIX (native splash icon renders oversized): windowSplashScreenAnimatedIcon
+  was pointing at @mipmap/ic_launcher — the app's regular home-screen
+  launcher icon. That icon's foreground PNG (ic_launcher_foreground.png)
+  fills ~80% of its 1024x1024 canvas, which is correct for a HOME SCREEN
+  icon (where the OS's own adaptive-icon mask crops it down consistently
+  across every device), but the platform's splash-screen icon renderer
+  does NOT apply that same generous masking — it expects content to
+  already sit within the standard ~66% adaptive-icon safe zone, and
+  renders whatever it's given largely as-is otherwise. Reusing the
+  launcher icon directly was therefore the actual root cause of the
+  oversized splash icon, not a windowSplashScreenBehavior/theme setting
+  (icon_preferred vs icon_default only changes edge-case masking
+  behavior and made no visible difference here, because the source
+  asset itself was already oversized for this specific use).
+
+  This is a SEPARATE adaptive-icon definition used ONLY by
+  styles.xml's windowSplashScreenAnimatedIcon — @mipmap/ic_launcher
+  (the real home-screen icon) is completely untouched, so the app's
+  launcher icon, app switcher thumbnail, and Settings icon all keep
+  their existing, correct-for-that-context appearance. Only the splash
+  moment uses this smaller, properly-inset version.
+
+  ic_splash_icon_foreground.png is a re-centered copy of the same
+  artwork, scaled down so its visible content occupies ~63% of the
+  1024x1024 canvas (was ~80%) — inside the platform's expected safe
+  zone — with the extra space left fully transparent. Background layer
+  is unchanged (reuses the existing flat background drawable).
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_splash_icon_foreground"/>
+</adaptive-icon>

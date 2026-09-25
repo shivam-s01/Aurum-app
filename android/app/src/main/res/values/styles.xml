@@ -66,18 +66,28 @@
              animationDuration=0 — effectively invisible, since
              Flutter's first frame (with SplashScreen's overlay already
              painting) takes over on the very next frame regardless. -->
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <!-- FIX (icon rendering oversized — root cause corrected): the
+             earlier fix here only removed windowSplashScreenBehavior,
+             which turned out to make no visible difference — the real
+             oversize came from reusing the home-screen launcher icon
+             (whose foreground art fills ~80% of its canvas, correct
+             for a masked launcher icon but too large for the platform's
+             splash-icon renderer). Now pointing at a dedicated
+             @mipmap/ic_splash_icon (mipmap-anydpi-v26/ic_splash_icon.xml)
+             built specifically for this splash use, with its foreground
+             re-centered to the platform's expected ~66% safe zone.
+             @mipmap/ic_launcher itself is untouched, so the real
+             app/home-screen icon is not affected by this change at all. -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_splash_icon</item>
         <item name="windowSplashScreenAnimationDuration">0</item>
-        <!-- FIX (icon rendering oversized): "icon_preferred" tells the
-             platform to render the launcher's adaptive-icon layers at
-             full bleed instead of masking them down to the platform's
-             standard small centered splash-icon size — that full-bleed
-             behavior is exactly why the icon filled so much of the
-             screen. Removing this line reverts to the platform default
-             (icon_default), which applies the normal small, centered,
-             masked splash icon sizing/padding used by every other app's
-             cold-start splash. -->
-        <!-- <item name="android:windowSplashScreenBehavior" tools:targetApi="TIRAMISU">icon_preferred</item> -->
+        <!-- Restored: with the icon asset itself now correctly inset,
+             icon_preferred (full-bleed render, no extra platform
+             masking/padding on top of the asset's own) is safe again
+             and gives the most predictable, consistent rendering across
+             OEM skins — see the original comment above this style for
+             the Realme UI 6.0 fallback issue icon_preferred exists to
+             avoid. -->
+        <item name="android:windowSplashScreenBehavior" tools:targetApi="TIRAMISU">icon_preferred</item>
         <item name="postSplashScreenTheme">@style/NormalTheme</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
