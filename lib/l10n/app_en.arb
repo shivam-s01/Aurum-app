@@ -431,6 +431,7 @@
   "saColorTheme": "COLOR THEME",
   "saColorThemeNone": "None",
   "saColorThemeNoneDesc": "Use the default Aurum look",
+  "saColorThemeDone": "Done",
   "saAppFont": "App Font",
   "saRoundedMonoSignIn": "Premium fonts = Sign in",
   "saApplyingFont": "Applying font…",

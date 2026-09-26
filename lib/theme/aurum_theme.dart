@@ -13,26 +13,6 @@ class _DynamicMarker extends ThemeExtension<_DynamicMarker> {
   _DynamicMarker lerp(ThemeExtension<_DynamicMarker>? other, double t) => this;
 }
 
-/// FIX — carries a color preset's own muted/secondary text tone into the
-/// theme so textMutedOf()/textSecondaryOf() can use it. Previously those
-/// two helpers only ever branched on brightness/dynamic, so every preset
-/// (Ocean, Sunset, etc.) silently fell back to the fixed dark-grey
-/// constants — low contrast against a preset's differently-hued
-/// background. Stashed as an extension the same way _DynamicMarker is,
-/// so it's only present when a real preset is active.
-class _PresetTextMarker extends ThemeExtension<_PresetTextMarker> {
-  final Color textMuted;
-  const _PresetTextMarker(this.textMuted);
-  @override
-  _PresetTextMarker copyWith({Color? textMuted}) =>
-      _PresetTextMarker(textMuted ?? this.textMuted);
-  @override
-  _PresetTextMarker lerp(ThemeExtension<_PresetTextMarker>? other, double t) =>
-      other is _PresetTextMarker
-          ? _PresetTextMarker(Color.lerp(textMuted, other.textMuted, t)!)
-          : this;
-}
-
 /// Named full-palette color themes — ported from Astra Browser's
 /// AstraThemeCatalog (accent/background/surface/surfaceVariant tuples).
 /// `none` means "no preset" — the app keeps its normal fixed-purple
@@ -58,16 +38,6 @@ class AurumColorPresetData {
   final Color surfaceVariant;
   final Color onBackground;
   final Color divider;
-  // FIX — "Settings labels barely visible on every preset": textMutedOf()/
-  // textSecondaryOf() never had a preset-aware branch at all, so every
-  // subtitle/icon under a color preset silently fell back to the fixed
-  // darkTextSecondary/darkTextMuted grey constants, which have poor
-  // contrast against a preset's own (differently-hued, differently-lit)
-  // background. Each preset now carries its own pre-tuned muted tone —
-  // same hue family as onBackground, but pulled down in lightness/
-  // saturation so it reads as a clearly secondary (not primary, not
-  // invisible) text color against that preset's own background.
-  final Color textMuted;
 
   const AurumColorPresetData({
     required this.displayName,
@@ -79,7 +49,6 @@ class AurumColorPresetData {
     required this.surfaceVariant,
     required this.onBackground,
     required this.divider,
-    required this.textMuted,
   });
 }
 
@@ -98,9 +67,6 @@ class AurumColorPresetCatalog {
       surfaceVariant: Color(0xFF123A5C),
       onBackground: Color(0xFFE3F3FA),
       divider: Color(0xFF1B4A70),
-      // Same hue as onBackground, pulled to ~65% lightness / ~35% sat so
-      // it reads as clearly secondary against the 9.8%-lightness bg.
-      textMuted: Color(0xFF9FB9CB),
     ),
     AurumColorPreset.forest: AurumColorPresetData(
       displayName: 'Forest',
@@ -112,19 +78,11 @@ class AurumColorPresetCatalog {
       surfaceVariant: Color(0xFF1E3528),
       onBackground: Color(0xFFE4F1E8),
       divider: Color(0xFF294634),
-      textMuted: Color(0xFFA0B8A8),
     ),
     AurumColorPreset.sunset: AurumColorPresetData(
       displayName: 'Sunset',
       subtitle: 'Warm oranges',
-      // FIX — "sunset bahut heavy hai": accent was the lightest/most
-      // saturated of all 5 presets (L=64.5% vs Ocean 42%/Forest 52%/
-      // Aurora 56%) and onBackground was the most saturated text color
-      // in the whole catalog (S=78% vs the 30-70% band every other
-      // preset sits in) — that combination is what read as "heavy"/loud
-      // next to Ocean/Forest/Midnight/Aurora. Both pulled back into the
-      // same band the other 4 presets already use, same hue preserved.
-      accent: Color(0xFFE8623F),
+      accent: Color(0xFFFF6B4A),
       accentLight: Color(0xFFFF9C82),
       // NOTE: Astra's own Sunset preset is a LIGHT theme (cream bg, dark
       // text) — safe there because Astra always renders it through its own
@@ -140,11 +98,8 @@ class AurumColorPresetCatalog {
       background: Color(0xFF1F1410),
       surface: Color(0xFF2B1D16),
       surfaceVariant: Color(0xFF3A2A1F),
-      // Desaturated from the original 0xFFFBE9DE (S=78%) down to the
-      // ~45-55% band Ocean/Aurora sit in, same warm hue kept.
-      onBackground: Color(0xFFECD9CC),
+      onBackground: Color(0xFFFBE9DE),
       divider: Color(0xFF4A3628),
-      textMuted: Color(0xFFC2A48F),
     ),
     AurumColorPreset.midnight: AurumColorPresetData(
       displayName: 'Midnight',
@@ -156,7 +111,6 @@ class AurumColorPresetCatalog {
       surfaceVariant: Color(0xFF1B1B33),
       onBackground: Color(0xFFE7E5F5),
       divider: Color(0xFF262647),
-      textMuted: Color(0xFFA4A2C0),
     ),
     AurumColorPreset.aurora: AurumColorPresetData(
       displayName: 'Aurora',
@@ -168,7 +122,6 @@ class AurumColorPresetCatalog {
       surfaceVariant: Color(0xFF163044),
       onBackground: Color(0xFFE1F7F2),
       divider: Color(0xFF1E3C52),
-      textMuted: Color(0xFF9BC4BC),
     ),
   };
 
@@ -306,17 +259,11 @@ class AurumTheme {
       bgCard: p?.surface ?? darkBgCard,
       bgSurface: p?.surfaceVariant ?? darkBgSurface,
       textPrimary: p?.onBackground ?? darkTextPrimary,
-      // FIX — was hardcoded to the fixed darkTextMuted grey even when a
-      // preset was active; now uses the preset's own tuned muted tone
-      // (see AurumColorPresetData.textMuted) so subtitle/icon contrast
-      // stays consistent with that preset's background, not the fixed
-      // dark palette's.
-      textMuted: p?.textMuted ?? darkTextMuted,
+      textMuted: darkTextMuted,
       divider: p?.divider ?? darkDivider,
       navBar: p?.surface ?? darkBgCard,
       presetAccent: p?.accent,
       presetAccentLight: p?.accentLight,
-      presetTextMuted: p?.textMuted,
     );
   }
 
@@ -484,7 +431,6 @@ class AurumTheme {
     ColorScheme? dynamicScheme,
     Color? presetAccent,
     Color? presetAccentLight,
-    Color? presetTextMuted,
   }) {
     final isDark = brightness == Brightness.dark;
     // When a real Material You scheme is supplied, its own primary/secondary
@@ -661,10 +607,7 @@ class AurumTheme {
       ),
       dividerColor: divider,
       cardColor: bgCard,
-      extensions: [
-        if (dynamicScheme != null) const _DynamicMarker(),
-        if (presetTextMuted != null) _PresetTextMarker(presetTextMuted),
-      ],
+      extensions: dynamicScheme != null ? const [_DynamicMarker()] : const [],
     );
   }
 
@@ -679,25 +622,12 @@ class AurumTheme {
       Theme.of(context).colorScheme.onSurface;
 
   static Color textSecondaryOf(BuildContext context) {
-    // FIX — a color preset (Ocean/Sunset/etc.) was never checked here, so
-    // every preset silently used the fixed dark-grey darkTextSecondary
-    // regardless of its own background hue — low contrast on presets like
-    // Sunset. Reuse the preset's tuned textMuted tone (close enough to a
-    // "secondary" weight) when one is active.
-    final presetMuted = Theme.of(context).extension<_PresetTextMarker>()?.textMuted;
-    if (presetMuted != null) return presetMuted;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkTextSecondary : lightTextSecondary;
   }
 
   static Color textMutedOf(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // FIX — this never had a preset branch either, so every Settings row
-    // subtitle (which all call textMutedOf) fell back to the fixed
-    // darkTextMuted grey under every color preset. Check the preset
-    // marker first, same pattern as the existing dynamic-mode check below.
-    final presetMuted = Theme.of(context).extension<_PresetTextMarker>()?.textMuted;
-    if (presetMuted != null) return presetMuted;
     // Dynamic (Material You) schemes carry a real onSurfaceVariant tone
     // derived from the wallpaper — use it instead of the fixed static
     // muted-gray constants so "muted" text still reads as part of the

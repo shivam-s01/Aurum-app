@@ -223,20 +223,22 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // these now swaps background/card/surface/text/accent together
           // as one matched set instead of only recoloring buttons.
           //
-          // FIX (user request — "model jaisa" horizontal preview + glass
-          // sheet): the old design was a single vertical ListTile column
-          // (all 6 presets stacked, one per row) — the user wanted a
-          // compact horizontal strip of preview cards instead (so this
-          // section takes far less vertical space at a glance), with the
-          // full picker moved into a top-level frosted-glass bottom sheet
-          // that only applies on explicit "OK", rather than applying
-          // instantly on every tap in-place. _colorPresetTile (the old
-          // vertical row widget) is kept below since nothing else in this
-          // file's diff removes it, but it's now only used INSIDE the
-          // sheet built by _showColorThemeSheet, not in the main list.
+          // FIX (user request — iOS-style redesign, round 2): the
+          // horizontal-strip-of-cards version was rejected as "awkward" —
+          // replaced with a single iOS-style hero summary row (one card,
+          // the CURRENT selection only — no scrolling strip) that opens
+          // an iOS-style picker sheet: light blur (not the heavy 24-sigma
+          // frosted look), a grid of plain color circles (no cards/boxes,
+          // just a swatch + a name underneath, the way iOS's own accent-
+          // color / wallpaper pickers present choices), a small top-right
+          // "Done" text button instead of a bottom action bar, and a
+          // checkmark ring on the selected circle instead of a full
+          // accent-bordered card. _colorPresetTile (the old ListTile row)
+          // is intentionally left defined below, unused, in case a future
+          // revision wants it back — nothing currently calls it.
           AurumStaggerItem(index: 1, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(context, l10n.saColorTheme),
-          _colorThemeHorizontalPreview(context, l10n),
+          _colorThemeHeroRow(context, l10n),
           ])),
           // ── Font Style ──
           AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -720,10 +722,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     ));
   }
 
-  // Order used everywhere the full preset list is shown (horizontal
-  // preview strip + the sheet) — None first, then the 5 named palettes,
-  // same order as the old vertical list so nothing shuffles for existing
-  // users.
+  // Order used everywhere the full preset list is shown (hero row +
+  // the picker sheet) — None first, then the 5 named palettes, same
+  // order as the very first vertical list so nothing shuffles for
+  // existing users.
   static const List<AurumColorPreset> _colorPresetOrder = [
     AurumColorPreset.none,
     AurumColorPreset.ocean,
@@ -733,112 +735,96 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     AurumColorPreset.aurora,
   ];
 
-  /// Horizontal strip of preview cards — one per preset, in
-  /// _colorPresetOrder. Scrolls so all 6 are reachable, but only 2-3 sit
-  /// in the visible viewport at once by design (each card is wide enough
-  /// that 3 don't quite fit on a typical phone width, giving a "peek" of
-  /// the next one — the same affordance as a horizontal carousel). The
-  /// currently-active preset's card is visually promoted (accent border +
-  /// check badge); tapping ANY card — active or not — opens the full
-  /// picker sheet, it never applies a theme directly from this row.
-  Widget _colorThemeHorizontalPreview(BuildContext context, AppLocalizations l10n) {
+  String _colorPresetLabel(AppLocalizations l10n, AurumColorPreset preset) =>
+      preset == AurumColorPreset.none
+          ? l10n.saColorThemeNone
+          : AurumColorPresetCatalog.forId(preset)!.displayName;
+
+  String _colorPresetSubtitle(AppLocalizations l10n, AurumColorPreset preset) =>
+      preset == AurumColorPreset.none
+          ? l10n.saColorThemeNoneDesc
+          : AurumColorPresetCatalog.forId(preset)!.subtitle;
+
+  /// The preset that should read as "currently active" — `none` only
+  /// counts while the app is genuinely on the plain Dark theme (mode ==
+  /// dark AND no preset); on every other mode (Light/AMOLED/System/
+  /// Dynamic) no preset concept applies, so this returns null rather than
+  /// falsely showing "None" as selected there.
+  AurumColorPreset? _activeColorPreset(ThemeProvider tp) {
+    if (tp.colorPreset == AurumColorPreset.none) {
+      return tp.mode == AurumThemeMode.dark ? AurumColorPreset.none : null;
+    }
+    return tp.colorPreset;
+  }
+
+  /// iOS-style hero summary row — ONE card showing only the current
+  /// selection (no horizontal strip, no scrolling), the way iOS Settings
+  /// shows a single row for "Wallpaper" or "Accent Color" with just the
+  /// active value visible; tapping it opens the full picker. A large
+  /// circular swatch on the left carries the preset's own accent color
+  /// (or a plain icon-in-circle for "None"), with name + subtitle next
+  /// to it and a chevron on the right — a single ListTile-like row
+  /// exactly like every other current-value row in iOS Settings, backed
+  /// by the same _card()/divider styling every other section on this
+  /// screen already uses so it doesn't look like a one-off insert.
+  Widget _colorThemeHeroRow(BuildContext context, AppLocalizations l10n) {
     final tp = context.watch<ThemeProvider>();
-    final activePreset = (tp.colorPreset == AurumColorPreset.none && tp.mode != AurumThemeMode.dark)
-        // Same "None only counts while genuinely on plain Dark" rule as
-        // the old _colorPresetTile selected-check below — otherwise every
-        // non-dark mode (Light/AMOLED/System/Dynamic) would show the
-        // "None" card as active, which is misleading since no preset
-        // concept applies there at all.
-        ? null
-        : tp.colorPreset;
-
-    String labelFor(AurumColorPreset preset) => preset == AurumColorPreset.none
-        ? l10n.saColorThemeNone
-        : AurumColorPresetCatalog.forId(preset)!.displayName;
-    String subtitleFor(AurumColorPreset preset) => preset == AurumColorPreset.none
-        ? l10n.saColorThemeNoneDesc
-        : AurumColorPresetCatalog.forId(preset)!.subtitle;
-
-    return SizedBox(
-      height: 108,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: _colorPresetOrder.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
-        itemBuilder: (context, i) {
-          final preset = _colorPresetOrder[i];
-          final data = AurumColorPresetCatalog.forId(preset);
-          final isActive = activePreset == preset;
-          return AurumPressable(
-            onTap: () {
-              AurumHaptics.selection();
-              _showColorThemeSheet(context, l10n, initial: preset);
-            },
-            child: Container(
-              width: 128,
-              padding: const EdgeInsets.all(12),
+    final active = _activeColorPreset(tp) ?? AurumColorPreset.none;
+    final data = AurumColorPresetCatalog.forId(active);
+    return _card(context, child: AurumPressable(
+      onTap: () {
+        AurumHaptics.selection();
+        _showColorThemeSheet(context, l10n, initial: active);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 40, height: 40,
               decoration: BoxDecoration(
-                color: AurumTheme.bgCardOf(context),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isActive
-                      ? AurumTheme.accentOf(context)
-                      : AurumTheme.dividerOf(context),
-                  width: isActive ? 1.5 : 0.5,
-                ),
+                shape: BoxShape.circle,
+                color: data?.accent ?? AurumTheme.bgOf(context),
+                border: data == null
+                    ? Border.all(color: AurumTheme.dividerOf(context))
+                    : null,
               ),
+              child: data == null
+                  ? Icon(Icons.block_rounded, size: 18, color: AurumTheme.textMutedOf(context))
+                  : null,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 28, height: 28,
-                        decoration: BoxDecoration(
-                          color: data?.accent ?? AurumTheme.bgOf(context),
-                          borderRadius: BorderRadius.circular(8),
-                          border: data == null
-                              ? Border.all(color: AurumTheme.dividerOf(context))
-                              : null,
-                        ),
-                        child: data == null
-                            ? Icon(Icons.block_rounded, size: 14, color: AurumTheme.textMutedOf(context))
-                            : null,
-                      ),
-                      const Spacer(),
-                      if (isActive)
-                        Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(labelFor(preset),
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                  Text(_colorPresetLabel(l10n, active),
                       style: TextStyle(
-                        color: isActive ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
-                        fontSize: 13,
-                        fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 15, fontWeight: FontWeight.w600,
                       )),
                   const SizedBox(height: 2),
-                  Text(subtitleFor(preset),
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11)),
+                  Text(_colorPresetSubtitle(l10n, active),
+                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
                 ],
               ),
             ),
-          );
-        },
+            Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 22),
+          ],
+        ),
       ),
-    );
+    ));
   }
 
-  /// Top-level frosted-glass picker sheet. Selection inside the sheet is
-  /// purely local (`_sheetSelected` via StatefulBuilder) — nothing is
-  /// applied to ThemeProvider until the user taps OK, so browsing presets
-  /// in the sheet never flickers the screen behind it and backing out
-  /// (drag-to-dismiss / tap-outside / system back) leaves the real theme
-  /// completely untouched, matching how a top-level chooser is expected
-  /// to behave.
+  /// iOS-style picker sheet: light blur (not the heavy frosted look),
+  /// a rounded-top sheet with a grab handle, an inline title row with a
+  /// small top-right "Done" TEXT button (never a bottom action bar —
+  /// matches how iOS's own modal pickers place their dismiss action),
+  /// and a grid of plain color CIRCLES (no card/box chrome per option —
+  /// just a swatch + a name, the same presentation as iOS's own accent-
+  /// color / wallpaper-tint pickers). Selection is local to the sheet
+  /// until "Done" is tapped — Cancel-equivalent (drag down / tap outside
+  /// / system back) leaves the live theme untouched.
   Future<void> _showColorThemeSheet(
     BuildContext context,
     AppLocalizations l10n, {
@@ -851,125 +837,112 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      // Fully transparent here — the frosted-glass look below is painted
-      // by BackdropFilter + a translucent Container INSIDE the builder,
-      // same idiom as the update-available toast in update_service.dart.
-      // Leaving Material's own backgroundColor solid would sit behind
-      // that translucent layer and defeat the blur entirely.
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             return ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                // iOS's own sheets use a light "materials" blur, nowhere
+                // near as heavy as the 24-sigma frosted look from the
+                // previous revision — a low sigma here reads as a subtle
+                // translucency rather than a thick frosted pane.
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                 child: Container(
-                  padding: EdgeInsets.fromLTRB(
-                      16, 12, 16, 16 + MediaQuery.of(sheetContext).viewPadding.bottom),
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(sheetContext).viewPadding.bottom),
                   decoration: BoxDecoration(
-                    color: AurumTheme.bgCardOf(context).withOpacity(0.85),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    color: AurumTheme.bgCardOf(context).withOpacity(0.92),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                     border: Border(
-                      top: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      top: BorderSide(color: Colors.white.withOpacity(0.06)),
                     ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Center(
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10, bottom: 4),
                         child: Container(
                           width: 36, height: 4,
-                          margin: const EdgeInsets.only(bottom: 14),
                           decoration: BoxDecoration(
                             color: AurumTheme.dividerOf(context),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
                       ),
+                      // Inline title row — centered title, small top-right
+                      // "Done" text button. No leading widget on the left
+                      // (iOS's equivalent sheets are frequently
+                      // title+Done-only with no symmetric leading action);
+                      // an invisible same-width Text is used on the left
+                      // purely so the centered title doesn't visually
+                      // drift toward the Done button's side.
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Text(l10n.saColorTheme,
-                            style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 16, fontWeight: FontWeight.w700,
-                            )),
+                        padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 56),
+                            Expanded(
+                              child: Text(l10n.saColorTheme,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: AurumTheme.textPrimaryOf(context),
+                                    fontSize: 16, fontWeight: FontWeight.w700,
+                                  )),
+                            ),
+                            SizedBox(
+                              width: 56,
+                              child: TextButton(
+                                // Apply-on-Done: this is the ONLY place
+                                // setColorPreset() is called from this
+                                // flow — tapping circles below only
+                                // updates the sheet's own local
+                                // sheetSelected state.
+                                onPressed: () {
+                                  tp.setColorPreset(sheetSelected);
+                                  Navigator.of(sheetContext).pop();
+                                },
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  minimumSize: const Size(0, 32),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(l10n.saColorThemeDone,
+                                    style: TextStyle(
+                                      color: AurumTheme.accentOf(context),
+                                      fontSize: 15, fontWeight: FontWeight.w600,
+                                    )),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 8),
                       ConstrainedBox(
-                        constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.5),
+                        constraints: BoxConstraints(
+                            maxHeight: MediaQuery.of(sheetContext).size.height * 0.5),
                         child: SingleChildScrollView(
                           physics: const BouncingScrollPhysics(),
-                          child: Column(
+                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                          child: Wrap(
+                            spacing: 18,
+                            runSpacing: 18,
+                            alignment: WrapAlignment.center,
                             children: [
-                              _colorPresetTile(context, AurumColorPreset.none,
-                                  icon: Icons.block_rounded,
-                                  label: l10n.saColorThemeNone,
-                                  subtitle: l10n.saColorThemeNoneDesc,
-                                  selectedOverride: sheetSelected == AurumColorPreset.none,
+                              for (final preset in _colorPresetOrder)
+                                _colorSwatchOption(
+                                  context, l10n, preset,
+                                  selected: sheetSelected == preset,
                                   onTap: () {
                                     AurumHaptics.selection();
-                                    setSheetState(() => sheetSelected = AurumColorPreset.none);
-                                  }),
-                              for (final preset in [
-                                AurumColorPreset.ocean,
-                                AurumColorPreset.forest,
-                                AurumColorPreset.sunset,
-                                AurumColorPreset.midnight,
-                                AurumColorPreset.aurora,
-                              ]) ...[
-                                _divider(context),
-                                _colorPresetTile(context, preset,
-                                    label: AurumColorPresetCatalog.forId(preset)!.displayName,
-                                    subtitle: AurumColorPresetCatalog.forId(preset)!.subtitle,
-                                    selectedOverride: sheetSelected == preset,
-                                    onTap: () {
-                                      AurumHaptics.selection();
-                                      setSheetState(() => sheetSelected = preset);
-                                    }),
-                              ],
+                                    setSheetState(() => sheetSelected = preset);
+                                  },
+                                ),
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.of(sheetContext).pop(),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 13),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                side: BorderSide(color: AurumTheme.dividerOf(context)),
-                              ),
-                              child: Text(MaterialLocalizations.of(context).cancelButtonLabel,
-                                  style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontWeight: FontWeight.w600)),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              // Apply-on-OK: this is the ONLY place
-                              // setColorPreset() is called from this flow —
-                              // browsing/tapping cards above only updates
-                              // the sheet's own local sheetSelected state.
-                              onPressed: () {
-                                tp.setColorPreset(sheetSelected);
-                                Navigator.of(sheetContext).pop();
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AurumTheme.accentOf(context),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 13),
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w700)),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -981,6 +954,66 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       },
     );
   }
+
+  /// A single circular swatch option inside the picker sheet — plain
+  /// color circle (or icon-in-outlined-circle for "None"), a thin
+  /// accent ring when selected (iOS-style selection ring around an
+  /// already-colored circle, not a separate checkmark badge sitting on
+  /// top of it), and the name in a small label underneath. Sized for a
+  /// 3-per-row grid on a typical phone width via Wrap above.
+  Widget _colorSwatchOption(
+    BuildContext context,
+    AppLocalizations l10n,
+    AurumColorPreset preset, {
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final data = AurumColorPresetCatalog.forId(preset);
+    return SizedBox(
+      width: 84,
+      child: AurumPressable(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Container(
+              width: 56, height: 56,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: selected
+                    ? Border.all(color: AurumTheme.accentOf(context), width: 2)
+                    : null,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: data?.accent ?? AurumTheme.bgOf(context),
+                  border: data == null
+                      ? Border.all(color: AurumTheme.dividerOf(context))
+                      : null,
+                ),
+                child: data == null
+                    ? Icon(Icons.block_rounded, size: 20, color: AurumTheme.textMutedOf(context))
+                    : (selected
+                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 22)
+                        : null),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(_colorPresetLabel(l10n, preset),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Widget _colorPresetTile(
     BuildContext context,
