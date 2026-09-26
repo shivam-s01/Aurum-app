@@ -27,6 +27,7 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _btnColorKey = 'player_button_colors';
   static const _sliderStyleKey = 'player_slider_style';
   static const _fullPlayerStyleKey = 'full_player_style';
+  static const _colorPresetKey = 'aurum_color_preset';
 
   // FIX (launcher/splash follows system theme but in-app didn't): default
   // was AurumThemeMode.dark, so even though the native splash/launcher
@@ -42,6 +43,19 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   AurumThemeMode _mode      = AurumThemeMode.system;
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.accent;
+  // Named full-palette color theme (Ocean/Forest/Sunset/Midnight/Aurora).
+  // `none` (default) = no preset active, app renders the normal
+  // dark/AMOLED/light/dynamic palette exactly as before.
+  //
+  // Picking a real preset is a FULL top-level theme switch, not a modifier
+  // on top of whatever mode was active — see setColorPreset() below. So
+  // once a preset is active, _mode is always AurumThemeMode.dark (presets
+  // are always rendered dark-styled) and _colorPreset just picks which
+  // dark palette. Selecting Dark/Light/AMOLED/System/Dynamic from the
+  // THEME list above always clears the preset back to `none` the same way
+  // (see setMode() below) — the two lists behave as one single top-level
+  // choice, exactly like Astra's own theme picker.
+  AurumColorPreset _colorPreset = AurumColorPreset.none;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Waveform';
   String         _fullPlayerStyle = 'Classic';
@@ -52,7 +66,29 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Premium accent color override. Used by the player screen, player
   /// buttons, and sliders. Defaults to AurumTheme.accent so the rest of
   /// the app (which references AurumTheme.accent as a const) is unaffected.
-  Color get accentColor => _accentColor;
+  ///
+  /// FIX (color-theme presets looking half-applied): a named preset
+  /// (Ocean/Forest/etc.) already recolors the main app theme via
+  /// AurumTheme.presetTheme() — every widget that reads
+  /// Theme.of(context).colorScheme.primary / AurumTheme.accentOf(context)
+  /// picks it up automatically. But this accentColor getter is a SEPARATE
+  /// value, read directly by the mini player, full player, and the loading
+  /// spinners (AurumLoader/AurumMorphLoader) — none of those go through
+  /// Theme.of(context) for their accent. Without this override, picking
+  /// e.g. Ocean would recolor buttons/icons app-wide to cyan while the
+  /// mini player, full player and every loading spinner stayed on the old
+  /// fixed purple — an inconsistent, half-themed result. Whenever a preset
+  /// is active, its accent wins here too, so the whole app (including
+  /// those widgets) reads as one consistent color theme. `none` falls back
+  /// to the user's own accentColor selection exactly as before.
+  Color get accentColor => _colorPreset == AurumColorPreset.none
+      ? _accentColor
+      : (AurumColorPresetCatalog.forId(_colorPreset)?.accent ?? _accentColor);
+
+  /// Currently selected named color theme (Ocean/Forest/Sunset/Midnight/
+  /// Aurora), or `none` if none is active. Selecting one is a full
+  /// top-level theme switch — see setColorPreset() below.
+  AurumColorPreset get colorPreset => _colorPreset;
 
   /// 'Primary' (default, white) | 'White' | 'Accent' — drives the color
   /// of the main play/pause button on the full player screen.
@@ -228,7 +264,46 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
     _playerButtonColorMode = p.getString(_btnColorKey) ?? _playerButtonColorMode;
     _playerSliderStyle = p.getString(_sliderStyleKey) ?? _playerSliderStyle;
     _fullPlayerStyle = p.getString(_fullPlayerStyleKey) ?? _fullPlayerStyle;
+    final presetVal = p.getString(_colorPresetKey);
+    if (presetVal != null) {
+      _colorPreset = AurumColorPreset.values.firstWhere(
+        (e) => e.name == presetVal,
+        orElse: () => AurumColorPreset.none,
+      );
+    }
     notifyListeners();
+  }
+
+  Future<void> setMode(AurumThemeMode mode) async {
+    _mode = mode;
+    // Picking Dark/Light/AMOLED/System/Dynamic from the THEME list is a
+    // top-level choice, same as picking a color preset below — the two
+    // lists are mutually exclusive, so choosing one always clears the
+    // other back to its default.
+    _colorPreset = AurumColorPreset.none;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_key, mode.name);
+    await p.setString(_colorPresetKey, AurumColorPreset.none.name);
+  }
+
+  /// Selecting a named color theme (Ocean/Forest/Sunset/Midnight/Aurora) is
+  /// a full top-level theme switch, exactly like picking Dark/Light/AMOLED/
+  /// System/Dynamic from the THEME list above — not a modifier layered on
+  /// whatever was active before. So this always forces _mode to `dark`
+  /// (presets render through the dark palette slot; see AurumTheme._dark())
+  /// regardless of what was selected previously — including automatically
+  /// turning OFF Dynamic Color mode if that was active, since a live
+  /// wallpaper-derived scheme and a fixed named preset can't both be the
+  /// theme at once. Picking `none` here (the "None" option in the presets
+  /// list) simply returns to the plain Dark theme.
+  Future<void> setColorPreset(AurumColorPreset preset) async {
+    _colorPreset = preset;
+    _mode = AurumThemeMode.dark;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_colorPresetKey, preset.name);
+    await p.setString(_key, AurumThemeMode.dark.name);
   }
 
   Future<void> setPlayerButtonColorMode(String mode) async {
@@ -257,13 +332,6 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setInt(_accentKey, color.value);
-  }
-
-  Future<void> setMode(AurumThemeMode mode) async {
-    _mode = mode;
-    notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_key, mode.name);
   }
 
   Future<void> setFontStyle(String style) async {

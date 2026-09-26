@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -216,81 +217,27 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             },
           ),
           ])),
-          // Accent color
-          AurumStaggerItem(index: 1, child:
-          _card(context, child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text(l10n.saAccentColor, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AurumTheme.accentOf(context).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AurumTheme.accentOf(context).withOpacity(0.3)),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.login_rounded, color: AurumTheme.accentOf(context), size: 10),
-                    const SizedBox(width: 3),
-                    Text(l10n.saExtraColorsSignIn, style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 9, fontWeight: FontWeight.w700)),
-                  ]),
-                ),
-              ]),
-              const SizedBox(height: 14),
-              Builder(builder: (context) {
-                final isSignedIn = context.watch<AuthProvider>().isSignedIn;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: _accentOptions.asMap().entries.map((entry) {
-                    final i = entry.key;
-                    final c = entry.value;
-                    final isFree = i == 0; // only gold is free
-                    final sel = _accentColor.value == c.value;
-                    final locked = !isFree && !isSignedIn;
-                    return AurumPressable(
-                      scaleAmount: 0.9,
-                      onTap: () {
-                        if (locked) {
-                          PremiumGate.show(context,
-                            feature: l10n.saCustomAccentColorsFeature,
-                            description: l10n.saCustomAccentColorsDesc,
-                            requiresLoginOnly: true,
-                          );
-                          return;
-                        }
-                        setState(() => _accentColor = c);
-                        _save('accent_color', c.value);
-                        context.read<ThemeProvider>().setAccentColor(c);
-                      },
-                      // Flat solid fill, thin ring on selection — no
-                      // gradient, no glow shadow, no glass sheen. Matches
-                      // the same restrained treatment as the rest of the
-                      // redesigned Settings screens.
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: locked ? c.withOpacity(0.32) : c,
-                          border: sel
-                              ? Border.all(color: AurumTheme.textPrimaryOf(context), width: 2)
-                              : null,
-                        ),
-                        child: sel
-                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 17)
-                            : (locked
-                                ? Icon(Icons.lock_rounded, size: 13, color: Colors.white.withOpacity(0.85))
-                                : null),
-                      ),
-                    );
-                  }).toList(),
-                );
-              }),
-            ]),
-          )),
-          ),
+          // Color Theme — named full-palette presets (Ocean/Forest/Sunset/
+          // Midnight/Aurora), ported from Astra Browser's theme catalog.
+          // Replaces the old flat accent-color dot picker: picking one of
+          // these now swaps background/card/surface/text/accent together
+          // as one matched set instead of only recoloring buttons.
+          //
+          // FIX (user request — "model jaisa" horizontal preview + glass
+          // sheet): the old design was a single vertical ListTile column
+          // (all 6 presets stacked, one per row) — the user wanted a
+          // compact horizontal strip of preview cards instead (so this
+          // section takes far less vertical space at a glance), with the
+          // full picker moved into a top-level frosted-glass bottom sheet
+          // that only applies on explicit "OK", rather than applying
+          // instantly on every tap in-place. _colorPresetTile (the old
+          // vertical row widget) is kept below since nothing else in this
+          // file's diff removes it, but it's now only used INSIDE the
+          // sheet built by _showColorThemeSheet, not in the main list.
+          AurumStaggerItem(index: 1, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _sectionLabel(context, l10n.saColorTheme),
+          _colorThemeHorizontalPreview(context, l10n),
+          ])),
           // ── Font Style ──
           AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(context, l10n.saFontStyle),
@@ -773,8 +720,350 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     ));
   }
 
+  // Order used everywhere the full preset list is shown (horizontal
+  // preview strip + the sheet) — None first, then the 5 named palettes,
+  // same order as the old vertical list so nothing shuffles for existing
+  // users.
+  static const List<AurumColorPreset> _colorPresetOrder = [
+    AurumColorPreset.none,
+    AurumColorPreset.ocean,
+    AurumColorPreset.forest,
+    AurumColorPreset.sunset,
+    AurumColorPreset.midnight,
+    AurumColorPreset.aurora,
+  ];
+
+  /// Horizontal strip of preview cards — one per preset, in
+  /// _colorPresetOrder. Scrolls so all 6 are reachable, but only 2-3 sit
+  /// in the visible viewport at once by design (each card is wide enough
+  /// that 3 don't quite fit on a typical phone width, giving a "peek" of
+  /// the next one — the same affordance as a horizontal carousel). The
+  /// currently-active preset's card is visually promoted (accent border +
+  /// check badge); tapping ANY card — active or not — opens the full
+  /// picker sheet, it never applies a theme directly from this row.
+  Widget _colorThemeHorizontalPreview(BuildContext context, AppLocalizations l10n) {
+    final tp = context.watch<ThemeProvider>();
+    final activePreset = (tp.colorPreset == AurumColorPreset.none && tp.mode != AurumThemeMode.dark)
+        // Same "None only counts while genuinely on plain Dark" rule as
+        // the old _colorPresetTile selected-check below — otherwise every
+        // non-dark mode (Light/AMOLED/System/Dynamic) would show the
+        // "None" card as active, which is misleading since no preset
+        // concept applies there at all.
+        ? null
+        : tp.colorPreset;
+
+    String labelFor(AurumColorPreset preset) => preset == AurumColorPreset.none
+        ? l10n.saColorThemeNone
+        : AurumColorPresetCatalog.forId(preset)!.displayName;
+    String subtitleFor(AurumColorPreset preset) => preset == AurumColorPreset.none
+        ? l10n.saColorThemeNoneDesc
+        : AurumColorPresetCatalog.forId(preset)!.subtitle;
+
+    return SizedBox(
+      height: 108,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: _colorPresetOrder.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, i) {
+          final preset = _colorPresetOrder[i];
+          final data = AurumColorPresetCatalog.forId(preset);
+          final isActive = activePreset == preset;
+          return AurumPressable(
+            onTap: () {
+              AurumHaptics.selection();
+              _showColorThemeSheet(context, l10n, initial: preset);
+            },
+            child: Container(
+              width: 128,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AurumTheme.bgCardOf(context),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isActive
+                      ? AurumTheme.accentOf(context)
+                      : AurumTheme.dividerOf(context),
+                  width: isActive ? 1.5 : 0.5,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 28, height: 28,
+                        decoration: BoxDecoration(
+                          color: data?.accent ?? AurumTheme.bgOf(context),
+                          borderRadius: BorderRadius.circular(8),
+                          border: data == null
+                              ? Border.all(color: AurumTheme.dividerOf(context))
+                              : null,
+                        ),
+                        child: data == null
+                            ? Icon(Icons.block_rounded, size: 14, color: AurumTheme.textMutedOf(context))
+                            : null,
+                      ),
+                      const Spacer(),
+                      if (isActive)
+                        Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.accentOf(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(labelFor(preset),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isActive ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
+                        fontSize: 13,
+                        fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                      )),
+                  const SizedBox(height: 2),
+                  Text(subtitleFor(preset),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Top-level frosted-glass picker sheet. Selection inside the sheet is
+  /// purely local (`_sheetSelected` via StatefulBuilder) — nothing is
+  /// applied to ThemeProvider until the user taps OK, so browsing presets
+  /// in the sheet never flickers the screen behind it and backing out
+  /// (drag-to-dismiss / tap-outside / system back) leaves the real theme
+  /// completely untouched, matching how a top-level chooser is expected
+  /// to behave.
+  Future<void> _showColorThemeSheet(
+    BuildContext context,
+    AppLocalizations l10n, {
+    required AurumColorPreset initial,
+  }) async {
+    final tp = context.read<ThemeProvider>();
+    var sheetSelected = initial;
+
+    await showAurumModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      // Fully transparent here — the frosted-glass look below is painted
+      // by BackdropFilter + a translucent Container INSIDE the builder,
+      // same idiom as the update-available toast in update_service.dart.
+      // Leaving Material's own backgroundColor solid would sit behind
+      // that translucent layer and defeat the blur entirely.
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(
+                      16, 12, 16, 16 + MediaQuery.of(sheetContext).viewPadding.bottom),
+                  decoration: BoxDecoration(
+                    color: AurumTheme.bgCardOf(context).withOpacity(0.85),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    border: Border(
+                      top: BorderSide(color: Colors.white.withOpacity(0.08)),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36, height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: AurumTheme.dividerOf(context),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(l10n.saColorTheme,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 16, fontWeight: FontWeight.w700,
+                            )),
+                      ),
+                      const SizedBox(height: 8),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.5),
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Column(
+                            children: [
+                              _colorPresetTile(context, AurumColorPreset.none,
+                                  icon: Icons.block_rounded,
+                                  label: l10n.saColorThemeNone,
+                                  subtitle: l10n.saColorThemeNoneDesc,
+                                  selectedOverride: sheetSelected == AurumColorPreset.none,
+                                  onTap: () {
+                                    AurumHaptics.selection();
+                                    setSheetState(() => sheetSelected = AurumColorPreset.none);
+                                  }),
+                              for (final preset in [
+                                AurumColorPreset.ocean,
+                                AurumColorPreset.forest,
+                                AurumColorPreset.sunset,
+                                AurumColorPreset.midnight,
+                                AurumColorPreset.aurora,
+                              ]) ...[
+                                _divider(context),
+                                _colorPresetTile(context, preset,
+                                    label: AurumColorPresetCatalog.forId(preset)!.displayName,
+                                    subtitle: AurumColorPresetCatalog.forId(preset)!.subtitle,
+                                    selectedOverride: sheetSelected == preset,
+                                    onTap: () {
+                                      AurumHaptics.selection();
+                                      setSheetState(() => sheetSelected = preset);
+                                    }),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                side: BorderSide(color: AurumTheme.dividerOf(context)),
+                              ),
+                              child: Text(MaterialLocalizations.of(context).cancelButtonLabel,
+                                  style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              // Apply-on-OK: this is the ONLY place
+                              // setColorPreset() is called from this flow —
+                              // browsing/tapping cards above only updates
+                              // the sheet's own local sheetSelected state.
+                              onPressed: () {
+                                tp.setColorPreset(sheetSelected);
+                                Navigator.of(sheetContext).pop();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AurumTheme.accentOf(context),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _colorPresetTile(
+    BuildContext context,
+    AurumColorPreset preset, {
+    IconData? icon,
+    required String label,
+    required String subtitle,
+    // Sheet usage passes both of these to run off local sheet state
+    // instead of the live ThemeProvider (nothing is applied until OK).
+    // Main-list usage (none currently — the horizontal preview above
+    // doesn't call this) would fall back to reading tp.colorPreset
+    // directly, same as before this fix.
+    bool? selectedOverride,
+    VoidCallback? onTap,
+  }) {
+    final tp = context.watch<ThemeProvider>();
+    // "None" is only meaningfully "selected" when the active theme is
+    // genuinely the plain Dark theme (mode == dark AND no preset) — since
+    // _colorPreset defaults to `none` even while the user is on Light/
+    // System/Dynamic/AMOLED, checking colorPreset alone would show "None"
+    // as selected on every one of those screens too, which is misleading
+    // (there's no "preset" concept active there at all). Real presets
+    // don't need the mode check since setColorPreset() always forces
+    // _mode to dark together with the preset itself.
+    //
+    // selectedOverride (passed by the sheet in _showColorThemeSheet) takes
+    // priority when present, so the tile reflects the sheet's own local
+    // in-progress choice rather than the still-unapplied live provider
+    // state — the two only converge once OK is tapped.
+    final selected = selectedOverride ?? (preset == AurumColorPreset.none
+        ? (tp.colorPreset == AurumColorPreset.none && tp.mode == AurumThemeMode.dark)
+        : tp.colorPreset == preset);
+    final data = AurumColorPresetCatalog.forId(preset);
+    return ListTile(
+      onTap: onTap ?? () { AurumHaptics.selection(); tp.setColorPreset(preset); },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Container(
+        width: 38, height: 38,
+        decoration: BoxDecoration(
+          // Real preset: solid swatch of its own accent so the tile
+          // previews the color before it's even selected — matches how
+          // Astra's own theme picker shows a live color chip per theme.
+          // "None" has no palette of its own, so it falls back to the
+          // same icon-in-a-box style as the Dark/AMOLED/Light tiles above.
+          color: data != null
+              ? data.accent
+              : (selected ? AurumTheme.accentOf(context).withOpacity(0.15) : AurumTheme.bgOf(context)),
+          borderRadius: BorderRadius.circular(10),
+          border: selected
+              ? Border.all(color: AurumTheme.accentOf(context).withOpacity(0.5), width: data != null ? 2 : 1)
+              : null,
+        ),
+        child: icon != null
+            ? Icon(icon, color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context), size: 18)
+            : null,
+      ),
+      title: Text(label,
+        style: TextStyle(
+          color: selected ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
+          fontSize: 14,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+        )),
+      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+      trailing: Icon(
+        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+        color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
+        size: 20,
+      ),
+    );
+  }
+
   Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode, {bool disabled = false}) {
-    final selected = tp.mode == mode && !disabled;
+    // A color preset (Ocean/Forest/etc.) is a full top-level theme choice
+    // that internally sets _mode to `dark` (see ThemeProvider.
+    // setColorPreset) — without this extra check, the "Dark" tile here
+    // would show selected AT THE SAME TIME as a preset tile below it,
+    // which reads as two different, contradictory selections on one
+    // screen. Only count Dark as genuinely selected when no preset is
+    // active; every other mode tile is unaffected since presets always
+    // force _mode to dark specifically.
+    final selected = tp.mode == mode &&
+        !disabled &&
+        (mode != AurumThemeMode.dark || tp.colorPreset == AurumColorPreset.none);
     return ListTile(
       onTap: disabled ? null : () { AurumHaptics.selection(); tp.setMode(mode); },
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),

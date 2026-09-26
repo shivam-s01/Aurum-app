@@ -13,6 +13,121 @@ class _DynamicMarker extends ThemeExtension<_DynamicMarker> {
   _DynamicMarker lerp(ThemeExtension<_DynamicMarker>? other, double t) => this;
 }
 
+/// Named full-palette color themes — ported from Astra Browser's
+/// AstraThemeCatalog (accent/background/surface/surfaceVariant tuples).
+/// `none` means "no preset" — the app keeps its normal fixed-purple
+/// dark/AMOLED/light palette exactly as before. Every other value swaps
+/// bg/bgCard/bgSurface/text/accent together as one matched set, the same
+/// way Astra's AstraColorScheme does, instead of only changing the accent.
+enum AurumColorPreset {
+  none,
+  ocean,
+  forest,
+  sunset,
+  midnight,
+  aurora,
+}
+
+class AurumColorPresetData {
+  final String displayName;
+  final String subtitle;
+  final Color accent;
+  final Color accentLight;
+  final Color background;
+  final Color surface;
+  final Color surfaceVariant;
+  final Color onBackground;
+  final Color divider;
+
+  const AurumColorPresetData({
+    required this.displayName,
+    required this.subtitle,
+    required this.accent,
+    required this.accentLight,
+    required this.background,
+    required this.surface,
+    required this.surfaceVariant,
+    required this.onBackground,
+    required this.divider,
+  });
+}
+
+class AurumColorPresetCatalog {
+  // Values carried over 1:1 from Astra's AstraThemeCatalog (Ocean, Forest,
+  // Sunset, Midnight, Aurora) — accent/background/surface/surfaceVariant
+  // map onto Aurum's accent/bg/bgCard/bgSurface respectively.
+  static const Map<AurumColorPreset, AurumColorPresetData> presets = {
+    AurumColorPreset.ocean: AurumColorPresetData(
+      displayName: 'Ocean',
+      subtitle: 'Deep sea blues',
+      accent: Color(0xFF00B4D8),
+      accentLight: Color(0xFF5CD5EC),
+      background: Color(0xFF071A2B),
+      surface: Color(0xFF0D2A44),
+      surfaceVariant: Color(0xFF123A5C),
+      onBackground: Color(0xFFE3F3FA),
+      divider: Color(0xFF1B4A70),
+    ),
+    AurumColorPreset.forest: AurumColorPresetData(
+      displayName: 'Forest',
+      subtitle: 'Deep greens',
+      accent: Color(0xFF52B788),
+      accentLight: Color(0xFF8FD6AE),
+      background: Color(0xFF0E1B14),
+      surface: Color(0xFF16281E),
+      surfaceVariant: Color(0xFF1E3528),
+      onBackground: Color(0xFFE4F1E8),
+      divider: Color(0xFF294634),
+    ),
+    AurumColorPreset.sunset: AurumColorPresetData(
+      displayName: 'Sunset',
+      subtitle: 'Warm oranges',
+      accent: Color(0xFFFF6B4A),
+      accentLight: Color(0xFFFF9C82),
+      // NOTE: Astra's own Sunset preset is a LIGHT theme (cream bg, dark
+      // text) — safe there because Astra always renders it through its own
+      // light ThemeData branch. Aurum's color-theme picker only ever
+      // applies a preset inside the dark/AMOLED slot (see _dark()/
+      // _amoled() below); reusing Astra's light values as-is here would
+      // have put light-cream backgrounds with near-white text/icons
+      // (onPrimary/onBackground both resolve off `bg`) under a
+      // `brightness: Brightness.dark` ThemeData — text and system status
+      // bar icons would render unreadable-light-on-light. Re-tuned to a
+      // deep warm-dark background that keeps the same orange accent hue
+      // and "warm" feel, dark-safe like every other preset here.
+      background: Color(0xFF1F1410),
+      surface: Color(0xFF2B1D16),
+      surfaceVariant: Color(0xFF3A2A1F),
+      onBackground: Color(0xFFFBE9DE),
+      divider: Color(0xFF4A3628),
+    ),
+    AurumColorPreset.midnight: AurumColorPresetData(
+      displayName: 'Midnight',
+      subtitle: 'Deep violet',
+      accent: Color(0xFF9D7BFF),
+      accentLight: Color(0xFFBFA8FF),
+      background: Color(0xFF0B0B17),
+      surface: Color(0xFF131325),
+      surfaceVariant: Color(0xFF1B1B33),
+      onBackground: Color(0xFFE7E5F5),
+      divider: Color(0xFF262647),
+    ),
+    AurumColorPreset.aurora: AurumColorPresetData(
+      displayName: 'Aurora',
+      subtitle: 'Teal glow',
+      accent: Color(0xFF3FE0C5),
+      accentLight: Color(0xFF7EF0DC),
+      background: Color(0xFF0A1420),
+      surface: Color(0xFF10202F),
+      surfaceVariant: Color(0xFF163044),
+      onBackground: Color(0xFFE1F7F2),
+      divider: Color(0xFF1E3C52),
+    ),
+  };
+
+  static AurumColorPresetData? forId(AurumColorPreset id) => presets[id];
+}
+
 class AurumTheme {
   // ── Brand Colors (fixed, theme-independent) ──
   static const Color accent      = Color(0xFF9B7EDE);
@@ -116,21 +231,41 @@ class AurumTheme {
   );
 
   // ── Theme Builders ──
+  // `preset` is only accepted by the dark builder (via presetTheme() below)
+  // — light theme, AMOLED, and dynamic (Material You) never take one: light
+  // and dynamic already have their own complete, independently tuned
+  // palettes a preset swap would fight, and AMOLED's whole identity is a
+  // true-black background a preset would undermine. A color preset is
+  // always its own full top-level theme choice (see ThemeProvider.
+  // setColorPreset), so it only ever needs the one dark entry point.
   static ThemeData get theme      => _dark();
   static ThemeData get darkTheme  => _dark();
   static ThemeData get amoledTheme => _amoled();
   static ThemeData get lightTheme => _light();
 
-  static ThemeData _dark() => _build(
-    brightness: Brightness.dark,
-    bg: darkBg,
-    bgCard: darkBgCard,
-    bgSurface: darkBgSurface,
-    textPrimary: darkTextPrimary,
-    textMuted: darkTextMuted,
-    divider: darkDivider,
-    navBar: darkBgCard,
-  );
+  /// The named color theme (Ocean/Forest/Sunset/Midnight/Aurora) as a
+  /// full, standalone dark-styled theme — this is what main.dart renders
+  /// whenever ThemeProvider.colorPreset is anything but `none`. A preset is
+  /// always a complete top-level theme choice on its own (see
+  /// ThemeProvider.setColorPreset), never layered on top of AMOLED — so
+  /// there is no separate AMOLED+preset variant to worry about.
+  static ThemeData presetTheme(AurumColorPreset preset) => _dark(preset: preset);
+
+  static ThemeData _dark({AurumColorPreset preset = AurumColorPreset.none}) {
+    final p = AurumColorPresetCatalog.forId(preset);
+    return _build(
+      brightness: Brightness.dark,
+      bg: p?.background ?? darkBg,
+      bgCard: p?.surface ?? darkBgCard,
+      bgSurface: p?.surfaceVariant ?? darkBgSurface,
+      textPrimary: p?.onBackground ?? darkTextPrimary,
+      textMuted: darkTextMuted,
+      divider: p?.divider ?? darkDivider,
+      navBar: p?.surface ?? darkBgCard,
+      presetAccent: p?.accent,
+      presetAccentLight: p?.accentLight,
+    );
+  }
 
   static ThemeData _amoled() => _build(
     brightness: Brightness.dark,
@@ -294,13 +429,19 @@ class AurumTheme {
     required Color divider,
     required Color navBar,
     ColorScheme? dynamicScheme,
+    Color? presetAccent,
+    Color? presetAccentLight,
   }) {
     final isDark = brightness == Brightness.dark;
     // When a real Material You scheme is supplied, its own primary/secondary
     // (wallpaper-derived) replace Aurum's fixed accent everywhere below —
-    // that's the whole point of this mode. Otherwise fall back to accent.
-    final primary   = dynamicScheme?.primary ?? accent;
-    final secondary = dynamicScheme?.secondary ?? accentLight;
+    // that's the whole point of this mode. A color preset (Ocean, Forest,
+    // etc.) takes the same slot when no dynamic scheme is active, so the
+    // preset's own accent flows through every widget that already reads
+    // colorScheme.primary/accentOf(context) — no separate accent plumbing
+    // needed anywhere else in the app.
+    final primary   = dynamicScheme?.primary ?? presetAccent ?? accent;
+    final secondary = dynamicScheme?.secondary ?? presetAccentLight ?? accentLight;
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,

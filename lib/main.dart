@@ -635,11 +635,21 @@ class AurumApp extends StatelessWidget {
           final baseLight = (themeProvider.isDynamic && lightDynamic != null)
               ? AurumTheme.dynamicTheme(lightDynamic)
               : AurumTheme.lightTheme;
-          final baseDark = (themeProvider.isDynamic && darkDynamic != null)
-              ? AurumTheme.dynamicTheme(darkDynamic)
-              : (themeProvider.isAmoled
-                  ? AurumTheme.amoledTheme
-                  : AurumTheme.darkTheme);
+          // A named color preset (Ocean/Forest/Sunset/Midnight/Aurora) is a
+          // full top-level theme choice on its own — ThemeProvider.
+          // setColorPreset() already forces _mode to `dark` the instant a
+          // preset is picked (turning off Dynamic/AMOLED/Light/System in
+          // the process), so by the time we get here isDynamic and
+          // isAmoled are already false whenever a preset is active. This
+          // branch order just makes that explicit: preset takes priority,
+          // then dynamic, then AMOLED, then plain dark.
+          final baseDark = themeProvider.colorPreset != AurumColorPreset.none
+              ? AurumTheme.presetTheme(themeProvider.colorPreset)
+              : (themeProvider.isDynamic && darkDynamic != null)
+                  ? AurumTheme.dynamicTheme(darkDynamic)
+                  : (themeProvider.isAmoled
+                      ? AurumTheme.amoledTheme
+                      : AurumTheme.darkTheme);
 
           // FIX ("home page font playlist mai kaam nahi kar raha"): also
           // apply the font family across every TextStyle in textTheme, not
