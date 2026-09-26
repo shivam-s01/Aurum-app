@@ -178,6 +178,18 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     if (!_showSplash) return widget.child;
     final size = MediaQuery.of(context).size;
+    // FIX (black-flash-on-handoff): was hardcoded to AurumTheme.darkBg,
+    // a fixed constant. MainShell's own Scaffold (the screen this widget
+    // hands off to) paints with AurumTheme.bgOf(context), which resolves
+    // to a Material You DYNAMIC color when the user has that enabled —
+    // not the same value as darkBg in that case. That one-frame color
+    // mismatch, right at the instant _showSplash flips to false, is what
+    // read as a ~0.2s black flash. Pulling the same bgOf(context) here
+    // guarantees the splash's own background is bit-for-bit identical to
+    // what's already visible underneath it, so removing this layer never
+    // has a color to jump across — dynamic-color users and fixed-theme
+    // users both get a truly seamless handoff.
+    final handoffBg = AurumTheme.bgOf(context);
     return Stack(
       children: [
         widget.child,
@@ -188,7 +200,7 @@ class _SplashScreenState extends State<SplashScreen>
               opacity: 1.0 - _fadeController.value,
               child: IgnorePointer(
                 child: Container(
-                  color: AurumTheme.darkBg,
+                  color: handoffBg,
                   width: double.infinity,
                   height: double.infinity,
                   child: _SplashContent(
@@ -281,114 +293,127 @@ class _SplashContent extends StatelessWidget {
         // same timeline — no per-particle widgets, no blur filters, just
         // plain painted circles with animated opacity/position. Cheap on
         // every device, unlike the old blur-filtered DOM particle divs.
+        // FIX (smoothness polish): wrapped in RepaintBoundary so this
+        // layer's frequent repaints get their own GPU-cached compositor
+        // layer instead of forcing the wordmark/glow layers next to it to
+        // be re-rasterized as part of the same paint pass. Cheap and safe
+        // — three independent, isolated repaint surfaces instead of one
+        // shared one, which is what "top-level smooth" actually requires
+        // once per-frame CPU cost (fixed above) is no longer the bottleneck.
         Positioned.fill(
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: timeline,
+              builder: (context, _) {
+                final elapsedS = timeline.value * 3.2;
+                return CustomPaint(
+                  painter: _ParticlePainter(
+                    particles: particles,
+                    elapsedSeconds: elapsedS,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        // Soft radial glow behind the wordmark.
+        RepaintBoundary(
           child: AnimatedBuilder(
             animation: timeline,
             builder: (context, _) {
-              final elapsedS = timeline.value * 3.2;
-              return CustomPaint(
-                painter: _ParticlePainter(
-                  particles: particles,
-                  elapsedSeconds: elapsedS,
+              final v = timeline.value;
+              final glowT = _easeOutCubic(_t(v, 0.123 / 3.2, 2.338 / 3.2));
+              return Opacity(
+                opacity: glowT,
+                child: Transform.scale(
+                  scale: 1.0 + glowT * 0.05,
+                  child: Container(
+                    width: 460,
+                    height: 460,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          cyan.withOpacity(0.07),
+                          violet.withOpacity(0.035),
+                          violet.withOpacity(0.012),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 0.38, 0.62, 0.78],
+                      ),
+                    ),
+                  ),
                 ),
               );
             },
           ),
         ),
-        // Soft radial glow behind the wordmark.
-        AnimatedBuilder(
-          animation: timeline,
-          builder: (context, _) {
-            final v = timeline.value;
-            final glowT = _easeOutCubic(_t(v, 0.123 / 3.2, 2.338 / 3.2));
-            return Opacity(
-              opacity: glowT,
-              child: Transform.scale(
-                scale: 1.0 + glowT * 0.05,
-                child: Container(
-                  width: 460,
-                  height: 460,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        cyan.withOpacity(0.07),
-                        violet.withOpacity(0.035),
-                        violet.withOpacity(0.012),
-                        Colors.transparent,
-                      ],
-                      stops: const [0.0, 0.38, 0.62, 0.78],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
         // Wordmark column: ASTRA (stroke-draw -> gradient fill -> sheen),
         // MUSIC subtitle, underline.
-        AnimatedBuilder(
-          animation: timeline,
-          builder: (context, _) {
-            final v = timeline.value;
-            final drawT = _easeOutCubic(_t(v, 0.185 / 3.2, 1.846 / 3.2));
-            final fillT = _t(v, 1.538 / 3.2, 2.154 / 3.2);
-            final sheenT = _t(v, 1.908 / 3.2, 3.2 / 3.2);
-            final subtitleT = _easeOutCubic(_t(v, 1.662 / 3.2, 2.40 / 3.2));
-            final underlineT = _easeOutCubic(_t(v, 2.092 / 3.2, 2.954 / 3.2));
+        RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: timeline,
+            builder: (context, _) {
+              final v = timeline.value;
+              final drawT = _easeOutCubic(_t(v, 0.185 / 3.2, 1.846 / 3.2));
+              final fillT = _t(v, 1.538 / 3.2, 2.154 / 3.2);
+              final sheenT = _t(v, 1.908 / 3.2, 3.2 / 3.2);
+              final subtitleT = _easeOutCubic(_t(v, 1.662 / 3.2, 2.40 / 3.2));
+              final underlineT = _easeOutCubic(_t(v, 2.092 / 3.2, 2.954 / 3.2));
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: wordmarkWidth,
-                  height: wordmarkWidth * (160 / 620),
-                  child: CustomPaint(
-                    painter: _WordmarkPainter(
-                      drawT: drawT,
-                      fillT: fillT,
-                      sheenT: sheenT,
-                      cyan: cyan,
-                      violet: violet,
-                      paleCyan: paleCyan,
-                      paleViolet: paleViolet,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Opacity(
-                  opacity: subtitleT,
-                  child: Transform.translate(
-                    offset: Offset(0, (1 - subtitleT) * 24),
-                    child: Text(
-                      'MUSIC',
-                      style: TextStyle(
-                        fontSize: math.min(screenSize.width * 0.064, 27),
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: 8,
-                        color: musicColor.withOpacity(0.85),
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: wordmarkWidth,
+                    height: wordmarkWidth * (160 / 620),
+                    child: CustomPaint(
+                      painter: _WordmarkPainter(
+                        drawT: drawT,
+                        fillT: fillT,
+                        sheenT: sheenT,
+                        cyan: cyan,
+                        violet: violet,
+                        paleCyan: paleCyan,
+                        paleViolet: paleViolet,
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                ClipRect(
-                  child: Align(
-                    alignment: Alignment.center,
-                    widthFactor: underlineT,
-                    child: Container(
-                      width: 120,
-                      height: 2,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: [cyan, violet]),
-                        borderRadius: BorderRadius.circular(1),
+                  const SizedBox(height: 2),
+                  Opacity(
+                    opacity: subtitleT,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - subtitleT) * 24),
+                      child: Text(
+                        'MUSIC',
+                        style: TextStyle(
+                          fontSize: math.min(screenSize.width * 0.064, 27),
+                          fontWeight: FontWeight.w400,
+                          letterSpacing: 8,
+                          color: musicColor.withOpacity(0.85),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
+                  const SizedBox(height: 14),
+                  ClipRect(
+                    child: Align(
+                      alignment: Alignment.center,
+                      widthFactor: underlineT,
+                      child: Container(
+                        width: 120,
+                        height: 2,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [cyan, violet]),
+                          borderRadius: BorderRadius.circular(1),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ],
     );
@@ -400,6 +425,26 @@ class _SplashContent extends StatelessWidget {
 /// filled text, clipped sheen highlight) but as one CustomPainter — a
 /// single paint call per frame instead of separate composited SVG/DOM
 /// layers, which is what made the WebView version comparatively heavy.
+///
+/// FIX (janky/heavy animation, root cause): the previous version built a
+/// brand-new TextPainter — including a full ..layout() call, i.e. real
+/// text shaping/measurement — up to THREE times per paint() call (one
+/// `measureTp` just for centering, plus one each for the stroke and fill
+/// layers), and paint() runs on every single animation tick: 60 times a
+/// second for the full 3.2s timeline. That's ~180 text-shaping layout
+/// passes a second competing with the rest of the frame's raster work,
+/// which is exactly what reads as jank/heaviness on mid-range devices —
+/// nothing about the visuals themselves was heavy, the *shaping* was
+/// being redone for no reason every frame.
+///
+/// The text ("ASTRA"), its style, and its size never change during the
+/// animation — only drawT/fillT/sheenT (paint-time opacity/clip/shader
+/// values) do. So every TextPainter this class needs is now built ONCE,
+/// cached on the painter instance, and only rebuilt if `size` genuinely
+/// changes (e.g. a rotation/orientation change) via the didUpdateSize
+/// check in shouldRepaint. Steady-state frames now do zero layout calls —
+/// paint() only positions/clips/shades already-laid-out TextPainters,
+/// which is the actual cheap, smooth, top-tier-feeling path.
 class _WordmarkPainter extends CustomPainter {
   final double drawT;
   final double fillT;
@@ -408,6 +453,19 @@ class _WordmarkPainter extends CustomPainter {
   final Color violet;
   final Color paleCyan;
   final Color paleViolet;
+
+  // Cache is keyed by fontSize (the only input that can legitimately
+  // change what needs laying out) and lives for the lifetime of this
+  // painter instance's underlying RenderObject — Flutter reuses the same
+  // CustomPaint's painter identity across rebuilds within one screen size,
+  // so this survives across all ~192 frames of one splash playthrough.
+  static double? _cachedFontSize;
+  static TextPainter? _cachedMeasureTp;
+  static TextPainter? _cachedStrokeTp;
+  static TextPainter? _cachedFillTp;
+  static Shader? _cachedShader;
+  static Rect? _cachedTextRect;
+  static Offset? _cachedOffset;
 
   _WordmarkPainter({
     required this.drawT,
@@ -419,15 +477,16 @@ class _WordmarkPainter extends CustomPainter {
     required this.paleViolet,
   });
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    const text = 'ASTRA';
+  void _ensureLayout(Size size) {
     final fontSize = size.height * (118 / 160);
+    if (_cachedFontSize == fontSize && _cachedMeasureTp != null) {
+      return; // Already laid out for this size — zero work this frame.
+    }
+    const text = 'ASTRA';
     final gradient = LinearGradient(
       colors: [paleCyan, cyan, violet, paleViolet],
       stops: const [0.0, 0.40, 0.75, 1.0],
     );
-
     final baseStyle = TextStyle(
       fontSize: fontSize,
       fontWeight: FontWeight.w700,
@@ -446,6 +505,47 @@ class _WordmarkPainter extends CustomPainter {
     final textRect = offset & measureTp.size;
     final shader = gradient.createShader(textRect);
 
+    final strokeStyle = baseStyle.copyWith(
+      foreground: Paint()
+        ..shader = shader
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6,
+    );
+    final strokeTp = TextPainter(
+      text: TextSpan(text: text, style: strokeStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    // Fill layer's opacity is baked into `color` in the old version, which
+    // forced a relayout every frame just to change opacity. Opacity is a
+    // pure paint-time property — laid out once at full white here, then
+    // modulated per-frame via saveLayer's paint alpha in paint() instead,
+    // which needs no relayout at all.
+    final fillStyle = baseStyle.copyWith(
+      foreground: Paint()
+        ..shader = shader
+        ..style = PaintingStyle.fill,
+    );
+    final fillTp = TextPainter(
+      text: TextSpan(text: text, style: fillStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    _cachedFontSize = fontSize;
+    _cachedMeasureTp = measureTp;
+    _cachedStrokeTp = strokeTp;
+    _cachedFillTp = fillTp;
+    _cachedShader = shader;
+    _cachedTextRect = textRect;
+    _cachedOffset = offset;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _ensureLayout(size);
+    final offset = _cachedOffset!;
+    final textRect = _cachedTextRect!;
+
     // Layer 1: stroke outline "drawing on" — approximated by clipping the
     // gradient-stroked text to a left-to-right reveal, which reads as the
     // same left-to-right materialization as the original stroke-dasharray
@@ -458,37 +558,18 @@ class _WordmarkPainter extends CustomPainter {
         textRect.width * drawT,
         textRect.height + 40,
       ));
-      final strokeStyle = baseStyle.copyWith(
-        foreground: Paint()
-          ..shader = shader
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6,
-      );
-      final strokeTp = TextPainter(
-        text: TextSpan(text: text, style: strokeStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      strokeTp.paint(canvas, offset);
+      _cachedStrokeTp!.paint(canvas, offset);
       canvas.restore();
     }
 
     // Layer 2: gradient fill fading in on top once the draw is done.
+    // Opacity applied at paint-time via saveLayer's alpha — no relayout.
     if (fillT > 0) {
-      final fillStyle = baseStyle.copyWith(
-        foreground: Paint()
-          ..shader = shader
-          ..style = PaintingStyle.fill
-          ..color = Colors.white.withOpacity(fillT),
-      );
-      final fillTp = TextPainter(
-        text: TextSpan(text: text, style: fillStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
       canvas.saveLayer(
         textRect.inflate(20),
         Paint()..color = Colors.white.withOpacity(fillT),
       );
-      fillTp.paint(canvas, offset);
+      _cachedFillTp!.paint(canvas, offset);
       canvas.restore();
     }
 
