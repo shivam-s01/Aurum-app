@@ -48,6 +48,27 @@ android {
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
+
+        externalNativeBuild {
+            cmake {
+                // -O2 + hidden symbol visibility (also set in
+                // CMakeLists.txt) is what actually keeps the stripped
+                // .so hard to read; arguments here just wire CMake in.
+                cppFlags "-O2"
+            }
+        }
+        ndk {
+            // Matches the abi splits below — no point building native
+            // code for architectures the app never ships.
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
     }
 
     // Per-ABI splitting — nothing is removed from the app, this only stops
@@ -81,6 +102,15 @@ android {
             keyPassword keystoreProperties['keyPassword']
             storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
             storePassword keystoreProperties['storePassword']
+            // Explicitly enforce both v2 (APK Signature Scheme v2) and v3
+            // signing rather than relying on AGP's default. v2/v3 sign the
+            // whole APK as a sealed block (not just individual zip entries
+            // the way legacy v1/JAR signing does), which is what blocks the
+            // classic "unzip, edit an entry, rezip, resign" tamper path —
+            // v1-only signing does not protect against that at all.
+            v1SigningEnabled true
+            v2SigningEnabled true
+            v3SigningEnabled true
         }
     }
 
@@ -97,6 +127,7 @@ android {
             // feature is removed, just dead weight.
             minifyEnabled true
             shrinkResources true
+            debuggable false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
