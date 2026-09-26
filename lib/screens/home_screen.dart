@@ -3644,21 +3644,9 @@ class _SimilarSongCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: AurumArtwork(url: song.artworkUrl, size: 148, borderRadius: 16),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AurumArtwork(url: song.artworkUrl, size: 148, borderRadius: 16),
               ),
               const SizedBox(height: 10),
               Text(
@@ -3721,21 +3709,9 @@ class _SimilarArtistAlbumCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: AurumArtwork(url: album.artworkUrl, size: 148, borderRadius: 16),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AurumArtwork(url: album.artworkUrl, size: 148, borderRadius: 16),
               ),
               const SizedBox(height: 10),
               Text(
@@ -5118,27 +5094,6 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
             margin: widget.fullWidth
                 ? EdgeInsets.zero
                 : const EdgeInsets.only(right: 12),
-            // PREMIUM UPGRADE — YT Music/Spotify-grade card depth: layered
-            // ambient shadow beneath the card (previously flush/flat) plus
-            // a whisper-thin highlight border so cards read as physically
-            // raised tiles rather than pasted-on images. Radius bumped
-            // 14->18 to match the rounder, "expensive" card language used
-            // across the redesign.
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.35),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: AurumTheme.accentOf(context).withOpacity(0.06),
-                  blurRadius: 24,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: Stack(
@@ -5168,19 +5123,6 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                           Colors.black.withOpacity(0.85),
                         ],
                         stops: const [0.35, 1.0],
-                      ),
-                    ),
-                  ),
-                  // Hairline inner border — the "expensive glass" edge
-                  // treatment used across the redesign, matches the
-                  // hero/app-bar accent-glass language instead of a bare
-                  // flat image edge.
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.08),
-                        width: 1,
                       ),
                     ),
                   ),
@@ -5294,21 +5236,9 @@ class _HomeAlbumCardWidget extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 16),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 16),
               ),
               const SizedBox(height: 6),
               Text(

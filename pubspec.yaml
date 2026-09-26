@@ -37,12 +37,6 @@ dependencies:
   http: ^1.2.0
   html: ^0.15.4
 
-  # WebView — used by SplashScreen to render the exact validated web
-  # preview (aurum_splash_final.html) as the cold-start intro, instead
-  # of a hand-rebuilt Dart/Canvas re-implementation, so the on-device
-  # animation is pixel- and timing-identical to the approved preview.
-  webview_flutter: ^4.9.0
-
   # Push notifications ("update available" alert reaching users even when
   # the app is fully killed — see UpdateService/update_push_service.dart).
   # Free Google service, same one Spotify/Instagram-class apps use for
@@ -139,4 +133,3 @@ flutter:
     - assets/images/
     - assets/fonts/
     - assets/data/
-    - assets/splash/

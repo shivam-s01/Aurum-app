@@ -816,10 +816,21 @@ class _OnboardingGateState extends State<_OnboardingGate> {
   @override
   Widget build(BuildContext context) {
     if (_done == null) {
-      // Same flat themed background as every other loading gap in the
-      // app (see AurumArtwork's placeholder doc comment) — never a
-      // white/blank frame while the SharedPreferences read resolves.
-      return Scaffold(backgroundColor: AurumTheme.bgOf(context));
+      // FIX (black/mismatched flash right after splash fades): this used
+      // to return Scaffold(backgroundColor: AurumTheme.bgOf(context)) —
+      // the THEME's scaffold background, which can be light-mode white
+      // depending on the user's theme setting, while the splash overlay
+      // above this (SplashScreen, screens/splash_screen.dart) always
+      // paints a fixed dark background (AurumTheme.darkBg) regardless of
+      // theme. If this SharedPreferences read hadn't resolved by the
+      // instant the splash overlay finished fading out, this frame could
+      // paint a different (even light) color for a beat — read as a
+      // jarring flash. Same root cause and same fix AppLockScreen already
+      // applied to its own equivalent "_checking" frame (see that file's
+      // doc comment) — a fixed dark background matching the splash
+      // overlay exactly, so this state is visually indistinguishable from
+      // the splash and never perceptible as its own frame.
+      return const Scaffold(backgroundColor: AurumTheme.darkBg);
     }
     if (_done == false) {
       return OnboardingScreen(
