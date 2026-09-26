@@ -110,7 +110,7 @@ android {
             // v1-only signing does not protect against that at all.
             v1SigningEnabled true
             v2SigningEnabled true
-            v3SigningEnabled true
+            enableV3Signing true
         }
     }
 
