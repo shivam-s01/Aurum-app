@@ -30,6 +30,9 @@ import android.os.Debug
  */
 internal object AurumIntegrityGuard {
 
+    @Volatile
+    private var nativeLibLoaded: Boolean = false
+
     init {
         // If the native lib fails to load on some exotic ABI/OEM combo,
         // that must never take the app down with it — fall back to
@@ -41,9 +44,6 @@ internal object AurumIntegrityGuard {
             nativeLibLoaded = false
         }
     }
-
-    @Volatile
-    private var nativeLibLoaded: Boolean = false
 
     /**
      * Debugger attach (native ptrace + TracerPid check), su-binary
