@@ -105,7 +105,18 @@ class _SplashScreenState extends State<SplashScreen>
   static const _violet = Color(0xFFA47BFF);
   static const _paleCyan = Color(0xFF8FF6E9);
   static const _paleViolet = Color(0xFFC9A6FF);
-  static const _musicTextColor = Color(0xFFDEDCE6);
+  // FIX (splash awkward on light theme): this was a single hardcoded
+  // near-white (#DEDCE6), correct for the dark backdrop it was designed
+  // against but nearly invisible on AurumTheme.lightBg's cream background
+  // — the "MUSIC" subtitle effectively disappeared. The ASTRA wordmark's
+  // own cyan/violet gradient stays fixed (both hues already carry enough
+  // contrast against both light and dark), only this supporting text
+  // color needs to flip. Resolved per-build from handoffBg's own
+  // brightness (see build()) rather than a separate theme lookup, so it's
+  // guaranteed to always agree with whichever background is actually
+  // painting underneath it.
+  static const _musicTextColorDark = Color(0xFFDEDCE6);
+  static const _musicTextColorLight = Color(0xFF2A2733);
 
   @override
   void initState() {
@@ -190,6 +201,14 @@ class _SplashScreenState extends State<SplashScreen>
     // has a color to jump across — dynamic-color users and fixed-theme
     // users both get a truly seamless handoff.
     final handoffBg = AurumTheme.bgOf(context);
+    // Picks the readable subtitle color for whichever background is
+    // actually resolved this frame (dark app theme, light app theme, or
+    // dynamic/Material You in either brightness) — see the field doc
+    // comment above for why a single fixed color broke in light mode.
+    final musicTextColor = ThemeData.estimateBrightnessForColor(handoffBg) ==
+            Brightness.dark
+        ? _musicTextColorDark
+        : _musicTextColorLight;
     return Stack(
       children: [
         widget.child,
@@ -211,7 +230,7 @@ class _SplashScreenState extends State<SplashScreen>
                     violet: _violet,
                     paleCyan: _paleCyan,
                     paleViolet: _paleViolet,
-                    musicColor: _musicTextColor,
+                    musicColor: musicTextColor,
                   ),
                 ),
               ),

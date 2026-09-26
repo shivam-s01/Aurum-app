@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  FIX (native splash/launcher not following system theme, black flash into
+  home on light theme): this is now the LIGHT (day) value of bgColor — see
+  values-night/colors.xml for the dark counterpart. Previously there was
+  only this one file with a hardcoded dark value (#050508), so the native
+  splash background AND NormalTheme's post-splash window background (both
+  reference @color/bgColor in styles.xml) stayed dark even when the
+  system/app theme was light — that mismatch between the native window's
+  dark background and Flutter's first light-themed frame is what read as
+  a black flash right before the home screen appeared. Matches
+  AurumTheme.lightBg in aurum_theme.dart.
+-->
 <resources>
-    <color name="bgColor">#050508</color>
+    <color name="bgColor">#F5F3ED</color>
     <color name="goldColor">#B89640</color>
 </resources>

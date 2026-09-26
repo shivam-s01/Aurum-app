@@ -28,7 +28,18 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _sliderStyleKey = 'player_slider_style';
   static const _fullPlayerStyleKey = 'full_player_style';
 
-  AurumThemeMode _mode      = AurumThemeMode.dark;
+  // FIX (launcher/splash follows system theme but in-app didn't): default
+  // was AurumThemeMode.dark, so even though the native splash/launcher
+  // window background now resolves via Android's day/night resource
+  // qualifiers (values/colors.xml vs values-night/colors.xml — i.e. it
+  // DOES follow the system setting), Flutter's own MaterialApp theme
+  // ignored that same system setting entirely on first run, since `dark`
+  // is a fixed choice, not `system`. Defaulting to AurumThemeMode.system
+  // makes a fresh install's in-app theme match the OS setting from the
+  // first frame, consistent with the native layer. Users who have already
+  // picked an explicit mode are unaffected — _load() below overwrites this
+  // with their saved preference if one exists.
+  AurumThemeMode _mode      = AurumThemeMode.system;
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.accent;
   String         _playerButtonColorMode = 'Primary';

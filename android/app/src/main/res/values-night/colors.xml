@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FIX (native splash/launcher not following system theme): values/colors.xml
+  only ever defined ONE bgColor (#050508, dark), so styles.xml's
+  windowSplashScreenBackground and NormalTheme's android:windowBackground
+  — both @color/bgColor — resolved to that same dark value regardless of
+  the device's system theme setting. There was no values-night variant for
+  Android's resource-qualifier system to pick up in dark mode, and nothing
+  to switch to in light mode either.
+
+  This file supplies the dark-mode value explicitly (kept identical to the
+  existing one, so dark-mode behavior is unchanged), and values/colors.xml
+  now holds the LIGHT value instead. Android resolves @color/bgColor to
+  whichever of the two matches the active system theme automatically —
+  no Kotlin/theme-switching code needed, this is the standard day/night
+  resource-qualifier mechanism. Matches AurumTheme.darkBg in aurum_theme.dart
+  as closely as a single flat native color reasonably can (the Dart theme
+  itself still drives the real in-app colors once Flutter takes over).
+-->
+<resources>
+    <color name="bgColor">#13121C</color>
+    <color name="goldColor">#B89640</color>
+</resources>
