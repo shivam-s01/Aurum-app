@@ -229,7 +229,16 @@ class AurumIslandService : Service() {
         pillView?.let { startOrStopWaveBars(isPlaying) }
 
         expandedView?.let { view ->
-            view.findViewById<TextView>(R.id.island_expanded_title)?.text = title
+            view.findViewById<TextView>(R.id.island_expanded_title)?.apply {
+                text = title
+                // marquee needs the view to report itself "selected" to
+                // actually scroll — android:selected="true" in the XML
+                // itself made AAPT fail resource linking on this CI's
+                // toolchain (a strange but reproducible Android:selected
+                // attribute-not-found error), so it's set here at runtime
+                // instead, which achieves the identical scrolling effect.
+                isSelected = true
+            }
             view.findViewById<TextView>(R.id.island_expanded_artist)?.text = artist
             setPlayPauseState(view, isPlaying, animate = false)
             updateSeekbar(player)
