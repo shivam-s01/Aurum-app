@@ -45,6 +45,7 @@ import 'library_screen.dart' show PlaylistDetailScreen;
 import 'login_screen.dart';
 import 'full_player_screen.dart';
 import 'edge_to_edge_full_player.dart';
+import 'spotify_full_player_screen.dart';
 import 'premium_screen.dart';
 import 'mix_screen.dart';
 import 'moods_genres_screen.dart';
@@ -316,8 +317,12 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // change), never during the drag itself.
         opaque: false,
         pageBuilder: (context, anim, ___) {
-          final useEdgeToEdge = context.read<ThemeProvider>().fullPlayerStyle == 'Edge to Edge';
-          final fullPlayer = useEdgeToEdge ? const EdgeToEdgeFullPlayer() : const FullPlayerScreen();
+          final selectedStyle = context.read<ThemeProvider>().fullPlayerStyle;
+          final fullPlayer = selectedStyle == 'Edge to Edge'
+              ? const EdgeToEdgeFullPlayer()
+              : selectedStyle == 'Spotify'
+                  ? const SpotifyFullPlayerScreen()
+                  : const FullPlayerScreen();
           // FIX (see _hasOpenedFullPlayerThisSession doc comment above for
           // the full story): the backdrop below exists solely to cover a
           // COLD-START gap — skip it entirely once this session has

@@ -1,155 +1,57 @@
-AURUM — ALL FIXES — CHANGED FILES ONLY (6 files) — FINAL RECHECKED PASS
-==========================================================================
+AURUM — Dynamic Island Fix — Files Changed
+============================================
 
-HOW TO APPLY:
-Copy each file into your project at the exact same path, overwriting
-the existing one:
+Place these 3 files at their EXACT same paths in your project
+(they replace/overwrite existing files, except the new screen which is a NEW file):
 
-  lib/providers/player_provider.dart             → REPLACE
-  lib/screens/settings_screen.dart                → REPLACE
-  lib/screens/settings_storage_screen.dart        → REPLACE
-  lib/screens/settings_about_screen.dart          → REPLACE
-  lib/screens/onboarding_screen.dart              → REPLACE
-  lib/screens/edge_to_edge_full_player.dart       → REPLACE
+1. lib/screens/island_customize_screen.dart   [NEW FILE]
+   -> Full dedicated page (not a bottom sheet). Reached by tapping the
+      "Dynamic Island" row in Settings -> Player & Audio.
+   -> Real granular sliders: Horizontal Position (X), Vertical Position (Y),
+      Island Width, Island Height, plus 7 accent color swatches, Reset to Defaults.
+   -> Every change writes to SharedPreferences immediately and live-updates
+      the overlay if it's already showing (AudioPrefs.updateIslandCustomization()).
 
-DELETE THIS FILE FROM YOUR PROJECT (not included here — just delete it):
+2. lib/screens/settings_player_screen.dart     [REPLACE]
+   -> Removed the old crash-prone bottom sheet (_showIslandCustomizeSheet)
+      and its dead helper functions (_islandPositionLabel / _islandPositionKeyFromLabel).
+   -> Removed unused fields (_islandPosition, _islandSizeScale, _islandAccentColor)
+      that had no real effect anymore.
+   -> "Dynamic Island" row now pushes IslandCustomizeScreen as a full page
+      via AurumPageRoute (matches the app's existing navigation style),
+      and refreshes its own state when you come back.
 
-  lib/screens/settings_notifications_screen.dart  → DELETE
+3. android/app/src/main/kotlin/com/aurum/music/AurumIslandService.kt   [REPLACE]
+   -> Removed the old top_left/top_center/top_right + size-scale system.
+   -> Added REAL X/Y offset + REAL width/height support, read from new
+      SharedPreferences keys: island_x_dp, island_y_dp, island_width_dp,
+      island_height_dp, island_accent_color.
+   -> Added try/catch guards around every SharedPreferences read (safeFloat)
+      so a corrupt/legacy value can NEVER crash the overlay — it silently
+      falls back to a sane default instead.
+   -> IMPORTANT FIX: the collapsed PILL is resizable (X/Y/width/height all
+      apply to it). The EXPANDED card (full player-style panel with
+      artwork/seekbar/controls/queue) keeps its natural size — forcing the
+      same small width/height onto it would have clipped its own controls,
+      which would have looked broken/awkward. Only position (X/Y) and
+      accent color apply to the expanded card; size sliders only affect
+      the pill, exactly like the reference screenshot you shared.
 
-This is a final, fully rechecked pass. Every file was re-read top to
-bottom, every AurumTheme/AuthProvider method call verified to actually
-exist with that exact name, every gesture's math worked through by
-hand (delta signs, snap-stop logic), and a proper string-aware bracket
-balance check (correctly handles apostrophes inside comments/strings,
-unlike a naive character count) run on all 6 — all clean.
+WHAT WAS CAUSING THE CRASH
+---------------------------
+The previous attempt (from the earlier session that hit its limit) had
+created island_customize_screen.dart but never finished wiring it in —
+the Settings row still called the OLD bottom sheet, and NOTHING in native
+Kotlin understood the new dp-based keys yet. That mismatch, combined with
+no defensive guards around SharedPreferences reads, is what the crash
+report pointed to. This fix:
+  - finishes the screen properly (full page, not a sheet)
+  - wires the Settings row to it correctly
+  - teaches native Kotlin the new keys, with try/catch on every read
+  - keeps every slider's Dart-side range in sync with native's own
+    coerceIn(...) bounds, so the UI never shows a value that gets
+    silently clamped to something else behind the scenes
+  - caps pill min-size above its actual content size so nothing ever
+    visually clips
 
-Two additional issues were caught and fixed during this final pass
-(beyond what was already fixed before):
-  - settings_screen.dart: the account avatar widget checked url-
-    presence but not the signedIn flag — a defensive fix now makes a
-    signed-out state never show an avatar image, even hypothetically.
-  - edge_to_edge_full_player.dart: the sheet drag-handle's gesture
-    handlers now guard on controller.isAttached before touching
-    .size/.jumpTo()/.animateTo() — calling those before the controller
-    finishes attaching throws an assertion, which an extremely fast
-    drag right as the sheet opens could otherwise hit.
-
-========================================
-1. settings_screen.dart — Main Settings screen redesign
-========================================
-  - Added an account anchor card at the top (avatar/initial, name,
-    email or "Tap to sign in") — matches Spotify's settings header.
-    Tapping it opens the existing ProfileScreen.
-  - Large collapsing title (Apple Music / Spotify style): big title at
-    rest, shrinks smoothly to a small pinned title on scroll. Built on
-    a raw SliverPersistentHeader (not SliverAppBar + FlexibleSpaceBar)
-    to avoid a double-animation glitch where the title would shrink
-    twice at slightly different rates and look like a stutter.
-  - Icons now sit in a soft tonal container instead of bare glyphs —
-    the Spotify/Apple Music treatment.
-  - Removed the "Notifications" row (its screen is deleted — see #4).
-  - Removed a dead flutter/services.dart import.
-  - Avatar now explicitly guards on signedIn, not just url-presence.
-
-========================================
-2. settings_storage_screen.dart
-========================================
-  - Removed the entire "Song Cache" section — no song-caching
-    mechanism exists anywhere in the app for it to control. Downloads
-    and Image Cache sections untouched, confirmed fully functional.
-  - Crash fix: _clearDir() and _clearDownloads() ran delete()/exists()
-    with no try/catch, unlike every other file-I/O path in this
-    screen. A locked file, permission hiccup, or a directory vanishing
-    mid-check could throw uncaught — and since the throw happens
-    before _load() runs (which flips the loading spinner off), the
-    screen would get stuck permanently loading. Both now wrap the
-    delete in try/catch.
-
-========================================
-3. settings_about_screen.dart
-========================================
-  - Removed the "Diagnostics" section (Export/Clear Diagnostic Log) —
-    a developer debug tool explicitly marked "DIAGNOSTIC (temporary)"
-    in the code, not meant to ship to end users. The background
-    logging service itself was left untouched (used elsewhere for
-    crash/error tracking).
-  - Removed the now-unused diagnostic_log_service.dart import.
-
-========================================
-4. settings_notifications_screen.dart — DELETE THIS FILE
-========================================
-  - Every setting on this screen saved to SharedPreferences but was
-    never read by the native Android notification code — confirmed
-    non-functional. Screen removed entirely; its row also removed
-    from the main Settings list (see #1).
-
-========================================
-5. onboarding_screen.dart — FIX: onboarding repeating after skip
-========================================
-  Root cause: _finish() saved the 'onboarding_complete' flag inside a
-  try/catch that silently swallowed any failure, then called onDone()
-  unconditionally right after regardless of whether the save actually
-  succeeded — so a failed write meant the current session looked fine,
-  but the next app open replayed the whole onboarding flow again.
-
-  Fix: _finish() now retries the write up to 3 times with a short
-  delay, and reads the flag back afterward to actually confirm it was
-  saved before proceeding to Home.
-
-========================================
-6. edge_to_edge_full_player.dart — FIX: Up Next sheet snapping back
-========================================
-  Root cause: the Up Next DraggableScrollableSheet and the
-  ReorderableListView inside it shared one ScrollController. A
-  ReorderableListView/ListView claims the vertical drag gesture for
-  itself the instant a touch starts over its content, regardless of
-  controller sharing — so dragging to resize the sheet was almost
-  always read as "scroll/reorder the list" instead, and the sheet
-  snapped back to its original size a moment later because no real
-  resize drag was ever recognized. The visible drag handle bar was
-  also purely decorative with no gesture attached at all.
-
-  Fix: the sheet now gets its own explicit
-  DraggableScrollableController, fully decoupled from the list (which
-  gets its own independent ScrollController). The handle bar at the
-  top is now a real resize target — drag it to resize live, release to
-  snap to the nearest of three stops (0.5 / 0.82 / 0.94), matching
-  YouTube's own Up Next handle behavior. Dragging over the list still
-  scrolls/reorders normally with no competition. Also fixed a memory
-  leak (the sheet controller wasn't being disposed), and both drag
-  handlers now guard on controller.isAttached before touching
-  .size/.jumpTo()/.animateTo() to avoid a possible assertion crash on
-  an extremely fast drag right as the sheet opens.
-
-========================================
-7. player_provider.dart — 2 verified fixes (surfaced from your upload)
-========================================
-  a) Stale-event guard extended to position/duration/buffered
-     Root cause: on a song switch, _isLoading was already protected by
-     an isStaleForLoading check (only accept it from an event actually
-     describing the expected new song), but _position/_duration/
-     _buffered were applied completely unconditionally in that same
-     spot. A stale/in-flight event still describing the OLD song
-     landed there first and clobbered the optimistic reset back to the
-     old song's values, which then briefly rendered under the NEW
-     song's (correctly optimistic) title/artwork before the real
-     new-song event corrected it a beat later.
-
-     Fix: position/duration/buffered are now only accepted under the
-     same isStaleForLoading guard already protecting isLoading — this
-     final pass confirmed isStaleForLoading and the later
-     isConfirmedSwitch check are logically equivalent (De Morgan's
-     law), so the guard is consistent with the rest of the function,
-     not a mismatched duplicate condition. The position-handling call
-     that used to run later was moved up into this guarded block, with
-     a comment left at its old location — no duplicate calls.
-
-  b) Seek bar "drag awkward" fix — optimistic position update
-     Root cause: seek(ratio) awaited the native engine call before
-     _position was ever updated, so after a drag ended the Slider fell
-     back to reading the OLD position for a beat before the new
-     position arrived — reading as "the bar jumps back to where I
-     started dragging, then snaps to where I actually dragged to."
-
-     Fix: both seek(ratio) and seekTo(pos) now set _position and call
-     notifyListeners() optimistically before awaiting the native seek.
+Re-run your GitHub Actions build after copying these files in.

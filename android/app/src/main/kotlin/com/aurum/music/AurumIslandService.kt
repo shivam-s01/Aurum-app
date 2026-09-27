@@ -16,11 +16,14 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
+import androidx.palette.graphics.Palette
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -88,6 +91,11 @@ class AurumIslandService : Service() {
         private const val PLAY_POP_SCALE = 1.18f
         private const val PLAY_POP_MS = 260L
 
+        // Expand/collapse fade+scale transition duration — used by both
+        // animateIn() and animateOut() so the pill-shrinking-out and
+        // card-growing-in halves of the swap always finish together.
+        private const val TRANSITION_MS = 220L
+
         // SharedPreferences keys — all under the "flutter." prefix the
         // shared_preferences plugin already applies, matching
         // island_enabled's existing convention so Dart's Settings screen
@@ -126,6 +134,19 @@ class AurumIslandService : Service() {
         fun refreshCustomizationNow() {
             activeInstance?.reapplyCustomization()
         }
+
+        /** Shows/hides the overlay without tearing the service (or its
+         *  views) down. Used by MainActivity's onStart/onStop so the
+         *  Island never draws over Aurum's own UI while the app itself is
+         *  foregrounded, but reappears the instant the app is backgrounded
+         *  — no re-inflate, no re-add-to-WindowManager, so none of the
+         *  "flashes/expands awkwardly on return" glitches a full
+         *  stopService()/startService() round-trip caused. No-op if no
+         *  instance is running (MainActivity's onStart also runs before
+         *  the overlay has ever started, which must stay harmless). */
+        fun setHiddenForForeground(hidden: Boolean) {
+            activeInstance?.applyForegroundHidden(hidden)
+        }
     }
 
     private lateinit var windowManager: WindowManager
@@ -144,6 +165,14 @@ class AurumIslandService : Service() {
 
     private var playerListener: Player.Listener? = null
 
+    // True while Aurum's own Activity is in the foreground. The overlay
+    // stays fully alive (views inflated, listeners registered, player
+    // state syncing) the whole time — only View.GONE/VISIBLE toggles, so
+    // there's nothing to re-inflate or re-add when the app is minimized
+    // again, which is what made the old stop-service/start-service
+    // approach look janky on return.
+    private var hiddenForForeground = false
+
     // One looping ValueAnimator per bar, each with its own random
     // duration/height target so the three bars don't move in lockstep —
     // that's what actually reads as a "dancing waveform" instead of a
@@ -151,6 +180,16 @@ class AurumIslandService : Service() {
     // reset to the idle height) on isPlaying=false/pause/no song.
     private var waveAnimators: List<ValueAnimator>? = null
     private var waveBarsRunning = false
+
+    // Pill thumbnail "breathing" pulse — a slow, gentle scale animator
+    // (independent duration/interpolator from the wave bars, so the two
+    // don't move in lockstep and end up looking like one mechanical
+    // effect) that runs only while audio is actually playing, giving the
+    // round artwork a subtle "alive" pulse the way the real iOS Dynamic
+    // Island's artwork does. Confirmed scope: pill only — the expanded
+    // sheet's artwork stays perfectly still/solid, matching the reference
+    // screenshot's static Spotify-style card.
+    private var thumbPulseAnimator: ValueAnimator? = null
 
     // Cached customization, re-read from SharedPreferences every time a
     // view is (re)built (addPillView/addExpandedView) so a change made in
@@ -197,6 +236,7 @@ class AurumIslandService : Service() {
         addPillView()
         registerPlayerListener()
         refreshFromPlayer()
+        if (hiddenForForeground) pillView?.visibility = View.GONE
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -239,6 +279,56 @@ class AurumIslandService : Service() {
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return@let
             applyCustomization(view, params, prefsSnapshot, applySize = false)
             try { windowManager.updateViewLayout(view, params) } catch (_: Throwable) {}
+        }
+    }
+
+    /** Toggles View.GONE/VISIBLE on whichever view (pill or expanded) is
+     *  currently attached. Called only from the companion's
+     *  setHiddenForForeground(); kept separate from the auto-collapse path
+     *  so an app-foreground hide never fights the pill<->expanded swap. */
+    private fun applyForegroundHidden(hidden: Boolean) {
+        hiddenForForeground = hidden
+        val visibility = if (hidden) View.GONE else View.VISIBLE
+        if (hidden) {
+            // Cancel any in-flight expand/collapse fade so a transient
+            // outgoing pill/card mid-animation (animateOut hasn't fired
+            // its withEndAction yet) doesn't linger half-faded, attached,
+            // and untouched by the visibility toggle below.
+            pillView?.animate()?.cancel()
+            expandedView?.animate()?.cancel()
+        }
+        pillView?.visibility = visibility
+        expandedView?.visibility = visibility
+        if (hidden) {
+            // Collapse first so returning to the app never leaves an
+            // expanded card waiting to reappear mid-interaction — matches
+            // tapping outside/auto-collapse's own behavior, just silent
+            // (no view removal, so no flicker) since visibility is already
+            // GONE by the time collapse() would otherwise re-add a pill.
+            autoCollapseJob?.cancel()
+            seekTicker?.cancel()
+            isExpanded = false
+            expandedView?.let {
+                try { windowManager.removeView(it) } catch (_: Throwable) {}
+            }
+            expandedView = null
+        } else {
+            // Coming back from the foreground with nothing expanded —
+            // make sure a pill exists to become visible (covers the case
+            // where the service started fresh while the app was already
+            // foregrounded, so addPillView() in onCreate() never ran
+            // against a visible screen).
+            if (!isExpanded && pillView == null) addPillView()
+            // Re-read and re-apply position/size/color now, not just on
+            // the next pill<->expanded swap — this is what makes slider
+            // changes made in Settings while the app was open (when the
+            // overlay was hidden and had nothing visible to preview them
+            // on) actually show up the moment the app is minimized,
+            // instead of the pill reappearing at its stale pre-edit
+            // position/size until the next expand/collapse.
+            reapplyCustomization()
+            pillView?.visibility = View.VISIBLE
+            refreshFromPlayer()
         }
     }
 
@@ -441,8 +531,44 @@ class AurumIslandService : Service() {
                 if (bar == null) return@mapNotNull null
                 animateBarLoop(bar)
             }
+            startThumbPulse(root)
         } else {
             stopWaveBars()
+        }
+    }
+
+    /** Slow, endless scale "breathing" pulse (1.0 -> 1.08 -> 1.0) on the
+     *  pill's round artwork — deliberately much slower than the waveform
+     *  bars' 260-420ms flicker so the two read as two separate, distinct
+     *  motions rather than one blurred effect. Uses a reversing
+     *  ValueAnimator (not a fixed loop) so it eases smoothly both ways
+     *  instead of snapping back to 1.0 at the end of each cycle. */
+    private fun startThumbPulse(pillRoot: View) {
+        thumbPulseAnimator?.cancel()
+        val thumb = pillRoot.findViewById<ImageView>(R.id.island_pill_artwork) ?: return
+        thumb.scaleX = 1f
+        thumb.scaleY = 1f
+        val animator = ValueAnimator.ofFloat(1f, 1.08f).apply {
+            duration = 900L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            addUpdateListener { anim ->
+                val scale = anim.animatedValue as Float
+                thumb.scaleX = scale
+                thumb.scaleY = scale
+            }
+        }
+        thumbPulseAnimator = animator
+        animator.start()
+    }
+
+    private fun stopThumbPulse() {
+        thumbPulseAnimator?.cancel()
+        thumbPulseAnimator = null
+        pillView?.findViewById<ImageView>(R.id.island_pill_artwork)?.apply {
+            scaleX = 1f
+            scaleY = 1f
         }
     }
 
@@ -495,6 +621,7 @@ class AurumIslandService : Service() {
         waveBarsRunning = false
         waveAnimators?.forEach { it.cancel() }
         waveAnimators = null
+        stopThumbPulse()
         val root = pillView ?: return
         val idlePx = dpToPx(WAVE_BAR_IDLE_DP)
         listOf(
@@ -531,8 +658,9 @@ class AurumIslandService : Service() {
                 imageView.setImageResource(R.drawable.ic_widget_play)
             } else {
                 scope.launch {
-                    val bmp = withContext(Dispatchers.IO) { downloadBitmap(uri) }
-                    if (bmp != null) imageView.setImageBitmap(bmp)
+                    val bmp = withContext(Dispatchers.IO) { downloadBitmap(uri) } ?: return@launch
+                    val rounded = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = dpToPx(8f).toFloat()) }
+                    imageView.setImageBitmap(rounded)
                 }
             }
         }
@@ -548,11 +676,55 @@ class AurumIslandService : Service() {
             val bmp = withContext(Dispatchers.IO) { downloadBitmap(urlString) } ?: return@launch
             lastPillBitmap?.let { if (!it.isRecycled) it.recycle() }
             lastExpandedBitmap?.let { if (!it.isRecycled) it.recycle() }
-            lastPillBitmap = bmp
-            lastExpandedBitmap = bmp
-            pillView?.findViewById<ImageView>(R.id.island_pill_artwork)?.setImageBitmap(bmp)
-            expandedView?.findViewById<ImageView>(R.id.island_expanded_artwork)?.setImageBitmap(bmp)
+            // Pill artwork is a circle (matches the pill's own fully-round
+            // capsule shape); the expanded card's artwork keeps square
+            // proportions but with rounded corners matching the card's own
+            // 32dp radius, so the art never reads as a hard square glued
+            // inside a rounded card the way a plain ImageView did before.
+            val pillBmp = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = null) }
+            val expandedBmp = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = dpToPx(18f).toFloat()) }
+            lastPillBitmap = pillBmp
+            lastExpandedBitmap = expandedBmp
+            pillView?.findViewById<ImageView>(R.id.island_pill_artwork)?.setImageBitmap(pillBmp)
+            expandedView?.findViewById<ImageView>(R.id.island_expanded_artwork)?.setImageBitmap(expandedBmp)
+            // Sampled from the original downloaded bmp (not the cropped/
+            // rounded pill or card versions) so Palette sees the full,
+            // un-cropped artwork for the most representative color read.
+            tintExpandedBackground(bmp)
         }
+    }
+
+    /** Clips a bitmap to a circle (cornerRadiusPx == null) or a
+     *  rounded-rect (cornerRadiusPx given), via BitmapShader — the
+     *  reliable way to get real rounded corners on a bitmap set into a
+     *  plain ImageView. clipToOutline()/setClipToOutline() on the
+     *  ImageView itself is what island_pill_artwork relied on implicitly
+     *  before (i.e. not at all), which is exactly why square album art
+     *  showed up as a hard square glued into the round pill/card — this
+     *  bakes the rounding into the bitmap itself so it holds regardless of
+     *  view type or OEM quirks in a WindowManager overlay. */
+    private fun roundBitmap(source: Bitmap, cornerRadiusPx: Float?): Bitmap {
+        val size = min(source.width, source.height)
+        val squared = Bitmap.createBitmap(
+            source,
+            (source.width - size) / 2,
+            (source.height - size) / 2,
+            size,
+            size,
+        )
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(output)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val rect = android.graphics.RectF(0f, 0f, size.toFloat(), size.toFloat())
+        if (cornerRadiusPx == null) {
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        } else {
+            canvas.drawRoundRect(rect, cornerRadiusPx, cornerRadiusPx, paint)
+        }
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(squared, 0f, 0f, paint)
+        if (squared !== source) squared.recycle()
+        return output
     }
 
     private fun downloadBitmap(urlString: String): Bitmap? {
@@ -695,6 +867,7 @@ class AurumIslandService : Service() {
         try {
             windowManager.addView(view, params)
             pillView = view
+            view.isHapticFeedbackEnabled = true
         } catch (e: Throwable) {
             Log.e(TAG, "addPillView failed: ${e.message}", e)
         }
@@ -733,6 +906,12 @@ class AurumIslandService : Service() {
         try {
             windowManager.addView(view, params)
             expandedView = view
+            view.isHapticFeedbackEnabled = true
+            // Apply the already-known tint immediately (no fade) so the
+            // card opens in the right color for whatever song is already
+            // playing, instead of flashing the XML default #13121C for one
+            // frame and only correcting itself on the next song change.
+            (view.background?.mutate() as? GradientDrawable)?.setColor(currentExpandedTint)
         } catch (e: Throwable) {
             Log.e(TAG, "addExpandedView failed: ${e.message}", e)
         }
@@ -748,12 +927,16 @@ class AurumIslandService : Service() {
     private fun wireExpandedControls(view: View) {
         val engine = { AurumMediaSessionService.sharedEngine }
 
-        view.findViewById<ImageView>(R.id.island_expanded_play_pause)?.setOnClickListener {
-            val e = engine() ?: return@setOnClickListener
-            val nowPlaying = !e.player.isPlaying
-            if (nowPlaying) e.play() else e.pause()
-            setPlayPauseState(view, nowPlaying, animate = true)
-            scheduleAutoCollapse()
+        view.findViewById<ImageView>(R.id.island_expanded_play_pause)?.let { btn ->
+            btn.isHapticFeedbackEnabled = true
+            btn.setOnClickListener {
+                val e = engine() ?: return@setOnClickListener
+                val nowPlaying = !e.player.isPlaying
+                if (nowPlaying) e.play() else e.pause()
+                setPlayPauseState(view, nowPlaying, animate = true)
+                tick(btn)
+                scheduleAutoCollapse()
+            }
         }
         view.findViewById<ImageView>(R.id.island_expanded_next)?.setOnClickListener {
             engine()?.skipToNext()
@@ -774,14 +957,18 @@ class AurumIslandService : Service() {
         // FavoritesProvider's Hive-backed toggleFavorite), so a like made
         // from the Island shows up as liked everywhere else in the app
         // (and vice versa) without the Island needing its own persistence.
-        view.findViewById<ImageView>(R.id.island_expanded_like)?.setOnClickListener {
-            engine()?.triggerLikeToggle()
-            // Optimistic flip — the real state round-trips back through
-            // Dart asynchronously, but reflecting the tap immediately
-            // here (rather than waiting) is what makes it feel responsive
-            // the way Spotify's own heart-tap does.
-            updateLikeIcon(view)
-            scheduleAutoCollapse()
+        view.findViewById<ImageView>(R.id.island_expanded_like)?.let { likeBtn ->
+            likeBtn.isHapticFeedbackEnabled = true
+            likeBtn.setOnClickListener {
+                engine()?.triggerLikeToggle()
+                // Optimistic flip — the real state round-trips back through
+                // Dart asynchronously, but reflecting the tap immediately
+                // here (rather than waiting) is what makes it feel responsive
+                // the way Spotify's own heart-tap does.
+                updateLikeIcon(view)
+                tick(likeBtn)
+                scheduleAutoCollapse()
+            }
         }
 
         // Draggable seekbar — mirrors tapping/dragging Spotify's own
@@ -821,11 +1008,192 @@ class AurumIslandService : Service() {
 
     // ---- Expand / collapse --------------------------------------------------
 
+    /** Fades+scales [view] in from [fromScale] to 1.0/alpha 1, anchored at
+     *  its own center (pivot defaults to center for a WRAP_CONTENT root,
+     *  which is what both island_pill and island_expanded are) — this is
+     *  what makes the pill->card swap read as one continuous "grow" motion
+     *  instead of the old instant swap-in-place. A very mild
+     *  OvershootInterpolator (tension 1.2f, barely past 1.0 scale) is used
+     *  instead of a flat decelerate — this is what gives the real Dynamic
+     *  Island / Spotify expand its small "springy settle" instead of
+     *  gliding to a dead stop. Kept subtle deliberately: a strong overshoot
+     *  reads as bouncy/toy-like, not premium. */
+    private fun animateIn(view: View, fromScale: Float) {
+        view.alpha = 0f
+        view.scaleX = fromScale
+        view.scaleY = fromScale
+        view.animate()
+            .alpha(1f)
+            .scaleX(1f).scaleY(1f)
+            .setDuration(TRANSITION_MS)
+            .setInterpolator(OvershootInterpolator(1.2f))
+            .start()
+    }
+
+    /** Fades+scales [view] out down to [toScale], then runs [onEnd] (used
+     *  to actually removeView() the old pill/card only once it's no longer
+     *  visible — removing it immediately, as the old code did, is what
+     *  made the swap look like an instant cut rather than a transition). */
+    private fun animateOut(view: View, toScale: Float, onEnd: () -> Unit) {
+        view.animate()
+            .alpha(0f)
+            .scaleX(toScale).scaleY(toScale)
+            .setDuration(TRANSITION_MS)
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .withEndAction(onEnd)
+            .start()
+    }
+
+    /** Animates a view's rounded-rect background corner radius from
+     *  [fromRadiusPx] to [toRadiusPx] over the same [TRANSITION_MS] window
+     *  as animateIn/animateOut, so the pill's 28dp capsule and the card's
+     *  32dp corners read as one continuous shape stretching open/closed —
+     *  the actual signature trait of a real Dynamic Island morph, on top
+     *  of (not replacing) the existing fade+scale. Silently no-ops if the
+     *  view's background isn't a GradientDrawable (defensive: island_pill_bg
+     *  and island_expanded_bg both are, per their own <shape> XML, but this
+     *  must never crash the overlay if that ever changes) — the fade+scale
+     *  motion alone still carries the transition in that case, so nothing
+     *  looks broken, just slightly less seamless. */
+    private fun animateCornerRadius(view: View, fromRadiusPx: Float, toRadiusPx: Float) {
+        val bg = view.background?.mutate() as? GradientDrawable ?: return
+        bg.cornerRadius = fromRadiusPx
+        // Stopped early if the view is detached from its window mid-morph
+        // (removeView() already happened) so it never keeps ticking on a
+        // view nothing can see anymore — same spirit as the existing
+        // pillView?.animate()?.cancel() guard in applyForegroundHidden().
+        ValueAnimator.ofFloat(fromRadiusPx, toRadiusPx).apply {
+            duration = TRANSITION_MS
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { anim ->
+                if (!view.isAttachedToWindow) { cancel(); return@addUpdateListener }
+                bg.cornerRadius = anim.animatedValue as Float
+            }
+            start()
+        }
+    }
+
+    /** Short, light tap tick — matches the subtlety of the real Dynamic
+     *  Island / Spotify's own haptic feedback on expand/collapse/like/
+     *  play-pause. Uses the view's own performHapticFeedback (no extra
+     *  permission needed, respects the user's system haptics setting
+     *  automatically) rather than a raw Vibrator call. CONTEXT_CLICK reads
+     *  as a light "tick" rather than the heavier default click buzz. */
+    private fun tick(view: View) {
+        view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+
+    /** Extracts the artwork's dominant/vibrant color via Palette and
+     *  cross-fades the expanded card's background to a darkened version of
+     *  it — this is the actual "art-adaptive background" that makes
+     *  Spotify's own full-player card read as premium (a red album cover
+     *  giving a deep red card, a blue cover giving a deep blue card)
+     *  instead of one fixed color for every song. Runs on
+     *  Dispatchers.Default since Palette.from(bmp).generate() does real
+     *  pixel-sampling work, same reasoning as the existing roundBitmap()
+     *  offload. Swatch preference order (vibrant -> muted -> dominant ->
+     *  null) mirrors Palette's own documented fallback chain for "most
+     *  visually interesting representative color." Darkened via
+     *  ColorUtils.blendARGB toward the card's own #13121C base (kept at
+     *  78% tint / 22% base) rather than used raw — a straight vibrant
+     *  swatch is usually too bright/saturated to sit behind white title
+     *  text at full card size; blending toward near-black is what gives
+     *  Spotify's own tinted cards their "deep," not "neon," look while
+     *  keeping the existing white/translucent text readable with no
+     *  further changes needed. Silently no-ops (keeps the current/default
+     *  background) if the view's background isn't a GradientDrawable or if
+     *  Palette finds no usable swatch — this must never crash the overlay
+     *  or leave the card looking broken; falling back to the shipped
+     *  #13121C default is always a safe, finished-looking result. */
+    private var currentExpandedTint: Int = Color.parseColor("#13121C")
+
+    /** Extracts the artwork's dominant/vibrant color via Palette and
+     *  cross-fades the expanded card's background to a darkened version of
+     *  it — this is the actual "art-adaptive background" that makes
+     *  Spotify's own full-player card read as premium (a red album cover
+     *  giving a deep red card, a blue cover giving a deep blue card)
+     *  instead of one fixed color for every song. Runs on
+     *  Dispatchers.Default since Palette.from(bmp).generate() does real
+     *  pixel-sampling work, same reasoning as the existing roundBitmap()
+     *  offload. Swatch preference order (vibrant -> muted -> dominant ->
+     *  null) mirrors Palette's own documented fallback chain for "most
+     *  visually interesting representative color." Darkened via
+     *  ColorUtils.blendARGB toward the card's own #13121C base (kept at
+     *  78% tint / 22% base) rather than used raw — a straight vibrant
+     *  swatch is usually too bright/saturated to sit behind white title
+     *  text at full card size; blending toward near-black is what gives
+     *  Spotify's own tinted cards their "deep," not "neon," look while
+     *  keeping the existing white/translucent text readable with no
+     *  further changes needed. Always computes and stores the tint (even
+     *  while collapsed, when expandedView is null) so a card expanded
+     *  later opens directly in the right color instead of the stale
+     *  previous song's tint for one frame — only the actual cross-fade
+     *  animation is skipped when there's no live view to animate.
+     *  Silently no-ops the whole card-coloring step (keeps whatever tint
+     *  is already stored) if Palette finds no usable swatch — this must
+     *  never crash the overlay or leave the card looking broken; falling
+     *  back to the shipped #13121C default on first run is always a safe,
+     *  finished-looking result. */
+    private suspend fun tintExpandedBackground(bitmap: Bitmap) {
+        val swatchColor = withContext(Dispatchers.Default) {
+            val palette = Palette.from(bitmap).generate()
+            (palette.vibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch)?.rgb
+        } ?: return
+        val cardBase = Color.parseColor("#13121C")
+        val tinted = androidx.core.graphics.ColorUtils.blendARGB(cardBase, swatchColor, 0.78f)
+        val fromColor = currentExpandedTint
+        currentExpandedTint = tinted
+        val view = expandedView ?: return
+        val bg = view.background?.mutate() as? GradientDrawable ?: return
+        ValueAnimator.ofArgb(fromColor, tinted).apply {
+            duration = TRANSITION_MS
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { anim ->
+                if (!view.isAttachedToWindow) { cancel(); return@addUpdateListener }
+                bg.setColor(anim.animatedValue as Int)
+            }
+            start()
+        }
+    }
+
     private fun expand() {
-        if (isExpanded) return
+        if (isExpanded || hiddenForForeground) return
         isExpanded = true
+        val outgoingPill = pillView
+        outgoingPill?.let { tick(it) }
         addExpandedView()
-        removePillView()
+        expandedView?.let { ev ->
+            // If the pill sits off-center (user-set X offset in Settings),
+            // start the card translated to that same X and animate it back
+            // to 0 alongside the existing fade+scale — otherwise the card
+            // (which always opens perfectly centered, per applyCustomization's
+            // own reasoning) would visibly "pop" straight to center from an
+            // off-center pill instead of growing out of the pill's actual
+            // on-screen spot. No-op (translationX stays 0) for the default
+            // centered pill, so the common case is unaffected.
+            val pillOffsetPx = dpToPx(readPrefs().xDp).toFloat()
+            if (pillOffsetPx != 0f) {
+                ev.translationX = pillOffsetPx
+                ev.animate().translationX(0f)
+                    .setDuration(TRANSITION_MS)
+                    .setInterpolator(OvershootInterpolator(1.2f))
+                    .start()
+            }
+            animateIn(ev, fromScale = 0.86f)
+            animateCornerRadius(ev, fromRadiusPx = dpToPx(28f).toFloat(), toRadiusPx = dpToPx(32f).toFloat())
+        }
+        if (outgoingPill != null) {
+            // Detach the pill from the isExpanded-driven lifecycle
+            // immediately (so a rapid re-tap can't double-remove it) but
+            // only actually tear it out of WindowManager once its fade-out
+            // finishes, so the pill visibly shrinks/fades away under the
+            // growing card instead of just vanishing.
+            pillView = null
+            stopWaveBars()
+            animateOut(outgoingPill, toScale = 0.9f) {
+                try { windowManager.removeView(outgoingPill) } catch (_: Throwable) {}
+            }
+        }
         refreshFromPlayer()
         startSeekTicker()
         scheduleAutoCollapse()
@@ -836,8 +1204,30 @@ class AurumIslandService : Service() {
         isExpanded = false
         seekTicker?.cancel()
         autoCollapseJob?.cancel()
-        removeExpandedView()
+        val outgoingExpanded = expandedView
+        outgoingExpanded?.let { tick(it) }
+        expandedView = null
         addPillView()
+        pillView?.let {
+            animateIn(it, fromScale = 1.12f)
+            animateCornerRadius(it, fromRadiusPx = dpToPx(32f).toFloat(), toRadiusPx = dpToPx(28f).toFloat())
+        }
+        if (outgoingExpanded != null) {
+            // Symmetric with expand()'s off-center start: shrink the card
+            // back toward the pill's actual X position (if non-center)
+            // instead of shrinking in place and leaving the new pill to
+            // just appear at its offset spot disconnected from the card.
+            val pillOffsetPx = dpToPx(readPrefs().xDp).toFloat()
+            if (pillOffsetPx != 0f) {
+                outgoingExpanded.animate().translationX(pillOffsetPx)
+                    .setDuration(TRANSITION_MS)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator())
+                    .start()
+            }
+            animateOut(outgoingExpanded, toScale = 1.06f) {
+                try { windowManager.removeView(outgoingExpanded) } catch (_: Throwable) {}
+            }
+        }
         refreshFromPlayer()
     }
 

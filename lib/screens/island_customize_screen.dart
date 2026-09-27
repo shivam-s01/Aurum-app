@@ -132,93 +132,155 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
             style: TextStyle(color: AurumTheme.textPrimaryOf(context),
                 fontSize: 18, fontWeight: FontWeight.w700)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      body: Column(
         children: [
-          _enableCard(context),
-          const SizedBox(height: 20),
-          if (_enabled) ...[
-            _sectionCard(
-              context: context,
-              title: 'Position & Size Adjustment',
+          // Live mock preview — the real overlay is intentionally hidden
+          // while Aurum itself is in the foreground (it would otherwise
+          // draw on top of this very screen), so dragging a slider here
+          // has nothing on-screen to visibly move. This mock strip mirrors
+          // the pill's exact X/Y/width/height/color in real time instead,
+          // giving the same "drag = see it move" feedback the sliders are
+          // supposed to provide, without needing the real overlay visible.
+          if (_enabled) _livePreview(context),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
               children: [
-                _slider(
-                  context: context,
-                  label: 'Horizontal Position (X)',
-                  value: _x,
-                  min: -150,
-                  max: 150,
-                  suffix: 'dp',
-                  onChanged: (v) {
-                    setState(() => _x = v);
-                    _push();
-                  },
-                ),
-                _slider(
-                  context: context,
-                  label: 'Vertical Position (Y)',
-                  value: _y,
-                  min: 0,
-                  max: 300,
-                  suffix: 'dp',
-                  onChanged: (v) {
-                    setState(() => _y = v);
-                    _push();
-                  },
-                ),
-                const Divider(height: 32),
-                _slider(
-                  context: context,
-                  label: 'Island Width',
-                  value: _width,
-                  min: 90,
-                  max: 360,
-                  suffix: 'dp',
-                  onChanged: (v) {
-                    setState(() => _width = v);
-                    _push();
-                  },
-                ),
-                _slider(
-                  context: context,
-                  label: 'Island Height',
-                  value: _height,
-                  min: 32,
-                  max: 96,
-                  suffix: 'dp',
-                  onChanged: (v) {
-                    setState(() => _height = v);
-                    _push();
-                  },
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _resetDefaults,
-                    child: Text('Reset to Defaults',
-                        style: TextStyle(color: AurumTheme.accentOf(context),
-                            fontSize: 13, fontWeight: FontWeight.w600)),
+                _enableCard(context),
+                const SizedBox(height: 20),
+                if (_enabled) ...[
+                  _sectionCard(
+                    context: context,
+                    title: 'Position & Size Adjustment',
+                    children: [
+                      _slider(
+                        context: context,
+                        label: 'Horizontal Position (X)',
+                        value: _x,
+                        min: -150,
+                        max: 150,
+                        suffix: 'dp',
+                        onChanged: (v) {
+                          setState(() => _x = v);
+                          _push();
+                        },
+                      ),
+                      _slider(
+                        context: context,
+                        label: 'Vertical Position (Y)',
+                        value: _y,
+                        min: 0,
+                        max: 300,
+                        suffix: 'dp',
+                        onChanged: (v) {
+                          setState(() => _y = v);
+                          _push();
+                        },
+                      ),
+                      const Divider(height: 32),
+                      _slider(
+                        context: context,
+                        label: 'Island Width',
+                        value: _width,
+                        min: 90,
+                        max: 360,
+                        suffix: 'dp',
+                        onChanged: (v) {
+                          setState(() => _width = v);
+                          _push();
+                        },
+                      ),
+                      _slider(
+                        context: context,
+                        label: 'Island Height',
+                        value: _height,
+                        min: 32,
+                        max: 96,
+                        suffix: 'dp',
+                        onChanged: (v) {
+                          setState(() => _height = v);
+                          _push();
+                        },
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _resetDefaults,
+                          child: Text('Reset to Defaults',
+                              style: TextStyle(color: AurumTheme.accentOf(context),
+                                  fontSize: 13, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 20),
+                  _sectionCard(
+                    context: context,
+                    title: 'Styling & Custom Colors',
+                    children: [
+                      Text('Background Color',
+                          style: TextStyle(color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 14,
+                        children: _swatches.map((c) => _colorSwatch(context, c)).toList(),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 20),
-            _sectionCard(
-              context: context,
-              title: 'Styling & Custom Colors',
-              children: [
-                Text('Background Color',
-                    style: TextStyle(color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 14,
-                  runSpacing: 14,
-                  children: _swatches.map((c) => _colorSwatch(context, c)).toList(),
-                ),
-              ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Mock pill strip that mirrors the real overlay's X/Y/width/height/color
+  /// live as the sliders move. Sized down to fit inline at the top of this
+  /// screen (a fixed 90dp-tall stage, matching the real overlay's Y-slider
+  /// max of 300dp scaled to fit) rather than 1:1 physical dp, since the
+  /// real pill sits above the status bar/camera cutout, which this screen
+  /// doesn't have room to reproduce full-scale.
+  Widget _livePreview(BuildContext context) {
+    const stageHeight = 96.0;
+    const stageMaxY = 300.0; // matches the Y slider's own max
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Scale factor so the widest possible pill (360dp) and the tallest
+    // possible Y offset (300dp) both stay inside the stage without needing
+    // per-frame clamping logic beyond a simple min().
+    final scale = (stageHeight / stageMaxY).clamp(0.0, 1.0);
+
+    final previewWidth = (_width * scale).clamp(24.0, screenWidth - 32);
+    final previewHeight = (_height * scale).clamp(12.0, stageHeight);
+    final previewY = (_y * scale).clamp(0.0, stageHeight - previewHeight);
+    final previewX = _x * scale;
+
+    return Container(
+      height: stageHeight,
+      width: double.infinity,
+      color: Colors.black,
+      child: Stack(
+        children: [
+          Positioned(
+            top: previewY,
+            left: (screenWidth / 2) - (previewWidth / 2) + previewX,
+            child: Container(
+              width: previewWidth,
+              height: previewHeight,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(previewHeight / 2),
+                border: Border.all(color: Color(_accentColor), width: 1.5),
+              ),
+              child: Center(
+                child: Icon(Icons.graphic_eq_rounded,
+                    color: Color(_accentColor), size: (previewHeight * 0.5).clamp(10.0, 20.0)),
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
