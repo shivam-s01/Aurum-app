@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Small 3-bar equalizer glyph for the collapsed pill — represents "audio
+  playing" (not shuffle/next/prev semantics, which the shuffle icon would
+  have wrongly implied here).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#B89640"
+        android:pathData="M4,10 L4,14 A1,1 0 0 1 6,14 L6,10 A1,1 0 0 1 4,10 Z"/>
+    <path
+        android:fillColor="#B89640"
+        android:pathData="M11,6 L11,18 A1,1 0 0 1 13,18 L13,6 A1,1 0 0 1 11,6 Z"/>
+    <path
+        android:fillColor="#B89640"
+        android:pathData="M18,9 L18,15 A1,1 0 0 1 20,15 L20,9 A1,1 0 0 1 18,9 Z"/>
+</vector>

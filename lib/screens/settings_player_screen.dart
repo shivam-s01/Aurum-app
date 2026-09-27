@@ -129,6 +129,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
   double _playbackSpeed = 1.0;
   bool _keepQueue = true;
   bool _stopOnSwipe = false;
+  bool _islandEnabled = false;
   bool _pauseOnCall = true;
   bool _duckOnNotifications = false;
   bool _shakeToSkip = false;
@@ -265,6 +266,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
       _playbackSpeed       = p.getDouble('playback_speed') ?? 1.0;
       _keepQueue           = p.getBool('keep_queue') ?? true;
       _stopOnSwipe         = p.getBool('stop_on_swipe') ?? false;
+      _islandEnabled       = p.getBool('island_enabled') ?? false;
       _pauseOnCall         = p.getBool('pause_on_call') ?? true;
       _duckOnNotifications = p.getBool('duck_on_notifications') ?? false;
       _shakeToSkip         = p.getBool('shake_to_skip') ?? false;
@@ -736,6 +738,28 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
                 setState(() => _stopOnSwipe = v);
                 await _save('stop_on_swipe', v);
                 await AudioPrefs.setStopOnSwipe(v);
+              }),
+          _switchTile(context,
+              icon: Icons.blur_circular_rounded,
+              title: l10n.spDynamicIsland,
+              subtitle: l10n.spDynamicIslandSubtitle,
+              value: _islandEnabled,
+              onChanged: (v) async {
+                // AudioPrefs.setIslandEnabled returns false when turning
+                // it on requires the overlay permission and that
+                // permission isn't granted yet — in that case it has
+                // already kicked off the system grant screen, and the
+                // switch itself must stay off until the user comes back
+                // with permission actually in hand (there's no
+                // synchronous "granted" callback from that screen to
+                // flip it automatically).
+                final applied = await AudioPrefs.setIslandEnabled(v);
+                setState(() => _islandEnabled = applied ? v : false);
+                if (v && !applied && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l10n.spDynamicIslandPermissionNeeded)),
+                  );
+                }
               }),
           _switchTile(context,
               icon: Icons.call_rounded,

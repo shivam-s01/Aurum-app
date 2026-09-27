@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Single waveform bar — a plain rounded gold rectangle. Its layout_height
+  is what AurumIslandService animates (ValueAnimator on the View's
+  LayoutParams.height) to get the up-down bar-dancing look while a song
+  plays; this drawable itself is static, only the View's size changes.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#B89640"/>
+    <corners android:radius="1.5dp"/>
+</shape>

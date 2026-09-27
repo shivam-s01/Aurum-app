@@ -40,6 +40,13 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
 
+    <!-- Dynamic Island overlay pill/expanded card — drawn as a real
+         WindowManager overlay (not a notification), so it needs the
+         classic "draw over other apps" permission. Requested at runtime
+         from Settings -> Player when the user turns the toggle on (see
+         AurumIslandService.kt). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+
     <!-- Chromecast discovery: Cast devices are found via mDNS/SSDP over the
          LAN. Without CHANGE_WIFI_MULTICAST_STATE, the multicast packets
          Cast device discovery depends on are silently dropped on some
@@ -96,6 +103,16 @@
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
+
+        <!-- Dynamic Island overlay service — WindowManager pill + expanded
+             card, synced off AurumMediaSessionService.sharedEngine's
+             player exactly like the widgets are. Not a foreground service
+             itself (no notification of its own): it piggybacks on the
+             MediaSessionService's already-foreground lifetime, and is
+             started/stopped from MainActivity's MethodChannel calls. -->
+        <service
+            android:name=".AurumIslandService"
+            android:exported="false"/>
 
         <!-- Bootstraps the Cast SDK: CastContext.getSharedInstance() reads
              this meta-data to find AurumCastOptionsProvider (below), which

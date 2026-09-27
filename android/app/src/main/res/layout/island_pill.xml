@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Collapsed Dynamic Island pill: small artwork thumbnail + waveform glyph,
+  sized to sit just below/around the camera cutout. Entirely tap-target —
+  AurumIslandService expands it into island_expanded on click.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/island_pill_root"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/island_pill_bg"
+    android:paddingStart="6dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:elevation="8dp">
+
+    <ImageView
+        android:id="@+id/island_pill_artwork"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:background="@drawable/ic_widget_play"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null"/>
+
+    <Space
+        android:layout_width="8dp"
+        android:layout_height="1dp"/>
+
+    <!-- Waveform: 3 individual bars instead of one static drawable, so
+         AurumIslandService can animate each bar's height independently
+         with a ValueAnimator while playing (real Dynamic Island look),
+         and freeze/dim them all when paused. gravity=bottom so growing
+         bars anchor at the baseline like a real level-meter, not grow
+         from the center. -->
+    <LinearLayout
+        android:id="@+id/island_pill_wave"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:orientation="horizontal"
+        android:gravity="bottom"
+        android:baselineAligned="false">
+
+        <View
+            android:id="@+id/island_wave_bar_1"
+            android:layout_width="3dp"
+            android:layout_height="6dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/ic_island_wave_bar"/>
+
+        <View
+            android:id="@+id/island_wave_bar_2"
+            android:layout_width="3dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/ic_island_wave_bar"/>
+
+        <View
+            android:id="@+id/island_wave_bar_3"
+            android:layout_width="3dp"
+            android:layout_height="10dp"
+            android:background="@drawable/ic_island_wave_bar"/>
+
+    </LinearLayout>
+
+</LinearLayout>

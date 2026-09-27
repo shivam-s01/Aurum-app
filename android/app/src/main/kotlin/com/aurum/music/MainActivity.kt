@@ -259,6 +259,52 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(null)
                         }
                     }
+
+                    // ---- Dynamic Island overlay (Settings -> Player toggle) ----
+                    "checkOverlayPermission" -> {
+                        result.success(hasOverlayPermission())
+                    }
+                    "requestOverlayPermission" -> {
+                        try {
+                            requestOverlayPermission()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "requestOverlayPermission error", e)
+                            result.error("OVERLAY_PERMISSION_ERROR", e.message, null)
+                        }
+                    }
+                    "requestBatteryExemption" -> {
+                        try {
+                            requestBatteryExemption()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "requestBatteryExemption error", e)
+                            result.success(null)
+                        }
+                    }
+                    "startIslandOverlay" -> {
+                        try {
+                            if (!hasOverlayPermission()) {
+                                result.error("NO_OVERLAY_PERMISSION", "SYSTEM_ALERT_WINDOW not granted", null)
+                                return@setMethodCallHandler
+                            }
+                            startService(Intent(this, AurumIslandService::class.java))
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "startIslandOverlay error", e)
+                            result.error("ISLAND_START_ERROR", e.message, null)
+                        }
+                    }
+                    "stopIslandOverlay" -> {
+                        try {
+                            stopService(Intent(this, AurumIslandService::class.java))
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "stopIslandOverlay error", e)
+                            result.success(null)
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }
@@ -492,6 +538,47 @@ class MainActivity : FlutterFragmentActivity() {
         mediaSessionServiceConnection = connection
     }
 
+    // ---- Dynamic Island overlay permission plumbing ----------------------
+
+    private fun hasOverlayPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.provider.Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+    }
+
+    // Opens the system's "Display over other apps" screen for this app.
+    // Result is picked up passively — Dart re-checks checkOverlayPermission
+    // when the Settings screen resumes (onResume/app-lifecycle on the Dart
+    // side) rather than this Activity tracking an activity-result callback,
+    // since the user can back out of this screen at any point and Dart's
+    // own screen already needs to reflect the toggle's real state anyway.
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val intent = Intent(
+            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName"),
+        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        startActivity(intent)
+    }
+
+    // Battery optimization exemption — without this, some OEM battery
+    // managers (same MIUI/ColorOS/etc. family openAutostartSettings()
+    // already deals with) can freeze this process while backgrounded,
+    // which would silently kill the overlay's WindowManager views even
+    // though playback itself survives via the foreground MediaSessionService.
+    @Suppress("BatteryLife")
+    private fun requestBatteryExemption() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+        val intent = Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:$packageName"),
+        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        startActivity(intent)
+    }
+
     private fun openStreamAsBitmap(uri: Uri): Bitmap? {
         val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
         return contentResolver.openInputStream(uri)?.use { stream ->
@@ -520,6 +607,15 @@ class MainActivity : FlutterFragmentActivity() {
         }
         registerReceiver(receiver, android.content.IntentFilter(Intent.ACTION_USER_PRESENT))
         screenUnlockReceiver = receiver
+
+        // App came to foreground — Island overlay would visually clash
+        // with the real in-app now-playing UI, so hide it while the app
+        // itself is visible. Re-shown in onStop() below when the app is
+        // minimized/backgrounded again, same "app khud khulta hai to
+        // overlay hide" behavior confirmed for the feature.
+        if (AurumIslandService.isRunning) {
+            stopService(Intent(this, AurumIslandService::class.java))
+        }
     }
 
     override fun onStop() {
@@ -527,10 +623,40 @@ class MainActivity : FlutterFragmentActivity() {
             try { unregisterReceiver(it) } catch (_: Exception) {}
         }
         screenUnlockReceiver = null
+
+        // App minimized/backgrounded — restore the Island overlay if the
+        // user has it enabled and a song is actually loaded. Dart mirrors
+        // its own "Dynamic Island" toggle into this same SharedPreferences
+        // store (flutter.island_enabled) so this native lifecycle hook can
+        // decide on its own, without a live Dart isolate to ask.
+        try {
+            val islandEnabled = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                .getBoolean("flutter.island_enabled", false)
+            val hasSong = AurumMediaSessionService.sharedEngine?.player?.let {
+                it.mediaItemCount > 0
+            } ?: false
+            if (islandEnabled && hasSong && hasOverlayPermission() && !AurumIslandService.isRunning) {
+                startService(Intent(this, AurumIslandService::class.java))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Island overlay restore on stop failed: ${e.message}")
+        }
+
         super.onStop()
     }
 
     override fun onDestroy() {
+        // Only stop the overlay here if playback itself isn't continuing
+        // in the background — mirrors AurumMediaSessionService.onTaskRemoved's
+        // own "actively playing" check, so swiping the app away while a
+        // song is genuinely playing doesn't yank the Island out from under
+        // a still-live session.
+        val stillPlaying = AurumMediaSessionService.sharedEngine?.player?.let {
+            it.isPlaying
+        } ?: false
+        if (!stillPlaying) {
+            try { stopService(Intent(this, AurumIslandService::class.java)) } catch (_: Exception) {}
+        }
         mediaSessionServiceConnection?.let {
             try { unbindService(it) } catch (_: Exception) {}
         }

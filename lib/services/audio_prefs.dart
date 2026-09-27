@@ -199,6 +199,15 @@ class AudioPrefs {
   static final ValueNotifier<bool> stopOnSwipeNotifier =
       ValueNotifier<bool>(false);
 
+  /// Dynamic Island-style overlay pill/expanded card (Settings → Player →
+  /// "Dynamic Island"). Set from Settings; mirrored to native via
+  /// [pushIslandEnabledToNative] so MainActivity's onStop() (a native
+  /// lifecycle callback with no Dart running at the moment it fires) knows
+  /// whether to bring the overlay back up when the app is backgrounded —
+  /// same reasoning as [stopOnSwipeNotifier] above.
+  static final ValueNotifier<bool> islandEnabledNotifier =
+      ValueNotifier<bool>(false);
+
   /// 0–100 — how far you need to drag before a swipe registers as a skip.
   /// Higher = more sensitive (shorter swipe needed). Set from
   /// Settings → Appearance → "Swipe Sensitivity".
@@ -391,6 +400,7 @@ class AudioPrefs {
   static const _kSwipeChange   = 'swipe_to_change';
   static const _kShakeToSkip   = 'shake_to_skip';
   static const _kStopOnSwipe   = 'stop_on_swipe';
+  static const _kIslandEnabled = 'island_enabled';
   static const _kSwipeSens     = 'swipe_sensitivity';
   static const _kDynamicColor  = 'dynamic_player_color';
   static const _kShowBlurBg    = 'show_blurred_bg';
@@ -436,6 +446,7 @@ class AudioPrefs {
         p.getInt(_kLyricsViewMode) ?? lyricsViewModeNotifier.value.index];
     shakeToSkipNotifier.value = p.getBool(_kShakeToSkip) ?? shakeToSkipNotifier.value;
     stopOnSwipeNotifier.value = p.getBool(_kStopOnSwipe) ?? stopOnSwipeNotifier.value;
+    islandEnabledNotifier.value = p.getBool(_kIslandEnabled) ?? islandEnabledNotifier.value;
     // PERF FIX (cold-start): this was `await`-ed here, inside a call chain
     // that main.dart itself awaits before runApp() — meaning a real
     // MethodChannel round-trip was sitting in the pre-first-frame blocking
@@ -617,6 +628,74 @@ class AudioPrefs {
   static Future<void> pushStopOnSwipeToNative(bool v) async {
     try {
       await _nativeChannel.invokeMethod('setStopOnTaskRemoved', {'value': v});
+    } catch (_) {}
+  }
+
+  /// Turns the Dynamic Island overlay on/off from Settings → Player →
+  /// "Dynamic Island". Enabling it, when the overlay ("draw over other
+  /// apps") permission isn't already granted, only opens the system grant
+  /// screen and returns false — the caller (the settings toggle) is
+  /// expected to leave the switch off and let the user flip it again once
+  /// permission is actually granted, since Android gives no synchronous
+  /// answer to a permission request started this way.
+  static Future<bool> setIslandEnabled(bool v) async {
+    if (v) {
+      final hasPermission = await checkOverlayPermission();
+      if (!hasPermission) {
+        await requestOverlayPermission();
+        return false;
+      }
+      // Best-effort — battery optimization exemption isn't required for
+      // the overlay to work, just makes it less likely to get killed in
+      // the background on aggressive OEM battery managers.
+      await requestBatteryExemption();
+    }
+    islandEnabledNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kIslandEnabled, v);
+    if (v) {
+      await startIslandOverlay();
+    } else {
+      await stopIslandOverlay();
+    }
+    return true;
+  }
+
+  /// True if the "draw over other apps" (SYSTEM_ALERT_WINDOW) permission
+  /// is already granted for this app.
+  static Future<bool> checkOverlayPermission() async {
+    try {
+      return await _nativeChannel.invokeMethod<bool>('checkOverlayPermission') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens the system's "Display over other apps" grant screen for Aurum.
+  static Future<void> requestOverlayPermission() async {
+    try {
+      await _nativeChannel.invokeMethod('requestOverlayPermission');
+    } catch (_) {}
+  }
+
+  /// Opens the system's battery-optimization exemption prompt for Aurum.
+  static Future<void> requestBatteryExemption() async {
+    try {
+      await _nativeChannel.invokeMethod('requestBatteryExemption');
+    } catch (_) {}
+  }
+
+  /// Starts the Dynamic Island overlay service. No-ops (silently, native
+  /// side already guards this too) if overlay permission isn't granted.
+  static Future<void> startIslandOverlay() async {
+    try {
+      await _nativeChannel.invokeMethod('startIslandOverlay');
+    } catch (_) {}
+  }
+
+  static Future<void> stopIslandOverlay() async {
+    try {
+      await _nativeChannel.invokeMethod('stopIslandOverlay');
     } catch (_) {}
   }
 
