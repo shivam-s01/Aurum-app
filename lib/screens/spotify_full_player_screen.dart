@@ -28,17 +28,220 @@ import 'package:just_audio/just_audio.dart' show LoopMode;
 
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../models/artist.dart' show Artist;
 import '../models/song.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_seek_bar.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../utils/aurum_haptics.dart';
+import '../services/api_service.dart';
+import '../utils/aurum_transitions.dart' show AurumDepthRoute;
+import 'artist_screen.dart';
 import 'queue_screen.dart';
 // Reuses the app's own existing lyrics widget (full fetch/sync/scroll/
 // highlight behavior, already premium and battle-tested) and the existing
 // song-info bottom sheet, instead of re-implementing either.
 import 'full_player_screen.dart' show AurumLyricsPage, showSongInfoDialog;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared "more" action sheet — used by both the expanded and collapsed
+// header's overflow button. Was previously wired to onPressed: () {}
+// (no-op), which is why tapping the ⋮ icon did nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+void _showPlayerMoreSheet(
+  BuildContext context, {
+  required PlayerProvider player,
+  required FavoritesProvider favorites,
+  required Song song,
+}) {
+  AurumHaptics.light();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (sheetContext) => _PlayerMoreSheet(
+      song: song,
+      isLiked: favorites.isFavorite(song.id),
+      onToggleLike: () {
+        AurumHaptics.light();
+        favorites.toggleFavorite(song);
+      },
+      onSongInfo: () => showSongInfoDialog(context, song),
+      onAddToQueue: () {
+        AurumHaptics.light();
+        player.addToQueue(song);
+      },
+      onOpenQueue: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const QueueScreen()),
+        );
+      },
+    ),
+  );
+}
+
+class _PlayerMoreSheet extends StatelessWidget {
+  final Song song;
+  final bool isLiked;
+  final VoidCallback onToggleLike;
+  final VoidCallback onSongInfo;
+  final VoidCallback onAddToQueue;
+  final VoidCallback onOpenQueue;
+
+  const _PlayerMoreSheet({
+    required this.song,
+    required this.isLiked,
+    required this.onToggleLike,
+    required this.onSongInfo,
+    required this.onAddToQueue,
+    required this.onOpenQueue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1C1C1E),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: AurumArtwork(
+                        url: song.artworkUrl, size: 46, borderRadius: 6),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: Colors.white12, height: 1),
+            _SheetTile(
+              icon: isLiked
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              iconColor: isLiked ? const Color(0xFF1ED760) : Colors.white,
+              label: isLiked ? 'Remove from Liked Songs' : 'Add to Liked Songs',
+              onTap: () {
+                Navigator.of(context).pop();
+                onToggleLike();
+              },
+            ),
+            _SheetTile(
+              icon: Icons.playlist_add_rounded,
+              label: 'Add to queue',
+              onTap: () {
+                Navigator.of(context).pop();
+                onAddToQueue();
+              },
+            ),
+            _SheetTile(
+              icon: Icons.queue_music_rounded,
+              label: 'View queue',
+              onTap: () {
+                Navigator.of(context).pop();
+                onOpenQueue();
+              },
+            ),
+            _SheetTile(
+              icon: Icons.info_outline_rounded,
+              label: 'Song info',
+              onTap: () {
+                Navigator.of(context).pop();
+                onSongInfo();
+              },
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SheetTile({
+    required this.icon,
+    this.iconColor = Colors.white,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            const SizedBox(width: 20),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class SpotifyFullPlayerScreen extends StatefulWidget {
   const SpotifyFullPlayerScreen({super.key});
@@ -101,6 +304,46 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     );
   }
 
+  // Tracks the live vertical drag offset for the whole-screen swipe-down-
+  // to-dismiss gesture (Spotify-style: drag from anywhere in the header/
+  // hero area downward past a threshold, or with enough velocity, closes
+  // the player; otherwise it springs back). Only active while collapseT
+  // is ~0 (i.e. the scroll view itself is at the top) so it never fights
+  // the SingleChildScrollView's own vertical drag when the user is
+  // scrolling the lyrics/artists content.
+  double _dragDy = 0.0;
+  bool _dragging = false;
+
+  static const double _dismissDistance = 140.0;
+  static const double _dismissVelocity = 700.0;
+
+  void _onVerticalDragStart(DragStartDetails details) {
+    if (_collapseT > 0.02) return; // let the scroll view handle it instead
+    setState(() => _dragging = true);
+  }
+
+  void _onVerticalDragUpdate(DragUpdateDetails details) {
+    if (!_dragging) return;
+    setState(() {
+      _dragDy = (_dragDy + details.delta.dy).clamp(0.0, 400.0);
+    });
+  }
+
+  void _onVerticalDragEnd(DragEndDetails details) {
+    if (!_dragging) return;
+    final shouldDismiss = _dragDy > _dismissDistance ||
+        details.primaryVelocity != null &&
+            details.primaryVelocity! > _dismissVelocity;
+    if (shouldDismiss) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    setState(() {
+      _dragging = false;
+      _dragDy = 0.0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
@@ -112,52 +355,88 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
             body: SizedBox.shrink(),
           );
         }
+        final favorites = context.watch<FavoritesProvider>();
+
+        // Fade + shrink slightly as it's dragged down, like the reference
+        // app's own now-playing sheet, so the gesture reads as physical
+        // rather than the screen just silently ignoring the drag.
+        final dragT = (_dragDy / 400.0).clamp(0.0, 1.0);
+        final scale = 1.0 - (dragT * 0.06);
+        final opacity = 1.0 - (dragT * 0.35);
 
         return Scaffold(
           backgroundColor: const Color(0xFF121212),
-          body: Stack(
-            children: [
-              _BackgroundGlow(
-                artworkUrl: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-              ),
-              SafeArea(
-                bottom: false,
-                child: Column(
-                  children: [
-                    _CollapsingHeader(
-                      collapseT: _collapseT,
-                      song: song,
-                      favorites: context.watch<FavoritesProvider>(),
-                      onClose: () => Navigator.of(context).maybePop(),
-                    ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _scrollCtrl,
-                        physics: const BouncingScrollPhysics(
-                          parent: AlwaysScrollableScrollPhysics(),
-                        ),
+          body: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: _onVerticalDragStart,
+            onVerticalDragUpdate: _onVerticalDragUpdate,
+            onVerticalDragEnd: _onVerticalDragEnd,
+            child: Transform.translate(
+              offset: Offset(0, _dragDy),
+              child: Transform.scale(
+                scale: scale,
+                alignment: Alignment.topCenter,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Stack(
+                    children: [
+                      _BackgroundGlow(
+                        artworkUrl:
+                            AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
+                      ),
+                      SafeArea(
+                        bottom: false,
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _NowPlayingHero(player: player, song: song),
-                            _ControlsBlock(player: player, song: song),
-                            _IconActionsRow(player: player, song: song),
-                            const SizedBox(height: 24),
-                            _LyricsPreviewCard(
-                              player: player,
-                              onOpenFullScreen: () => _openFullLyrics(context),
+                            _CollapsingHeader(
+                              collapseT: _collapseT,
+                              song: song,
+                              favorites: favorites,
+                              onClose: () => Navigator.of(context).maybePop(),
+                              onMore: () => _showPlayerMoreSheet(
+                                context,
+                                player: player,
+                                favorites: favorites,
+                                song: song,
+                              ),
                             ),
-                            _ArtistsCard(song: song),
-                            _DescriptionCard(song: song),
-                            const SizedBox(height: 40),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                controller: _scrollCtrl,
+                                physics: const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _NowPlayingHero(player: player, song: song),
+                                    _ControlsBlock(player: player, song: song),
+                                    _IconActionsRow(player: player, song: song),
+                                    const SizedBox(height: 28),
+                                    _LyricsPreviewCard(
+                                      player: player,
+                                      onOpenFullScreen: () =>
+                                          _openFullLyrics(context),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    _ArtistsSection(song: song),
+                                    _DescriptionCard(
+                                      song: song,
+                                      onMore: () => _openFullLyrics(context),
+                                    ),
+                                    const SizedBox(height: 40),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
         );
       },
@@ -181,7 +460,7 @@ class _LyricsPageWrapper extends StatelessWidget {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 16, 4),
+              padding: const EdgeInsets.fromLTRB(4, 6, 20, 10),
               child: Row(
                 children: [
                   IconButton(
@@ -189,14 +468,22 @@ class _LyricsPageWrapper extends StatelessWidget {
                         color: Colors.white, size: 28),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
-                  const Text(
-                    'Lyrics',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                  const Expanded(
+                    child: Text(
+                      'Lyrics',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
+                  // Balances the leading chevron button's width so the
+                  // title above stays visually centered instead of
+                  // drifting left, matching the reference screenshots'
+                  // centered "Lyrics" bar.
+                  const SizedBox(width: 48),
                 ],
               ),
             ),
@@ -270,12 +557,14 @@ class _CollapsingHeader extends StatelessWidget {
   final Song song;
   final FavoritesProvider favorites;
   final VoidCallback onClose;
+  final VoidCallback onMore;
 
   const _CollapsingHeader({
     required this.collapseT,
     required this.song,
     required this.favorites,
     required this.onClose,
+    required this.onMore,
   });
 
   @override
@@ -288,14 +577,16 @@ class _CollapsingHeader extends StatelessWidget {
             opacity: (1 - collapseT * 1.6).clamp(0.0, 1.0),
             child: IgnorePointer(
               ignoring: collapseT > 0.5,
-              child: _ExpandedHeaderRow(onClose: onClose, song: song),
+              child:
+                  _ExpandedHeaderRow(onClose: onClose, song: song, onMore: onMore),
             ),
           ),
           Opacity(
             opacity: ((collapseT - 0.35) / 0.65).clamp(0.0, 1.0),
             child: IgnorePointer(
               ignoring: collapseT < 0.5,
-              child: _CollapsedHeaderRow(song: song, favorites: favorites),
+              child: _CollapsedHeaderRow(
+                  song: song, favorites: favorites, onMore: onMore),
             ),
           ),
         ],
@@ -306,8 +597,10 @@ class _CollapsingHeader extends StatelessWidget {
 
 class _ExpandedHeaderRow extends StatelessWidget {
   final VoidCallback onClose;
+  final VoidCallback onMore;
   final Song song;
-  const _ExpandedHeaderRow({required this.onClose, required this.song});
+  const _ExpandedHeaderRow(
+      {required this.onClose, required this.song, required this.onMore});
 
   @override
   Widget build(BuildContext context) {
@@ -351,7 +644,7 @@ class _ExpandedHeaderRow extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.more_vert_rounded,
                 color: Colors.white, size: 24),
-            onPressed: () {},
+            onPressed: onMore,
           ),
         ],
       ),
@@ -362,7 +655,9 @@ class _ExpandedHeaderRow extends StatelessWidget {
 class _CollapsedHeaderRow extends StatelessWidget {
   final Song song;
   final FavoritesProvider favorites;
-  const _CollapsedHeaderRow({required this.song, required this.favorites});
+  final VoidCallback onMore;
+  const _CollapsedHeaderRow(
+      {required this.song, required this.favorites, required this.onMore});
 
   @override
   Widget build(BuildContext context) {
@@ -412,7 +707,7 @@ class _CollapsedHeaderRow extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.more_vert_rounded,
                 color: Colors.white, size: 22),
-            onPressed: () {},
+            onPressed: onMore,
           ),
         ],
       ),
@@ -750,7 +1045,7 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -771,14 +1066,23 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              GestureDetector(
-                onTap: _toggle,
-                child: Text(
-                  _expanded ? 'Hide' : 'Show',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+              Material(
+                color: Colors.white.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: _toggle,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    child: Text(
+                      _expanded ? 'Hide' : 'Show',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -857,88 +1161,242 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Artists card — artwork banner + name + "Artist" caption, Spotify style.
 // ─────────────────────────────────────────────────────────────────────────────
-class _ArtistsCard extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// Artists section — splits song.artist on common multi-artist separators
+// ("Kumar Sanu & Asha Bhosle", "A, B", "A feat. B", "A x B") into individual
+// names, then shows one real, tappable artist card per name (own banner
+// photo, resolved + fetched via the app's own ApiService — the same
+// resolveArtistId/fetchArtist pair ArtistScreen itself uses — instead of
+// one shared card reusing the song's album artwork for every artist).
+// ─────────────────────────────────────────────────────────────────────────────
+class _ArtistsSection extends StatefulWidget {
   final Song song;
-  const _ArtistsCard({required this.song});
+  const _ArtistsSection({required this.song});
+
+  @override
+  State<_ArtistsSection> createState() => _ArtistsSectionState();
+}
+
+class _ArtistsSectionState extends State<_ArtistsSection> {
+  static final _splitPattern = RegExp(
+    r'\s*(?:,|&|/|\bfeat\.?\b|\bft\.?\b|\bx\b|\bvs\.?\b)\s*',
+    caseSensitive: false,
+  );
+
+  late final List<String> _names = _splitNames(widget.song.artist);
+
+  List<String> _splitNames(String raw) {
+    final parts = raw
+        .split(_splitPattern)
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    return parts.isEmpty ? [raw.trim()] : parts;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        color: const Color(0xFF1B1B1B),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Text(
-              'Artists',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: Text(
+            'Artists',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                AurumArtwork(
-                  url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                  size: double.infinity,
-                  borderRadius: 0,
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withOpacity(0.75),
+        ),
+        for (final name in _names) ...[
+          _SingleArtistCard(
+            artistName: name,
+            // Only the song's own primary artist name carries a known
+            // channel id from search time; other split names (a featured
+            // artist, a co-singer) always resolve by name.
+            knownArtistId: name.trim().toLowerCase() ==
+                    widget.song.artist.trim().toLowerCase()
+                ? widget.song.artistChannelId
+                : null,
+          ),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _SingleArtistCard extends StatefulWidget {
+  final String artistName;
+  final String? knownArtistId;
+  const _SingleArtistCard({required this.artistName, this.knownArtistId});
+
+  @override
+  State<_SingleArtistCard> createState() => _SingleArtistCardState();
+}
+
+class _SingleArtistCardState extends State<_SingleArtistCard> {
+  bool _loading = true;
+  bool _navigating = false;
+  String? _resolvedId;
+  String? _imageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      var id = widget.knownArtistId;
+      id ??= await ApiService.resolveArtistId(widget.artistName);
+      if (id == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      final Artist? artist = await ApiService.fetchArtist(id, songCount: 1, albumCount: 1);
+      if (!mounted) return;
+      setState(() {
+        _resolvedId = id;
+        _imageUrl = artist?.imageUrl;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _open(BuildContext context) async {
+    if (_navigating) return;
+    AurumHaptics.selection();
+    var id = _resolvedId;
+    if (id == null) {
+      setState(() => _navigating = true);
+      id = await ApiService.resolveArtistId(widget.artistName);
+      if (!mounted) return;
+      setState(() => _navigating = false);
+    }
+    if (id == null || !context.mounted) return;
+    AurumDepthRoute.to(
+      context,
+      ArtistScreen(artistId: id, artistName: widget.artistName),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: const Color(0xFF1B1B1B),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _open(context),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_loading)
+                    const ColoredBox(
+                      color: Color(0xFF1B1B1B),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: Colors.white38,
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (_imageUrl != null && _imageUrl!.isNotEmpty)
+                    AurumArtwork(
+                      url: _imageUrl!,
+                      size: double.infinity,
+                      borderRadius: 0,
+                    )
+                  else
+                    ColoredBox(
+                      color: Colors.white.withOpacity(0.06),
+                      child: Center(
+                        child: Icon(Icons.person_rounded,
+                            color: Colors.white.withOpacity(0.3), size: 48),
+                      ),
+                    ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.75),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    bottom: 14,
+                    right: 16,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.artistName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Artist',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_navigating)
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: Colors.white70,
+                            ),
+                          )
+                        else
+                          const Icon(Icons.chevron_right_rounded,
+                              color: Colors.white70, size: 22),
                       ],
                     ),
                   ),
-                ),
-                Positioned(
-                  left: 16,
-                  bottom: 14,
-                  right: 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        song.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Artist',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -950,7 +1408,8 @@ class _ArtistsCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _DescriptionCard extends StatelessWidget {
   final Song song;
-  const _DescriptionCard({required this.song});
+  final VoidCallback onMore;
+  const _DescriptionCard({required this.song, required this.onMore});
 
   @override
   Widget build(BuildContext context) {
@@ -1016,7 +1475,7 @@ class _DescriptionCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           GestureDetector(
-            onTap: () {},
+            onTap: onMore,
             child: const Text(
               'More',
               style: TextStyle(
