@@ -21,6 +21,10 @@ import '../widgets/aurum_like_button.dart';
 import '../providers/favorites_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+// Real shared "3-dot" song menu (albums/liked/download/playlist/etc.) —
+// used for the meta pill's overflow button so it opens the same sheet
+// as everywhere else in the app instead of doing nothing.
+import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -84,6 +88,11 @@ class QueueScreen extends StatelessWidget {
                       _QueueMetaPill(
                         songCount: queue.length,
                         totalSeconds: totalSeconds,
+                        onMore: () => showAurumSongOptions(
+                          context,
+                          currentSong,
+                          showPlayerTools: true,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       _TransportToggleRow(player: player),
@@ -225,16 +234,18 @@ class _CurrentTrackCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Meta pill — lock icon (visual only, matches reference) · overflow menu ·
-// "N songs • total duration".
+// Meta pill — lock icon · overflow menu (both visual/tappable, matching
+// reference) · "N songs • total duration".
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueMetaPill extends StatelessWidget {
   final int songCount;
   final int totalSeconds;
+  final VoidCallback? onMore;
 
   const _QueueMetaPill({
     required this.songCount,
     required this.totalSeconds,
+    this.onMore,
   });
 
   String get _durationLabel {
@@ -261,9 +272,21 @@ class _QueueMetaPill extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const SizedBox(width: 12),
+            const SizedBox(width: 6),
             const Icon(Icons.lock_outline_rounded,
                 color: Colors.white38, size: 16),
+            // FIX ("upnext ekdam screenshot jaisa" — reference pill shows
+            // lock icon AND a ⋮ overflow icon together on the left): this
+            // only ever rendered the lock icon, with no overflow button
+            // at all next to it.
+            IconButton(
+              icon: const Icon(Icons.more_vert_rounded,
+                  color: Colors.white38, size: 18),
+              onPressed: onMore,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashRadius: 18,
+            ),
             const Spacer(),
             Text(
               '$songCount songs • $_durationLabel',
