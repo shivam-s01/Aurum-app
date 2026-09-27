@@ -30,6 +30,7 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../models/artist.dart' show Artist;
 import '../models/song.dart';
+import '../models/lyrics.dart' show LyricsResult, LyricLine;
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_seek_bar.dart';
 import '../widgets/aurum_like_button.dart';
@@ -170,9 +171,26 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   static const double _dismissDistance = 140.0;
   static const double _dismissVelocity = 700.0;
 
+  // FIX ("thumbnail ke paas se swipe down se dismiss nahi ho raha"): the
+  // outer GestureDetector and the inner SingleChildScrollView were both
+  // vertical-drag recognizers competing over the exact same touch area
+  // (the hero/artwork sits INSIDE the scroll view, not above it) — in
+  // Flutter's gesture arena the Scrollable routinely wins that race, so
+  // a drag starting over the thumbnail scrolled the list instead of
+  // dismissing. Freezing the list to NeverScrollableScrollPhysics for the
+  // duration of a from-the-top downward drag removes the competing
+  // recognizer entirely, so the outer detector is the only thing that can
+  // claim the gesture. Physics are restored the instant the drag ends
+  // (dismiss or spring-back) so normal scrolling is completely unaffected
+  // once the user isn't actively dragging from the top.
+  bool _scrollLocked = false;
+
   void _onVerticalDragStart(DragStartDetails details) {
     if (_collapseT > 0.02) return; // let the scroll view handle it instead
-    setState(() => _dragging = true);
+    setState(() {
+      _dragging = true;
+      _scrollLocked = true;
+    });
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
@@ -209,6 +227,7 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     setState(() {
       _dragging = false;
       _dragDy = 0.0;
+      _scrollLocked = false;
     });
   }
 
@@ -238,12 +257,41 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
 
         return Scaffold(
           backgroundColor: const Color(0xFF121212),
-          body: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragStart: _onVerticalDragStart,
-            onVerticalDragUpdate: _onVerticalDragUpdate,
-            onVerticalDragEnd: _onVerticalDragEnd,
-            child: Transform.translate(
+          body: Listener(
+            // FIX ("thumbnail ke paas se swipe down dismiss nahi ho raha"):
+            // fires on the raw pointer-down, before the gesture arena
+            // between this drag detector and the scroll view's own
+            // Scrollable even starts resolving. Locking scroll physics
+            // here — whenever a touch lands while the list is still at
+            // the top — guarantees the outer vertical-drag detector below
+            // is the only recognizer left standing for that touch, so a
+            // drag starting on the thumbnail always dismisses instead of
+            // occasionally scrolling instead.
+            onPointerDown: (_) {
+              if (_collapseT <= 0.02 && !_scrollLocked) {
+                setState(() => _scrollLocked = true);
+              }
+            },
+            // A plain tap (no drag ever recognized) leaves _dragging false,
+            // so onVerticalDragEnd never fires to release the lock taken on
+            // pointer-down above — release it here instead whenever the
+            // pointer goes up/away without a drag having started.
+            onPointerUp: (_) {
+              if (!_dragging && _scrollLocked) {
+                setState(() => _scrollLocked = false);
+              }
+            },
+            onPointerCancel: (_) {
+              if (!_dragging && _scrollLocked) {
+                setState(() => _scrollLocked = false);
+              }
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragStart: _onVerticalDragStart,
+              onVerticalDragUpdate: _onVerticalDragUpdate,
+              onVerticalDragEnd: _onVerticalDragEnd,
+              child: Transform.translate(
               offset: Offset(0, _dragDy),
               child: Transform.scale(
                 scale: scale,
@@ -274,9 +322,11 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                             Expanded(
                               child: SingleChildScrollView(
                                 controller: _scrollCtrl,
-                                physics: const BouncingScrollPhysics(
-                                  parent: AlwaysScrollableScrollPhysics(),
-                                ),
+                                physics: _scrollLocked
+                                    ? const NeverScrollableScrollPhysics()
+                                    : const BouncingScrollPhysics(
+                                        parent: AlwaysScrollableScrollPhysics(),
+                                      ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -308,6 +358,7 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                   ),
                 ),
               ),
+            ),
             ),
           ),
         );
@@ -671,17 +722,14 @@ class _NowPlayingHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final favorites = context.watch<FavoritesProvider>();
     final screenSize = MediaQuery.of(context).size;
-    // FIX ("sab chipak gaya hai, khula khula nhi lag raha" vs. Classic's
-    // own hero): this was screenWidth - 64, a flat 32dp side inset with
-    // no height cap at all — tighter than Classic's own proportions and,
-    // with no ceiling, able to grow tall enough on short/squat screens to
-    // push the rest of the layout down, which is also part of what made
-    // the bottom icon row look like it was jumping around during drags.
-    // Matching Classic's own formula: tighter side inset for a bigger,
-    // airier cover, clamped to a sensible fraction of screen height.
-    const artworkVisualPad = 18.0;
-    final artSize = (screenSize.width - artworkVisualPad * 2)
-        .clamp(0.0, screenSize.height * 0.42);
+    // FIX ("thumbnail chhota kro aur thumbnail-controls ke bich ka gap
+    // kam kro"): the hero cover was sized to near-full screen width
+    // (width - 36) with a 32dp gap before the title/controls below —
+    // read as oversized and too spaced-out compared to the reference.
+    // Smaller side inset multiplier (0.62 of width instead of ~0.95) and
+    // a tighter post-art gap (18 instead of 32) close both up.
+    final artSize = (screenSize.width * 0.62)
+        .clamp(0.0, screenSize.height * 0.32);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 20, 0, 0),
@@ -703,7 +751,7 @@ class _NowPlayingHero extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 18),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
@@ -940,10 +988,14 @@ class _IconActionsRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lyrics teaser card — quietly checks whether synced lyrics exist, then
-// shows a single compact row ("Lyrics available") so the player doesn't
-// dump lyric text mid-scroll. Tapping it opens the app's own full
-// AurumLyricsPage (synced, animated, highlighted as playback advances).
+// Lyrics peek card — a bigger, "Bhojpuri-reference" sized box (not a thin
+// one-line teaser row) that shows 3 real lyric lines with the currently
+// playing line live-highlighted and auto-centered as the song advances —
+// same data source as the app's full lyrics screen (PlayerProvider.
+// fetchSyncedLyrics() + LyricsResult.activeIndexFor(position)), just a
+// fixed, short "peek" height here so only a glimpse is visible in the
+// player itself; tapping it opens the app's full AurumLyricsPage for the
+// complete, scrollable experience.
 // ─────────────────────────────────────────────────────────────────────────────
 class _LyricsPreviewCard extends StatefulWidget {
   final PlayerProvider player;
@@ -958,8 +1010,17 @@ class _LyricsPreviewCard extends StatefulWidget {
 }
 
 class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
+  // FIX ("bina scroll kiye lyrics ka pura box na dikhe, bs 10% jitna peek
+  // ho ki niche kuch hai"): was 132 tall with room for 3 full lines (one
+  // above, active, one below) — closer to the full lyrics view already
+  // laid out inline than a teaser. Shrunk to a single active-line sliver
+  // under the "Lyrics" header, clipped short enough that only a hint of
+  // it is visible — the rest only appears once the user actually scrolls
+  // it into fuller view or taps through to the full lyrics screen.
+  static const double _peekHeight = 76.0;
+
   bool _loading = true;
-  bool _hasLyrics = false;
+  LyricsResult? _result;
   String? _loadedForSongId;
 
   @override
@@ -968,18 +1029,6 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
     _load();
   }
 
-  // FIX ("lyrics ka option box hai usme ekdam lyrics ho tb, ekdam front
-  // pr na show ho, ekdam niche daalo, itna show ho ki bs pata chale niche
-  // kuch hai"): the old card fetched and printed up to 6 lines of raw
-  // lyric text straight into the player, with a separate "Show/Hide"
-  // toggle competing for attention above it — a big block of lyrics
-  // sitting mid-scroll, not a light teaser. This checks quietly in the
-  // background whether synced lyrics exist for the song, then renders
-  // only a single compact "Lyrics available" row — enough to tell the
-  // user there's something below, nothing more. Tapping it goes straight
-  // to the app's own full synced/animated lyrics screen (AurumLyricsPage,
-  // reused as-is via widget.onOpenFullScreen) instead of unfolding a
-  // second, separate text block in place.
   Future<void> _load() async {
     final song = widget.player.currentSong;
     if (song == null) return;
@@ -987,14 +1036,14 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
       final result = await widget.player.fetchSyncedLyrics();
       if (!mounted) return;
       setState(() {
-        _hasLyrics = result.hasAny;
+        _result = result;
         _loadedForSongId = song.id;
         _loading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _hasLyrics = false;
+        _result = null;
         _loadedForSongId = song.id;
         _loading = false;
       });
@@ -1008,13 +1057,18 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
         _loadedForSongId != null &&
         _loadedForSongId != song.id) {
       _loading = true;
-      _hasLyrics = false;
+      _result = null;
       _loadedForSongId = null;
       // Re-check for the new song without blocking this build.
       WidgetsBinding.instance.addPostFrameCallback((_) => _load());
     }
 
+    final result = _result;
+    final hasLyrics = result?.hasAny ?? false;
+    final hasSynced = result?.hasSynced ?? false;
+
     return Container(
+      height: _peekHeight,
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
@@ -1029,41 +1083,125 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: (_loading || !_hasLyrics) ? null : widget.onOpenFullScreen,
+          onTap: (_loading || !hasLyrics) ? null : widget.onOpenFullScreen,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(20, 14, 16, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.lyrics_rounded,
-                    color: Colors.white70, size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _loading
-                        ? 'Lyrics'
-                        : _hasLyrics
-                            ? 'Lyrics available'
-                            : 'Lyrics not found',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
+                Row(
+                  children: [
+                    const Icon(Icons.lyrics_rounded,
+                        color: Colors.white70, size: 18),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Lyrics',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    if (_loading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white54,
+                        ),
+                      )
+                    else if (hasLyrics)
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: Colors.white.withOpacity(0.75)),
+                  ],
                 ),
-                if (_loading)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white54,
-                    ),
-                  )
-                else if (_hasLyrics)
-                  Icon(Icons.chevron_right_rounded,
-                      size: 20, color: Colors.white.withOpacity(0.75)),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: _loading
+                      ? const SizedBox.shrink()
+                      : !hasLyrics
+                          ? const Center(
+                              child: Text(
+                                'Lyrics not found',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            )
+                          : hasSynced
+                              ? _LivePeekLines(result: result!)
+                              : Center(
+                                  child: Text(
+                                    result!.plain!.split('\n').first,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14.5,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live single-line lyric peek — shows ONLY the currently-active line,
+// updating live with playback position, top-aligned in a short box with a
+// fade at the bottom so it reads as "there's more below" rather than the
+// full lyrics view sitting inline. Tapping the card (see _LyricsPreviewCard
+// above) opens the app's full AurumLyricsPage for the complete scroll.
+// ─────────────────────────────────────────────────────────────────────────────
+class _LivePeekLines extends StatelessWidget {
+  final LyricsResult result;
+  const _LivePeekLines({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final position =
+        context.select<PlayerProvider, Duration>((p) => p.position);
+    final lines = result.synced!;
+    final activeIndex = result.activeIndexFor(position);
+    final activeText = (activeIndex >= 0 && activeIndex < lines.length)
+        ? lines[activeIndex].text
+        : (lines.isNotEmpty ? lines.first.text : '');
+
+    return ClipRect(
+      child: ShaderMask(
+        shaderCallback: (rect) => const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.white, Colors.white, Colors.transparent],
+          stops: [0.0, 0.55, 1.0],
+        ).createShader(rect),
+        blendMode: BlendMode.dstIn,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            child: Text(
+              activeText.isEmpty ? ' ' : activeText,
+              key: ValueKey(activeIndex),
+              maxLines: 2,
+              overflow: TextOverflow.fade,
+              softWrap: true,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
             ),
           ),
         ),
@@ -1320,94 +1458,88 @@ class _SingleArtistCardState extends State<_SingleArtistCard> {
 // Description / credits card — title, duration, artist, "Description" +
 // "More" affordance.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Description card — sized to match the Artists card exactly (same 16:9
+// AspectRatio, same horizontal 16 margin) so the two sections below the
+// lyrics peek read as one consistent set of banner-sized cards, instead of
+// a tall artist banner sitting above a short, content-height details box.
+// ─────────────────────────────────────────────────────────────────────────────
 class _DescriptionCard extends StatelessWidget {
   final Song song;
   const _DescriptionCard({required this.song});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF4A2E7A), Color(0xFF2B1854)],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            song.title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF4A2E7A), Color(0xFF2B1854)],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            song.durationString.isNotEmpty ? song.durationString : '--:--',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            song.artist,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Description',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${song.title} • ${song.artist}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 14.5,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 10),
-          // FIX ("More" pr ekdam lyrics khulte the — usko song details ka
-          // page/sheet khulna chahiye): this used to call onMore, which
-          // was wired to _openFullLyrics — tapping "More" under a song's
-          // own description opened the *lyrics* screen, not any kind of
-          // song detail. Swapped to the app's own showSongInfoDialog
-          // (title/artist/album/duration/year/language sheet) — the same
-          // "details" surface the ⓘ icon and the shared 3-dot menu both
-          // already use elsewhere, so "More" here now actually shows more
-          // about the song.
-          GestureDetector(
-            onTap: () => showSongInfoDialog(context, song),
-            child: const Text(
-              'More',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                '${song.durationString.isNotEmpty ? song.durationString : '--:--'} • ${song.artist}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: Text(
+                  '${song.title} • ${song.artist}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              // FIX ("More" pr ekdam lyrics khulte the — usko song details
+              // ka page/sheet khulna chahiye): swapped to the app's own
+              // showSongInfoDialog — the same "details" surface the ⓘ icon
+              // and shared 3-dot menu already use.
+              GestureDetector(
+                onTap: () => showSongInfoDialog(context, song),
+                child: const Text(
+                  'More',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
