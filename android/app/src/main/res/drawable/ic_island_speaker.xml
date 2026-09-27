@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Generic audio-output/route glyph (speaker with sound waves) shown
+  top-right on the expanded card — AurumIslandService swaps its tint or
+  the underlying drawable based on the detected output route (speaker /
+  wired / Bluetooth / cast), same idea as Spotify's own cast-or-device
+  icon in that corner. Default state below is the "local speaker" glyph.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#99FFFFFF">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,10 L3,14 L7,14 L12,19 L12,5 L7,10 Z"/>
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M16.5,12 C16.5,10.23 15.48,8.71 14,7.97 L14,16.02 C15.48,15.29 16.5,13.77 16.5,12 Z"/>
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M14,3.23 L14,5.29 C16.89,6.15 19,8.83 19,12 C19,15.17 16.89,17.85 14,18.71 L14,20.77 C18.01,19.86 21,16.28 21,12 C21,7.72 18.01,4.14 14,3.23 Z"/>
+</vector>

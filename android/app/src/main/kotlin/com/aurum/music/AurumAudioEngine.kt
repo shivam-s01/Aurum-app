@@ -2956,6 +2956,12 @@ class AurumAudioEngine(
     private val isCastActive: Boolean
         get() = activeCastPlayer != null
 
+    /** Public read-only mirror of [isCastActive] for callers outside this
+     *  file (e.g. AurumIslandService's route icon) that need to know
+     *  whether Cast is currently driving playback, without exposing the
+     *  private CastPlayer/_castManager internals themselves. */
+    fun isCasting(): Boolean = isCastActive
+
     /** Safe accessor for the active CastPlayer — never throws, unlike a
      *  chain of !! assertions. Returns null (rather than crashing) in
      *  the defensive edge case where isCasting reports true but

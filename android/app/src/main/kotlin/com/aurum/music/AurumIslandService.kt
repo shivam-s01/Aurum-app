@@ -4,14 +4,20 @@ import android.animation.ValueAnimator
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
@@ -27,12 +33,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.random.Random
 
 /**
  * Dynamic-Island-style overlay: a small pill near the camera cutout while
- * something plays, tap-to-expand into a Spotify-red-card-style panel
- * (Aurum gold/dark instead of red), auto-collapsing back after a few
+ * something plays, tap-to-expand into a Spotify-full-player-style panel
+ * (Aurum gold/dark instead of red, fully user-customizable position/size/
+ * color from Settings -> Player), auto-collapsing back after a few
  * seconds. Runs entirely as a WindowManager overlay (SYSTEM_ALERT_WINDOW) —
  * no notification of its own, no separate foreground promotion; it rides
  * on AurumMediaSessionService's already-foreground lifetime and is
@@ -43,6 +52,15 @@ import kotlin.random.Random
  * ExoPlayer — same source of truth AurumWidgetProvider already reads from
  * — via a [Player.Listener] registered in onCreate() and torn down in
  * onDestroy().
+ *
+ * Customization (position/size/color) is read once per view-add from
+ * SharedPreferences (the same "FlutterSharedPreferences" store Dart's
+ * Settings -> Player screen writes to, mirroring the island_enabled flag's
+ * existing flutter.island_enabled convention) rather than pushed through a
+ * MethodChannel — this service has no guarantee a Dart isolate is even
+ * alive while it's running (the whole point of the overlay is surviving
+ * app-minimized), so reading the persisted values directly is the only
+ * path that works regardless of Dart's lifecycle.
  */
 class AurumIslandService : Service() {
 
@@ -60,12 +78,36 @@ class AurumIslandService : Service() {
         private const val WAVE_ANIM_MIN_MS = 260L
         private const val WAVE_ANIM_MAX_MS = 420L
 
+        // Play/pause "icon-swap + scale-pop" timing — agreed alternative
+        // to porting aurum_play_pause_icon.dart's full triangle<->bars
+        // path-morph into native Kotlin/XML. Pops past 1.0 then eases
+        // back, echoing that widget's own 1.0->1.25->1.0 scale beat
+        // (toned down slightly here since this is a swap, not a morph —
+        // 1.18 reads as a confident "tap landed" pop without looking
+        // like an overshoot bug).
+        private const val PLAY_POP_SCALE = 1.18f
+        private const val PLAY_POP_MS = 260L
+
+        // SharedPreferences keys — all under the "flutter." prefix the
+        // shared_preferences plugin already applies, matching
+        // island_enabled's existing convention so Dart's Settings screen
+        // and this service agree on the same store/keys without a channel
+        // call in between.
+        private const val PREFS_NAME = "FlutterSharedPreferences"
+        private const val KEY_POSITION = "flutter.island_position"       // "top_left" | "top_center" | "top_right"
+        private const val KEY_SIZE = "flutter.island_size_scale"         // float, 0.8..1.3
+        private const val KEY_COLOR = "flutter.island_accent_color"      // int ARGB, e.g. 0xFFB89640
+
+        private const val DEFAULT_SIZE_SCALE = 1.0f
+        private const val DEFAULT_ACCENT = 0xFFB89640.toInt()
+
         @Volatile
         var isRunning: Boolean = false
             private set
     }
 
     private lateinit var windowManager: WindowManager
+    private lateinit var prefs: SharedPreferences
     private var pillView: View? = null
     private var expandedView: View? = null
     private var isExpanded = false
@@ -76,6 +118,7 @@ class AurumIslandService : Service() {
     private var lastPillBitmap: Bitmap? = null
     private var lastExpandedBitmap: Bitmap? = null
     private var seekTicker: Job? = null
+    private var isUserScrubbing = false
 
     private var playerListener: Player.Listener? = null
 
@@ -87,11 +130,29 @@ class AurumIslandService : Service() {
     private var waveAnimators: List<ValueAnimator>? = null
     private var waveBarsRunning = false
 
+    // Cached customization, re-read from SharedPreferences every time a
+    // view is (re)built (addPillView/addExpandedView) so a change made in
+    // Settings while the overlay is already up takes effect on the very
+    // next pill<->expanded swap rather than needing a full restart.
+    private data class IslandPrefs(
+        val position: String,
+        val sizeScale: Float,
+        val accentColor: Int,
+    )
+
+    private fun readPrefs(): IslandPrefs {
+        val position = prefs.getString(KEY_POSITION, "top_center") ?: "top_center"
+        val sizeScale = prefs.getFloat(KEY_SIZE, DEFAULT_SIZE_SCALE).coerceIn(0.8f, 1.3f)
+        val accent = prefs.getInt(KEY_COLOR, DEFAULT_ACCENT)
+        return IslandPrefs(position, sizeScale, accent)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         isRunning = true
         addPillView()
         registerPlayerListener()
@@ -170,11 +231,11 @@ class AurumIslandService : Service() {
         expandedView?.let { view ->
             view.findViewById<TextView>(R.id.island_expanded_title)?.text = title
             view.findViewById<TextView>(R.id.island_expanded_artist)?.text = artist
-            view.findViewById<ImageView>(R.id.island_expanded_play_pause)?.setImageResource(
-                if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
-            )
+            setPlayPauseState(view, isPlaying, animate = false)
             updateSeekbar(player)
             updateQueueThumbnails(player)
+            updateLikeIcon(view)
+            updateRouteIcon(view)
         }
 
         if (artworkUri != lastArtworkUrl) {
@@ -184,7 +245,7 @@ class AurumIslandService : Service() {
     }
 
     private fun updateSeekbar(player: Player?) {
-        if (player == null) return
+        if (player == null || isUserScrubbing) return
         val duration = player.duration.takeIf { it > 0 } ?: 1L
         val position = player.currentPosition.coerceIn(0L, duration)
         val seekbar = expandedView?.findViewById<SeekBar>(R.id.island_expanded_seekbar)
@@ -193,6 +254,99 @@ class AurumIslandService : Service() {
         expandedView?.findViewById<TextView>(R.id.island_expanded_position)?.text = formatMs(position)
         expandedView?.findViewById<TextView>(R.id.island_expanded_duration)?.text =
             if (player.duration > 0) formatMs(player.duration) else "0:00"
+    }
+
+    private fun formatMs(ms: Long): String {
+        val totalSec = ms / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return String.format("%d:%02d", min, sec)
+    }
+
+    private fun startSeekTicker() {
+        seekTicker?.cancel()
+        seekTicker = scope.launch {
+            while (isExpanded) {
+                updateSeekbar(AurumMediaSessionService.sharedEngine?.player)
+                delay(500)
+            }
+        }
+    }
+
+    // ---- Like ("+") button --------------------------------------------------
+
+    /** Reflects [AurumAudioEngine.isCurrentSongLiked] state on the heart
+     *  icon — reuses the exact assets/notification already relies on
+     *  (ic_like_outline / ic_like_filled) so the Island's heart is
+     *  pixel-identical to the one on the lock screen and notification. */
+    private fun updateLikeIcon(view: View) {
+        val engine = AurumMediaSessionService.sharedEngine ?: return
+        val liked = engine.isCurrentSongLiked()
+        view.findViewById<ImageView>(R.id.island_expanded_like)?.setImageResource(
+            if (liked) R.drawable.ic_like_filled else R.drawable.ic_like_outline
+        )
+    }
+
+    // ---- Audio route icon ---------------------------------------------------
+
+    /** Speaker/Bluetooth glyph in the card's top-right corner, mirroring
+     *  Spotify's own output-device icon. Cast state takes priority (an
+     *  active Cast session is the most "another device" of all the
+     *  routes), then a live AudioManager query for a connected Bluetooth
+     *  A2DP/SCO/BLE sink, defaulting to the plain speaker glyph. This is a
+     *  deliberately small self-contained check rather than reaching into
+     *  AurumAudioEffects's private route detector, to avoid widening that
+     *  file's API just for one icon here. */
+    private fun updateRouteIcon(view: View) {
+        val icon = view.findViewById<ImageView>(R.id.island_expanded_route_icon) ?: return
+        val engine = AurumMediaSessionService.sharedEngine
+        val isCasting = engine?.isCasting() == true
+        if (isCasting) {
+            icon.setImageResource(R.drawable.ic_island_speaker)
+            icon.alpha = 1f
+            return
+        }
+        val isBluetooth = try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val devices = am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            devices?.any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            } ?: false
+        } catch (_: Throwable) {
+            false
+        }
+        icon.setImageResource(if (isBluetooth) R.drawable.ic_island_bluetooth else R.drawable.ic_island_speaker)
+        icon.alpha = 0.6f
+    }
+
+    // ---- Play/pause: icon-swap + scale-pop ----------------------------------
+
+    /** Swaps the play/pause drawable and, when [animate] is true, runs a
+     *  quick scale-pop on the icon — the agreed lightweight stand-in for
+     *  porting the Dart player's full path-morph animation
+     *  (AurumPlayPauseIcon / aurum_play_pause_icon.dart) into native
+     *  Kotlin. [animate] is false on passive refreshes (e.g. metadata
+     *  ticks, seek ticker) so the pop only plays on an actual user-driven
+     *  transport action, not every 500ms refresh tick. */
+    private fun setPlayPauseState(view: View, isPlaying: Boolean, animate: Boolean) {
+        val icon = view.findViewById<ImageView>(R.id.island_expanded_play_pause) ?: return
+        icon.setImageResource(if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
+        if (!animate) return
+        icon.animate().cancel()
+        icon.scaleX = 1f
+        icon.scaleY = 1f
+        icon.animate()
+            .scaleX(PLAY_POP_SCALE).scaleY(PLAY_POP_SCALE)
+            .setDuration(PLAY_POP_MS / 2)
+            .withEndAction {
+                icon.animate()
+                    .scaleX(1f).scaleY(1f)
+                    .setDuration(PLAY_POP_MS / 2)
+                    .start()
+            }
+            .start()
     }
 
     // ---- Waveform bar animation --------------------------------------------
@@ -283,22 +437,7 @@ class AurumIslandService : Service() {
         }
     }
 
-    private fun formatMs(ms: Long): String {
-        val totalSec = ms / 1000
-        val min = totalSec / 60
-        val sec = totalSec % 60
-        return String.format("%d:%02d", min, sec)
-    }
-
-    private fun startSeekTicker() {
-        seekTicker?.cancel()
-        seekTicker = scope.launch {
-            while (isExpanded) {
-                updateSeekbar(AurumMediaSessionService.sharedEngine?.player)
-                delay(500)
-            }
-        }
-    }
+    // ---- Up-next queue thumbnails -------------------------------------------
 
     private fun updateQueueThumbnails(player: Player) {
         val ids = listOf(
@@ -358,6 +497,69 @@ class AurumIslandService : Service() {
         }
     }
 
+    // ---- Customization: position / size / color -----------------------------
+
+    /** Applies the user's Settings -> Player customization to a freshly
+     *  inflated pill/expanded root: horizontal gravity from [IslandPrefs.position],
+     *  a uniform size multiplier via View.setScaleX/Y (simpler and
+     *  cheaper than re-deriving every dimension in the layout), and the
+     *  accent color tinted onto both the card background and every
+     *  gold-colored control (seekbar, wordmark, waveform bars, shuffle
+     *  icon) so "color" genuinely re-themes the whole card rather than
+     *  just one element. */
+    private fun applyCustomization(root: View, params: WindowManager.LayoutParams, prefsSnapshot: IslandPrefs) {
+        params.gravity = Gravity.TOP or when (prefsSnapshot.position) {
+            "top_left" -> Gravity.LEFT
+            "top_right" -> Gravity.RIGHT
+            else -> Gravity.CENTER_HORIZONTAL
+        }
+
+        // pivot at top-center so scaling grows/shrinks the card without
+        // drifting it sideways off its gravity-anchored position.
+        root.scaleX = prefsSnapshot.sizeScale
+        root.scaleY = prefsSnapshot.sizeScale
+        root.pivotX = root.width / 2f
+        root.pivotY = 0f
+
+        tintBackground(root.background, prefsSnapshot.accentColor)
+
+        val accent = prefsSnapshot.accentColor
+        (root.findViewById<SeekBar>(R.id.island_expanded_seekbar))?.let {
+            it.progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            it.thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+        }
+        root.findViewById<TextView>(R.id.island_expanded_wordmark)?.setTextColor(accent)
+        listOf(
+            root.findViewById<View>(R.id.island_wave_bar_1),
+            root.findViewById<View>(R.id.island_wave_bar_2),
+            root.findViewById<View>(R.id.island_wave_bar_3),
+        ).forEach { bar ->
+            (bar?.background as? GradientDrawable)?.mutate()?.let { d ->
+                (d as GradientDrawable).setColor(accent)
+            }
+        }
+        root.findViewById<ImageView>(R.id.island_expanded_shuffle)?.setColorFilter(accent)
+    }
+
+    /** Re-tints a GradientDrawable background (island_pill_bg /
+     *  island_expanded_bg) in place via mutate()+setColor() rather than
+     *  swapping in new drawable XML per color choice — keeps the
+     *  customization data-driven (any ARGB int works) instead of needing
+     *  a fixed palette of pre-baked drawables. Background stays near-
+     *  black/dark regardless of accent (matches the original "always dark
+     *  under the camera cutout" reasoning); only the accent-colored
+     *  controls above pick up the user's chosen color. Left as a no-op if
+     *  the drawable isn't a GradientDrawable for any reason — the card
+     *  still renders with its default XML color rather than crashing. */
+    private fun tintBackground(bg: android.graphics.drawable.Drawable?, @Suppress("UNUSED_PARAMETER") accent: Int) {
+        val gd = bg?.mutate() as? GradientDrawable ?: return
+        // Intentionally not recoloring the background fill itself (stays
+        // dark per the original design), but this hook is where a future
+        // "background follows accent" preference could plug in without
+        // touching the rest of applyCustomization's callers.
+        gd.setStroke(dpToPx(1f), Color.argb(0x33, Color.red(accent), Color.green(accent), Color.blue(accent)))
+    }
+
     // ---- Overlay view lifecycle --------------------------------------------
 
     private fun overlayType(): Int =
@@ -370,6 +572,7 @@ class AurumIslandService : Service() {
         if (pillView != null) return
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.island_pill, null)
+        val prefsSnapshot = readPrefs()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -379,8 +582,8 @@ class AurumIslandService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         )
-        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         params.y = 12
+        applyCustomization(view, params, prefsSnapshot)
 
         view.setOnClickListener { expand() }
 
@@ -408,6 +611,7 @@ class AurumIslandService : Service() {
         if (expandedView != null) return
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.island_expanded, null)
+        val prefsSnapshot = readPrefs()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -416,8 +620,8 @@ class AurumIslandService : Service() {
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         )
-        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         params.y = 12
+        applyCustomization(view, params, prefsSnapshot)
 
         wireExpandedControls(view)
 
@@ -438,10 +642,12 @@ class AurumIslandService : Service() {
 
     private fun wireExpandedControls(view: View) {
         val engine = { AurumMediaSessionService.sharedEngine }
+
         view.findViewById<ImageView>(R.id.island_expanded_play_pause)?.setOnClickListener {
             val e = engine() ?: return@setOnClickListener
-            if (e.player.isPlaying) e.pause() else e.play()
-            refreshFromPlayer()
+            val nowPlaying = !e.player.isPlaying
+            if (nowPlaying) e.play() else e.pause()
+            setPlayPauseState(view, nowPlaying, animate = true)
             scheduleAutoCollapse()
         }
         view.findViewById<ImageView>(R.id.island_expanded_next)?.setOnClickListener {
@@ -457,10 +663,55 @@ class AurumIslandService : Service() {
             e.setShuffleMode(!e.player.shuffleModeEnabled)
             scheduleAutoCollapse()
         }
+        // "+"/heart button — reuses the exact same toggle path the
+        // notification/lock-screen like button already drives
+        // (engine.triggerLikeToggle() -> Dart's onLikeToggleRequested ->
+        // FavoritesProvider's Hive-backed toggleFavorite), so a like made
+        // from the Island shows up as liked everywhere else in the app
+        // (and vice versa) without the Island needing its own persistence.
+        view.findViewById<ImageView>(R.id.island_expanded_like)?.setOnClickListener {
+            engine()?.triggerLikeToggle()
+            // Optimistic flip — the real state round-trips back through
+            // Dart asynchronously, but reflecting the tap immediately
+            // here (rather than waiting) is what makes it feel responsive
+            // the way Spotify's own heart-tap does.
+            updateLikeIcon(view)
+            scheduleAutoCollapse()
+        }
+
+        // Draggable seekbar — mirrors tapping/dragging Spotify's own
+        // progress bar. isUserScrubbing suppresses updateSeekbar()'s
+        // periodic overwrites while a drag is in progress so the ticker
+        // doesn't fight the user's thumb.
+        view.findViewById<SeekBar>(R.id.island_expanded_seekbar)?.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar) {
+                    isUserScrubbing = true
+                    autoCollapseJob?.cancel()
+                }
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val player = engine()?.player ?: return
+                    val duration = player.duration.takeIf { it > 0 } ?: return
+                    val targetMs = (duration * (progress / 1000.0)).toLong()
+                    view.findViewById<TextView>(R.id.island_expanded_position)?.text = formatMs(targetMs)
+                }
+                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                    val player = engine()?.player
+                    val duration = player?.duration?.takeIf { it > 0 }
+                    if (player != null && duration != null) {
+                        val targetMs = (duration * (seekBar.progress / 1000.0)).toLong()
+                        player.seekTo(targetMs)
+                    }
+                    isUserScrubbing = false
+                    scheduleAutoCollapse()
+                }
+            }
+        )
+
         // Tapping anywhere else on the card collapses it immediately,
         // same as tapping outside per the confirmed spec.
         view.setOnClickListener { collapse() }
-        view.findViewById<SeekBar>(R.id.island_expanded_seekbar)?.setOnTouchListener { _, _ -> true }
     }
 
     // ---- Expand / collapse --------------------------------------------------
