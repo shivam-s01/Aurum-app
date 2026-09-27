@@ -94,11 +94,16 @@ class AurumIslandService : Service() {
         // and this service agree on the same store/keys without a channel
         // call in between.
         private const val PREFS_NAME = "FlutterSharedPreferences"
-        private const val KEY_POSITION = "flutter.island_position"       // "top_left" | "top_center" | "top_right"
-        private const val KEY_SIZE = "flutter.island_size_scale"         // float, 0.8..1.3
+        private const val KEY_X = "flutter.island_x_dp"                  // float, dp offset from horizontal center
+        private const val KEY_Y = "flutter.island_y_dp"                  // float, dp offset from top
+        private const val KEY_WIDTH = "flutter.island_width_dp"          // float, dp
+        private const val KEY_HEIGHT = "flutter.island_height_dp"        // float, dp
         private const val KEY_COLOR = "flutter.island_accent_color"      // int ARGB, e.g. 0xFFB89640
 
-        private const val DEFAULT_SIZE_SCALE = 1.0f
+        private const val DEFAULT_X_DP = 0f
+        private const val DEFAULT_Y_DP = 8f
+        private const val DEFAULT_WIDTH_DP = 101f
+        private const val DEFAULT_HEIGHT_DP = 32f
         private const val DEFAULT_ACCENT = 0xFFB89640.toInt()
 
         @Volatile
@@ -152,16 +157,33 @@ class AurumIslandService : Service() {
     // Settings while the overlay is already up takes effect on the very
     // next pill<->expanded swap rather than needing a full restart.
     private data class IslandPrefs(
-        val position: String,
-        val sizeScale: Float,
+        val xDp: Float,
+        val yDp: Float,
+        val widthDp: Float,
+        val heightDp: Float,
         val accentColor: Int,
     )
 
     private fun readPrefs(): IslandPrefs {
-        val position = prefs.getString(KEY_POSITION, "top_center") ?: "top_center"
-        val sizeScale = prefs.getFloat(KEY_SIZE, DEFAULT_SIZE_SCALE).coerceIn(0.8f, 1.3f)
-        val accent = prefs.getInt(KEY_COLOR, DEFAULT_ACCENT)
-        return IslandPrefs(position, sizeScale, accent)
+        // getFloat throws ClassCastException if the key was ever written
+        // as a different type (e.g. a stale Double from an older build) —
+        // guarded per-key so one bad legacy value can't crash the whole
+        // overlay on every addView.
+        fun safeFloat(key: String, default: Float): Float =
+            try { prefs.getFloat(key, default) } catch (_: Throwable) { default }
+
+        val xDp = safeFloat(KEY_X, DEFAULT_X_DP).coerceIn(-150f, 150f)
+        val yDp = safeFloat(KEY_Y, DEFAULT_Y_DP).coerceIn(0f, 300f)
+        // Width/height floors kept above the pill's natural content size
+        // (24dp artwork + 16dp wave glyph + padding ≈ 78dp wide, ~36dp
+        // tall including vertical padding) so a low slider value shrinks
+        // the tap target/background only down to something that still
+        // fully contains the pill's children — never clips the artwork
+        // or waveform bars.
+        val widthDp = safeFloat(KEY_WIDTH, DEFAULT_WIDTH_DP).coerceIn(90f, 360f)
+        val heightDp = safeFloat(KEY_HEIGHT, DEFAULT_HEIGHT_DP).coerceIn(32f, 96f)
+        val accent = try { prefs.getInt(KEY_COLOR, DEFAULT_ACCENT) } catch (_: Throwable) { DEFAULT_ACCENT }
+        return IslandPrefs(xDp, yDp, widthDp, heightDp, accent)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -203,19 +225,19 @@ class AurumIslandService : Service() {
     /** Re-applies position/size/color to whichever view is currently up,
      *  without tearing the view down and re-adding it (which would cause a
      *  visible flicker on every slider tick while the user drags). Only
-     *  the WindowManager params that actually change (gravity, for
-     *  position) require updateViewLayout; scale/color are plain view
-     *  property changes that redraw on their own. */
+     *  the WindowManager params that actually change (gravity/x/y/size)
+     *  require updateViewLayout; color is a plain view property change
+     *  that redraws on its own. */
     private fun reapplyCustomization() {
         val prefsSnapshot = readPrefs()
         pillView?.let { view ->
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return@let
-            applyCustomization(view, params, prefsSnapshot)
+            applyCustomization(view, params, prefsSnapshot, applySize = true)
             try { windowManager.updateViewLayout(view, params) } catch (_: Throwable) {}
         }
         expandedView?.let { view ->
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return@let
-            applyCustomization(view, params, prefsSnapshot)
+            applyCustomization(view, params, prefsSnapshot, applySize = false)
             try { windowManager.updateViewLayout(view, params) } catch (_: Throwable) {}
         }
     }
@@ -555,34 +577,54 @@ class AurumIslandService : Service() {
      *  gold-colored control (seekbar, wordmark, waveform bars, shuffle
      *  icon) so "color" genuinely re-themes the whole card rather than
      *  just one element. */
-    private fun applyCustomization(root: View, params: WindowManager.LayoutParams, prefsSnapshot: IslandPrefs) {
-        params.gravity = Gravity.TOP or when (prefsSnapshot.position) {
-            "top_left" -> Gravity.LEFT
-            "top_right" -> Gravity.RIGHT
-            else -> Gravity.CENTER_HORIZONTAL
-        }
+    /** Applies the user's Settings -> Player customization to a freshly
+     *  inflated pill/expanded root: X/Y offset from top-center via
+     *  [WindowManager.LayoutParams], plus the accent color tinted onto
+     *  both the card background and every gold-colored control (seekbar,
+     *  wordmark, waveform bars, shuffle icon) so "color" genuinely
+     *  re-themes the whole card rather than just one element.
+     *
+     *  [applySize] additionally pins the root to an explicit width/height
+     *  from prefs — only ever passed true for the collapsed PILL. The
+     *  expanded card's content (artwork, title, seekbar, transport
+     *  controls, queue thumbnails) is far larger than the pill and was
+     *  never meant to be squeezed into the same 90-360dp/32-96dp range;
+     *  forcing it there would clip or overlap the card's own controls.
+     *  The expanded card keeps its natural WRAP_CONTENT size regardless
+     *  of the user's Island Width/Height sliders — only the collapsed
+     *  pill's footprint is user-resizable. */
+    private fun applyCustomization(
+        root: View,
+        params: WindowManager.LayoutParams,
+        prefsSnapshot: IslandPrefs,
+        applySize: Boolean,
+    ) {
+        // Anchored top-center. The X offset (left/right nudge) only ever
+        // applies to the collapsed PILL — matching the customize screen's
+        // "X is an offset from center" framing (negative = left of
+        // center, positive = right). The EXPANDED card intentionally
+        // ignores X and always opens perfectly centered/full-width, same
+        // as Spotify's own full-player card — a pill nudged toward one
+        // edge expanding into an off-center wide card would look broken.
+        // Y (vertical drop from the top) still applies to both, since
+        // that's just "how far down from the status bar" for either.
+        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        params.x = if (applySize) dpToPx(prefsSnapshot.xDp) else 0
+        params.y = dpToPx(prefsSnapshot.yDp)
 
-        // pivot at top-center so scaling grows/shrinks the card without
-        // drifting it sideways off its gravity-anchored position.
-        // root.width is 0 before the first layout pass, so pivotX must be
-        // set post-layout (doOnLayout) rather than right after inflate —
-        // otherwise the card visibly snaps/jumps sideways the first time
-        // it's shown at any scale != 1.0.
-        root.scaleX = prefsSnapshot.sizeScale
-        root.scaleY = prefsSnapshot.sizeScale
-        root.pivotY = 0f
-        if (root.isLaidOut && root.width > 0) {
-            root.pivotX = root.width / 2f
-        } else {
-            root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
-                override fun onGlobalLayout() {
-                    if (root.width > 0) {
-                        root.pivotX = root.width / 2f
-                        root.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    }
-                }
-            })
+        if (applySize) {
+            // Real width/height instead of a uniform scale transform — the
+            // root is WRAP_CONTENT by default, so pin it to an explicit
+            // pixel size here (pill only — see doc comment above). A
+            // requestLayout is needed after changing params.width/height
+            // on an already-attached view for the resize to take effect
+            // immediately; reapplyCustomization's updateViewLayout call
+            // covers that.
+            params.width = dpToPx(prefsSnapshot.widthDp)
+            params.height = dpToPx(prefsSnapshot.heightDp)
         }
+        root.scaleX = 1f
+        root.scaleY = 1f
 
         tintBackground(root.background, prefsSnapshot.accentColor)
 
@@ -646,7 +688,7 @@ class AurumIslandService : Service() {
             PixelFormat.TRANSLUCENT,
         )
         params.y = 12
-        applyCustomization(view, params, prefsSnapshot)
+        applyCustomization(view, params, prefsSnapshot, applySize = true)
 
         view.setOnClickListener { expand() }
 
@@ -684,7 +726,7 @@ class AurumIslandService : Service() {
             PixelFormat.TRANSLUCENT,
         )
         params.y = 12
-        applyCustomization(view, params, prefsSnapshot)
+        applyCustomization(view, params, prefsSnapshot, applySize = false)
 
         wireExpandedControls(view)
 

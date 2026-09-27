@@ -15,6 +15,8 @@ import '../widgets/battery_saver_mode_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_transitions.dart';
+import 'island_customize_screen.dart';
 import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
 // =============================================================================
@@ -130,9 +132,6 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
   bool _keepQueue = true;
   bool _stopOnSwipe = false;
   bool _islandEnabled = false;
-  String _islandPosition = 'top_center';
-  double _islandSizeScale = 1.0;
-  int _islandAccentColor = 0xFFB89640;
   bool _pauseOnCall = true;
   bool _duckOnNotifications = false;
   bool _shakeToSkip = false;
@@ -270,9 +269,6 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
       _keepQueue           = p.getBool('keep_queue') ?? true;
       _stopOnSwipe         = p.getBool('stop_on_swipe') ?? false;
       _islandEnabled       = p.getBool('island_enabled') ?? false;
-      _islandPosition      = p.getString('island_position') ?? 'top_center';
-      _islandSizeScale     = p.getDouble('island_size_scale') ?? 1.0;
-      _islandAccentColor   = p.getInt('island_accent_color') ?? 0xFFB89640;
       _pauseOnCall         = p.getBool('pause_on_call') ?? true;
       _duckOnNotifications = p.getBool('duck_on_notifications') ?? false;
       _shakeToSkip         = p.getBool('shake_to_skip') ?? false;
@@ -749,7 +745,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
               icon: Icons.blur_circular_rounded,
               title: l10n.spDynamicIsland,
               subtitle: _islandEnabled ? l10n.spIslandCustomizeSubtitle : l10n.spDynamicIslandSubtitle,
-              onTap: () => _showIslandCustomizeSheet(context)),
+              onTap: () async {
+                await Navigator.of(context).push(
+                  AurumPageRoute(builder: (_) => const IslandCustomizeScreen()),
+                );
+                if (mounted) await _load();
+              }),
           _switchTile(context,
               icon: Icons.call_rounded,
               title: l10n.spPauseOnCall,
@@ -884,230 +885,6 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
     );
   }
 
-  // ── Dynamic Island customize bottom sheet ─────────────────────────────────
-  //
-  // One sheet (position / size / color) instead of three separate inline
-  // cards — each control writes to SharedPreferences AND immediately tells
-  // a running overlay to re-apply itself (AudioPrefs.updateIslandCustomization),
-  // so if the Island is already up (song playing, app backgrounded) it
-  // visibly updates in real time while this sheet is open. Uses
-  // StatefulBuilder so slider drags redraw only the sheet's own content,
-  // not the whole Settings screen behind it.
-  void _showIslandCustomizeSheet(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    const swatches = <int>[
-      0xFFB89640, // Aurum gold (default)
-      0xFFE91429, // Spotify red
-      0xFF1DB954, // Spotify green
-      0xFF3B82F6, // Blue
-      0xFFA855F7, // Purple
-      0xFFEC4899, // Pink
-      0xFFFFFFFF, // White
-    ];
-
-    showAurumModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AurumTheme.bgCardOf(context),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        // Local copies so the sheet's sliders/swatches redraw instantly on
-        // every drag tick; _islandPosition/_islandSizeScale/_islandAccentColor
-        // (the screen's own state) are kept in sync too so the sheet
-        // reflects the current values if re-opened without navigating away.
-        bool enabled = _islandEnabled;
-        String position = _islandPosition;
-        double sizeScale = _islandSizeScale;
-        int accentColor = _islandAccentColor;
-
-        Future<void> push() async {
-          setState(() {
-            _islandPosition = position;
-            _islandSizeScale = sizeScale;
-            _islandAccentColor = accentColor;
-          });
-          await AudioPrefs.updateIslandCustomization();
-        }
-
-        Future<void> toggleEnabled(bool v, void Function(void Function()) setSheetState) async {
-          // AudioPrefs.setIslandEnabled returns false when turning it on
-          // requires the overlay permission and that permission isn't
-          // granted yet — in that case it has already kicked off the
-          // system grant screen, and the switch itself must stay off
-          // until the user comes back with permission actually in hand
-          // (there's no synchronous "granted" callback from that screen
-          // to flip it automatically).
-          final applied = await AudioPrefs.setIslandEnabled(v);
-          final resolved = applied ? v : false;
-          setSheetState(() => enabled = resolved);
-          setState(() => _islandEnabled = resolved);
-          if (v && !applied && sheetContext.mounted) {
-            ScaffoldMessenger.of(sheetContext).showSnackBar(
-              SnackBar(content: Text(l10n.spDynamicIslandPermissionNeeded)),
-            );
-          }
-        }
-
-        return StatefulBuilder(
-          builder: (context, setSheetState) => Padding(
-            padding: EdgeInsets.only(
-              left: 20, right: 20, top: 20,
-              bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36, height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: AurumTheme.dividerOf(context),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  Row(children: [
-                    Expanded(
-                      child: Text(l10n.spDynamicIsland,
-                          style: TextStyle(color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 17, fontWeight: FontWeight.w700)),
-                    ),
-                    Switch(
-                      value: enabled,
-                      activeColor: AurumTheme.accentOf(context),
-                      onChanged: (v) => toggleEnabled(v, setSheetState),
-                    ),
-                  ]),
-                  const SizedBox(height: 2),
-                  Text(l10n.spDynamicIslandSubtitle,
-                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-
-                  if (enabled) ...[
-                  const SizedBox(height: 20),
-                  Text(l10n.spIslandCustomizeSubtitle,
-                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-                  const SizedBox(height: 16),
-
-                  // Position
-                  Text(l10n.spIslandPosition,
-                      style: TextStyle(color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      ('top_left', l10n.spIslandPositionLeft),
-                      ('top_center', l10n.spIslandPositionCenter),
-                      ('top_right', l10n.spIslandPositionRight),
-                    ].map((entry) {
-                      final (key, label) = entry;
-                      final selected = position == key;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () async {
-                            AurumHaptics.selection();
-                            setSheetState(() => position = key);
-                            await push();
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AurumTheme.accentOf(context).withOpacity(0.15)
-                                  : AurumTheme.bgOf(context),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: selected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
-                                width: selected ? 1.4 : 0.5,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(label,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
-                                  fontSize: 12.5,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                )),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Size
-                  Row(children: [
-                    Text(l10n.spIslandSize,
-                        style: TextStyle(color: AurumTheme.textPrimaryOf(context),
-                            fontSize: 13, fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    Text('${(sizeScale * 100).round()}%',
-                        style: TextStyle(color: AurumTheme.accentOf(context),
-                            fontSize: 13, fontWeight: FontWeight.w700)),
-                  ]),
-                  Slider(
-                    value: sizeScale,
-                    min: 0.8, max: 1.3, divisions: 10,
-                    onChanged: (v) {
-                      setSheetState(() => sizeScale = v);
-                      // Fires on every drag tick (not just release) so the
-                      // live overlay visibly grows/shrinks as the thumb
-                      // moves — this IS the "live preview" the toggle is
-                      // meant to give; onChangeEnd alone would only show
-                      // the final value, which is what felt broken before.
-                      push();
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Color
-                  Text(l10n.spIslandColor,
-                      style: TextStyle(color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: swatches.map((c) {
-                      final selected = c == accentColor;
-                      return GestureDetector(
-                        onTap: () async {
-                          AurumHaptics.selection();
-                          setSheetState(() => accentColor = c);
-                          await push();
-                        },
-                        child: Container(
-                          width: 32, height: 32,
-                          decoration: BoxDecoration(
-                            color: Color(c),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: selected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
-                              width: selected ? 2.5 : 1,
-                            ),
-                          ),
-                          child: selected
-                              ? Icon(Icons.check_rounded,
-                                  color: c == 0xFFFFFFFF ? Colors.black : Colors.white, size: 16)
-                              : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  ], // if (enabled)
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildCrossfadeSlider(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -2642,25 +2419,6 @@ String _castIconVisibilityKeyFromLabel(AppLocalizations l10n, String label) {
   if (label == l10n.spCastIconAlways) return 'always';
   if (label == l10n.spCastIconHidden) return 'hidden';
   return 'auto';
-}
-
-/// Same stable-key / localized-label split as _castIconVisibilityLabel
-/// above, for the Dynamic Island's position choice.
-String _islandPositionLabel(AppLocalizations l10n, String key) {
-  switch (key) {
-    case 'top_left':
-      return l10n.spIslandPositionLeft;
-    case 'top_right':
-      return l10n.spIslandPositionRight;
-    default:
-      return l10n.spIslandPositionCenter;
-  }
-}
-
-String _islandPositionKeyFromLabel(AppLocalizations l10n, String label) {
-  if (label == l10n.spIslandPositionLeft) return 'top_left';
-  if (label == l10n.spIslandPositionRight) return 'top_right';
-  return 'top_center';
 }
 
 /// Same stable-key / localized-label split as _castIconVisibilityLabel
