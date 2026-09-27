@@ -104,6 +104,23 @@ class AurumIslandService : Service() {
         @Volatile
         var isRunning: Boolean = false
             private set
+
+        // Live handle to whichever instance is currently up, so
+        // MainActivity's "updateIslandCustomization" MethodChannel call can
+        // re-apply position/size/color to the *already-inflated* pill or
+        // expanded view immediately — instead of the previous behavior
+        // where a Settings change only took effect on the next pill<->
+        // expanded swap (or never, if the overlay was stopped the whole
+        // time the app was foregrounded, which it always is).
+        @Volatile
+        private var activeInstance: AurumIslandService? = null
+
+        /** Re-reads SharedPreferences and re-applies position/size/color to
+         *  whichever view (pill or expanded) is currently showing. No-op if
+         *  no instance is running. Safe to call from the main thread only. */
+        fun refreshCustomizationNow() {
+            activeInstance?.reapplyCustomization()
+        }
     }
 
     private lateinit var windowManager: WindowManager
@@ -154,6 +171,7 @@ class AurumIslandService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         isRunning = true
+        activeInstance = this
         addPillView()
         registerPlayerListener()
         refreshFromPlayer()
@@ -178,7 +196,28 @@ class AurumIslandService : Service() {
         lastPillBitmap = null
         lastExpandedBitmap = null
         isRunning = false
+        if (activeInstance === this) activeInstance = null
         super.onDestroy()
+    }
+
+    /** Re-applies position/size/color to whichever view is currently up,
+     *  without tearing the view down and re-adding it (which would cause a
+     *  visible flicker on every slider tick while the user drags). Only
+     *  the WindowManager params that actually change (gravity, for
+     *  position) require updateViewLayout; scale/color are plain view
+     *  property changes that redraw on their own. */
+    private fun reapplyCustomization() {
+        val prefsSnapshot = readPrefs()
+        pillView?.let { view ->
+            val params = view.layoutParams as? WindowManager.LayoutParams ?: return@let
+            applyCustomization(view, params, prefsSnapshot)
+            try { windowManager.updateViewLayout(view, params) } catch (_: Throwable) {}
+        }
+        expandedView?.let { view ->
+            val params = view.layoutParams as? WindowManager.LayoutParams ?: return@let
+            applyCustomization(view, params, prefsSnapshot)
+            try { windowManager.updateViewLayout(view, params) } catch (_: Throwable) {}
+        }
     }
 
     // ---- Player state sync ------------------------------------------------
@@ -210,7 +249,7 @@ class AurumIslandService : Service() {
         val engine = AurumMediaSessionService.sharedEngine
         val player = engine?.player
         val metadata = player?.mediaMetadata
-        val hasSong = player != null && player.mediaItemCount > 0 && !metadata?.title.toString().isNullOrEmpty()
+        val hasSong = player != null && player.mediaItemCount > 0 && !metadata?.title?.toString().isNullOrEmpty()
 
         if (!hasSong) {
             // Nothing playing/queued — hide entirely rather than show an
@@ -525,10 +564,25 @@ class AurumIslandService : Service() {
 
         // pivot at top-center so scaling grows/shrinks the card without
         // drifting it sideways off its gravity-anchored position.
+        // root.width is 0 before the first layout pass, so pivotX must be
+        // set post-layout (doOnLayout) rather than right after inflate —
+        // otherwise the card visibly snaps/jumps sideways the first time
+        // it's shown at any scale != 1.0.
         root.scaleX = prefsSnapshot.sizeScale
         root.scaleY = prefsSnapshot.sizeScale
-        root.pivotX = root.width / 2f
         root.pivotY = 0f
+        if (root.isLaidOut && root.width > 0) {
+            root.pivotX = root.width / 2f
+        } else {
+            root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    if (root.width > 0) {
+                        root.pivotX = root.width / 2f
+                        root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    }
+                }
+            })
+        }
 
         tintBackground(root.background, prefsSnapshot.accentColor)
 

@@ -304,6 +304,23 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(null)
                         }
                     }
+                    "updateIslandCustomization" -> {
+                        // Settings -> Player's position/size/color controls
+                        // call this on every change so a running overlay
+                        // reflects the new value immediately (live preview)
+                        // instead of only picking it up on the next
+                        // pill<->expanded swap. No-op, safely, if the
+                        // overlay isn't currently running.
+                        try {
+                            if (AurumIslandService.isRunning) {
+                                AurumIslandService.refreshCustomizationNow()
+                            }
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "updateIslandCustomization error", e)
+                            result.success(null)
+                        }
+                    }
 
                     else -> result.notImplemented()
                 }

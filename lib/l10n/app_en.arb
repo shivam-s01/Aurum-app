@@ -327,6 +327,8 @@
   "spIslandSizeSubtitle": "Make the pill and expanded card bigger or smaller",
   "spIslandColor": "Island Color",
   "spIslandColorSubtitle": "Accent color for the card, seekbar, and controls",
+  "spIslandCustomize": "Customize Island",
+  "spIslandCustomizeSubtitle": "Position, size, and color — updates live",
   "spPauseOnCall": "Pause on Incoming Call",
   "spPauseOnCallSubtitle": "Auto-pauses when phone rings",
   "spDuckNotifications": "Duck Volume for Notifications",

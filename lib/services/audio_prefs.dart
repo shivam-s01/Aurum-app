@@ -699,6 +699,19 @@ class AudioPrefs {
     } catch (_) {}
   }
 
+  /// Tells a currently-running Island overlay to immediately re-read
+  /// position/size/color from SharedPreferences and re-apply them to
+  /// whichever view (pill or expanded) is up right now — this is what
+  /// makes the Settings -> Player customization sheet feel "live" instead
+  /// of only taking effect the next time the overlay is toggled off/on.
+  /// Silently no-ops if the overlay isn't running (native side checks
+  /// AurumIslandService.isRunning before doing anything).
+  static Future<void> updateIslandCustomization() async {
+    try {
+      await _nativeChannel.invokeMethod('updateIslandCustomization');
+    } catch (_) {}
+  }
+
   /// Requests the display's highest available refresh rate (90/120Hz on
   /// supported panels) when enabled, or the platform default when
   /// disabled. Silently no-ops on failure — same reasoning as

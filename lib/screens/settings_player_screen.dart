@@ -745,49 +745,11 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
                 await _save('stop_on_swipe', v);
                 await AudioPrefs.setStopOnSwipe(v);
               }),
-          _switchTile(context,
+          _navTile(context,
               icon: Icons.blur_circular_rounded,
               title: l10n.spDynamicIsland,
-              subtitle: l10n.spDynamicIslandSubtitle,
-              value: _islandEnabled,
-              onChanged: (v) async {
-                // AudioPrefs.setIslandEnabled returns false when turning
-                // it on requires the overlay permission and that
-                // permission isn't granted yet — in that case it has
-                // already kicked off the system grant screen, and the
-                // switch itself must stay off until the user comes back
-                // with permission actually in hand (there's no
-                // synchronous "granted" callback from that screen to
-                // flip it automatically).
-                final applied = await AudioPrefs.setIslandEnabled(v);
-                setState(() => _islandEnabled = applied ? v : false);
-                if (v && !applied && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.spDynamicIslandPermissionNeeded)),
-                  );
-                }
-              }),
-          if (_islandEnabled) ...[
-            _dropdownTile(context,
-                icon: Icons.align_horizontal_center_rounded,
-                title: l10n.spIslandPosition,
-                subtitle: l10n.spIslandPositionSubtitle,
-                value: _islandPositionLabel(l10n, _islandPosition),
-                options: [
-                  _islandPositionLabel(l10n, 'top_left'),
-                  _islandPositionLabel(l10n, 'top_center'),
-                  _islandPositionLabel(l10n, 'top_right'),
-                ],
-                onChanged: (label) {
-                  if (label == null) return;
-                  final key = _islandPositionKeyFromLabel(l10n, label);
-                  AurumHaptics.selection();
-                  setState(() => _islandPosition = key);
-                  _save('island_position', key);
-                }),
-            _buildIslandSizeSlider(context),
-            _buildIslandColorPicker(context),
-          ],
+              subtitle: _islandEnabled ? l10n.spIslandCustomizeSubtitle : l10n.spDynamicIslandSubtitle,
+              onTap: () => _showIslandCustomizeSheet(context)),
           _switchTile(context,
               icon: Icons.call_rounded,
               title: l10n.spPauseOnCall,
@@ -922,70 +884,16 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
     );
   }
 
-  // ── Crossfade Slider ──────────────────────────────────────────────────────
-  // ── Dynamic Island Size Slider ────────────────────────────────────────────
-  Widget _buildIslandSizeSlider(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: AurumTheme.accentOf(context).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.photo_size_select_large_rounded, color: AurumTheme.accentOf(context), size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(l10n.spIslandSize,
-                    style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                Text(l10n.spIslandSizeSubtitle,
-                    style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-              ])),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AurumTheme.accentOf(context).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${(_islandSizeScale * 100).round()}%',
-                  style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 4),
-            Slider(
-              value: _islandSizeScale,
-              min: 0.8, max: 1.3, divisions: 10,
-              onChanged: (v) => setState(() => _islandSizeScale = v),
-              onChangeEnd: (v) => _save('island_size_scale', v),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Dynamic Island Color Picker ───────────────────────────────────────────
-  // Fixed swatch row rather than a full color wheel — matches the rest of
-  // this screen's "pick from a short list" pattern (cast visibility,
-  // stream quality) instead of introducing a new picker paradigm just for
-  // one control. Values are ARGB ints stored directly, same shape
-  // AurumIslandService reads via SharedPreferences.getInt.
-  Widget _buildIslandColorPicker(BuildContext context) {
+  // ── Dynamic Island customize bottom sheet ─────────────────────────────────
+  //
+  // One sheet (position / size / color) instead of three separate inline
+  // cards — each control writes to SharedPreferences AND immediately tells
+  // a running overlay to re-apply itself (AudioPrefs.updateIslandCustomization),
+  // so if the Island is already up (song playing, app backgrounded) it
+  // visibly updates in real time while this sheet is open. Uses
+  // StatefulBuilder so slider drags redraw only the sheet's own content,
+  // not the whole Settings screen behind it.
+  void _showIslandCustomizeSheet(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     const swatches = <int>[
       0xFFB89640, // Aurum gold (default)
@@ -996,67 +904,208 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
       0xFFEC4899, // Pink
       0xFFFFFFFF, // White
     ];
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+
+    showAurumModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AurumTheme.bgCardOf(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: AurumTheme.accentOf(context).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.palette_rounded, color: AurumTheme.accentOf(context), size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(l10n.spIslandColor,
-                    style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                Text(l10n.spIslandColorSubtitle,
-                    style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-              ])),
-            ]),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: swatches.map((c) {
-                final selected = c == _islandAccentColor;
-                return GestureDetector(
-                  onTap: () {
-                    AurumHaptics.selection();
-                    setState(() => _islandAccentColor = c);
-                    _save('island_accent_color', c);
-                  },
-                  child: Container(
-                    width: 32, height: 32,
-                    decoration: BoxDecoration(
-                      color: Color(c),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: selected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
-                        width: selected ? 2.5 : 1,
+      builder: (sheetContext) {
+        // Local copies so the sheet's sliders/swatches redraw instantly on
+        // every drag tick; _islandPosition/_islandSizeScale/_islandAccentColor
+        // (the screen's own state) are kept in sync too so the sheet
+        // reflects the current values if re-opened without navigating away.
+        bool enabled = _islandEnabled;
+        String position = _islandPosition;
+        double sizeScale = _islandSizeScale;
+        int accentColor = _islandAccentColor;
+
+        Future<void> push() async {
+          setState(() {
+            _islandPosition = position;
+            _islandSizeScale = sizeScale;
+            _islandAccentColor = accentColor;
+          });
+          await AudioPrefs.updateIslandCustomization();
+        }
+
+        Future<void> toggleEnabled(bool v, void Function(void Function()) setSheetState) async {
+          // AudioPrefs.setIslandEnabled returns false when turning it on
+          // requires the overlay permission and that permission isn't
+          // granted yet — in that case it has already kicked off the
+          // system grant screen, and the switch itself must stay off
+          // until the user comes back with permission actually in hand
+          // (there's no synchronous "granted" callback from that screen
+          // to flip it automatically).
+          final applied = await AudioPrefs.setIslandEnabled(v);
+          final resolved = applied ? v : false;
+          setSheetState(() => enabled = resolved);
+          setState(() => _islandEnabled = resolved);
+          if (v && !applied && sheetContext.mounted) {
+            ScaffoldMessenger.of(sheetContext).showSnackBar(
+              SnackBar(content: Text(l10n.spDynamicIslandPermissionNeeded)),
+            );
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) => Padding(
+            padding: EdgeInsets.only(
+              left: 20, right: 20, top: 20,
+              bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.dividerOf(context),
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    child: selected
-                        ? Icon(Icons.check_rounded,
-                            color: c == 0xFFFFFFFF ? Colors.black : Colors.white, size: 16)
-                        : null,
                   ),
-                );
-              }).toList(),
+                  Row(children: [
+                    Expanded(
+                      child: Text(l10n.spDynamicIsland,
+                          style: TextStyle(color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 17, fontWeight: FontWeight.w700)),
+                    ),
+                    Switch(
+                      value: enabled,
+                      activeColor: AurumTheme.accentOf(context),
+                      onChanged: (v) => toggleEnabled(v, setSheetState),
+                    ),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(l10n.spDynamicIslandSubtitle,
+                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+
+                  if (enabled) ...[
+                  const SizedBox(height: 20),
+                  Text(l10n.spIslandCustomizeSubtitle,
+                      style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+                  const SizedBox(height: 16),
+
+                  // Position
+                  Text(l10n.spIslandPosition,
+                      style: TextStyle(color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ('top_left', l10n.spIslandPositionLeft),
+                      ('top_center', l10n.spIslandPositionCenter),
+                      ('top_right', l10n.spIslandPositionRight),
+                    ].map((entry) {
+                      final (key, label) = entry;
+                      final selected = position == key;
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () async {
+                            AurumHaptics.selection();
+                            setSheetState(() => position = key);
+                            await push();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? AurumTheme.accentOf(context).withOpacity(0.15)
+                                  : AurumTheme.bgOf(context),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: selected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
+                                width: selected ? 1.4 : 0.5,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(label,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: selected ? AurumTheme.accentOf(context) : AurumTheme.textMutedOf(context),
+                                  fontSize: 12.5,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                )),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Size
+                  Row(children: [
+                    Text(l10n.spIslandSize,
+                        style: TextStyle(color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Text('${(sizeScale * 100).round()}%',
+                        style: TextStyle(color: AurumTheme.accentOf(context),
+                            fontSize: 13, fontWeight: FontWeight.w700)),
+                  ]),
+                  Slider(
+                    value: sizeScale,
+                    min: 0.8, max: 1.3, divisions: 10,
+                    onChanged: (v) {
+                      setSheetState(() => sizeScale = v);
+                      // Fires on every drag tick (not just release) so the
+                      // live overlay visibly grows/shrinks as the thumb
+                      // moves — this IS the "live preview" the toggle is
+                      // meant to give; onChangeEnd alone would only show
+                      // the final value, which is what felt broken before.
+                      push();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Color
+                  Text(l10n.spIslandColor,
+                      style: TextStyle(color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: swatches.map((c) {
+                      final selected = c == accentColor;
+                      return GestureDetector(
+                        onTap: () async {
+                          AurumHaptics.selection();
+                          setSheetState(() => accentColor = c);
+                          await push();
+                        },
+                        child: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: Color(c),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: selected ? AurumTheme.accentOf(context) : AurumTheme.dividerOf(context),
+                              width: selected ? 2.5 : 1,
+                            ),
+                          ),
+                          child: selected
+                              ? Icon(Icons.check_rounded,
+                                  color: c == 0xFFFFFFFF ? Colors.black : Colors.white, size: 16)
+                              : null,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  ], // if (enabled)
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
