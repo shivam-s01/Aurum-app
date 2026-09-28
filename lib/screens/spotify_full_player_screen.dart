@@ -320,35 +320,61 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                               ),
                             ),
                             Expanded(
-                              child: SingleChildScrollView(
-                                controller: _scrollCtrl,
-                                physics: _scrollLocked
-                                    ? const NeverScrollableScrollPhysics()
-                                    : const BouncingScrollPhysics(
-                                        parent: AlwaysScrollableScrollPhysics(),
-                                      ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _NowPlayingHero(player: player, song: song),
-                                    _ControlsBlock(player: player, song: song),
-                                    _IconActionsRow(
-                                      player: player,
-                                      song: song,
-                                      onOpenQueue: () => _openQueue(context),
+                              // LayoutBuilder gives us the REAL height left
+                              // under the header, so "page 1" can be sized to
+                              // exactly that (minus a small lyrics peek) —
+                              // the hero/controls then always fit one screen
+                              // on any device, instead of flowing wherever
+                              // their fixed paddings happen to land.
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  // How much of the lyrics card peeks in at
+                                  // the bottom of page 1 (Spotify-style hint
+                                  // that there is more below the fold).
+                                  const double peek = 64.0;
+                                  final double page1H =
+                                      (constraints.maxHeight - peek)
+                                          .clamp(0.0, double.infinity)
+                                          .toDouble();
+                                  return SingleChildScrollView(
+                                    controller: _scrollCtrl,
+                                    physics: _scrollLocked
+                                        ? const NeverScrollableScrollPhysics()
+                                        : const BouncingScrollPhysics(
+                                            parent:
+                                                AlwaysScrollableScrollPhysics(),
+                                          ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // ── PAGE 1: only artwork + title +
+                                        // seekbar + controls + icon row.
+                                        SizedBox(
+                                          height: page1H,
+                                          child: _PlayerPage(
+                                            player: player,
+                                            song: song,
+                                            onOpenQueue: () =>
+                                                _openQueue(context),
+                                          ),
+                                        ),
+                                        // ── BELOW THE FOLD: lyrics peeks in
+                                        // from the bottom of page 1, then
+                                        // artists + description on scroll.
+                                        _LyricsPreviewCard(
+                                          player: player,
+                                          onOpenFullScreen: () =>
+                                              _openFullLyrics(context),
+                                        ),
+                                        const SizedBox(height: 20),
+                                        _ArtistsSection(song: song),
+                                        _DescriptionCard(song: song),
+                                        const SizedBox(height: 40),
+                                      ],
                                     ),
-                                    const SizedBox(height: 28),
-                                    _LyricsPreviewCard(
-                                      player: player,
-                                      onOpenFullScreen: () =>
-                                          _openFullLyrics(context),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    _ArtistsSection(song: song),
-                                    _DescriptionCard(song: song),
-                                    const SizedBox(height: 40),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
                             ),
                           ],
@@ -711,94 +737,133 @@ class _CollapsedHeaderRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hero — big square artwork + title/artist row + like button
+// _PlayerPage — the whole first screen of the player, laid out to fill the
+// exact viewport it is given (see LayoutBuilder in build()):
+//
+//   [ flexible space ]
+//   big square artwork            ← takes every pixel that's left over
+//   title / artist + like
+//   seekbar + times
+//   shuffle / prev / play / next / repeat
+//   ⓘ ............ + playlist  queue
+//
+// The artwork is the ONLY flexible element. Everything else has a fixed,
+// compact height, so on a tall phone the cover simply grows, on a short one
+// it shrinks — but the controls always sit at the same comfortable spot
+// right above the lyrics peek, never pushed off-screen and never floating
+// with awkward empty gaps (the old "thumbnail small + big gap" look).
 // ─────────────────────────────────────────────────────────────────────────────
-class _NowPlayingHero extends StatelessWidget {
+class _PlayerPage extends StatelessWidget {
   final PlayerProvider player;
   final Song song;
-  const _NowPlayingHero({required this.player, required this.song});
+  final VoidCallback onOpenQueue;
+  const _PlayerPage({
+    required this.player,
+    required this.song,
+    required this.onOpenQueue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Artwork zone: fills all remaining height; the square is the largest
+        // one that fits both the width (minus side margin) and this height.
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, c) {
+              const double sideMargin = 20.0;
+              const double vPad = 10.0;
+              final double byWidth = c.maxWidth - sideMargin * 2;
+              final double byHeight = c.maxHeight - vPad * 2;
+              final double side =
+                  (byWidth < byHeight ? byWidth : byHeight)
+                      .clamp(0.0, 4000.0)
+                      .toDouble();
+              return Center(
+                child: Hero(
+                  tag: 'spotify_full_player_art_${song.id}',
+                  child: PhysicalModel(
+                    color: Colors.black,
+                    elevation: 20,
+                    shadowColor: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                    child: AurumArtwork(
+                      url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
+                      size: side,
+                      borderRadius: 8,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        _TitleRow(song: song),
+        _ControlsBlock(player: player, song: song),
+        _IconActionsRow(
+          player: player,
+          song: song,
+          onOpenQueue: onOpenQueue,
+        ),
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+}
+
+// Title + artist on the left, like button on the right (reference layout).
+class _TitleRow extends StatelessWidget {
+  final Song song;
+  const _TitleRow({required this.song});
 
   @override
   Widget build(BuildContext context) {
     final favorites = context.watch<FavoritesProvider>();
-    final screenSize = MediaQuery.of(context).size;
-    // FIX ("thumbnail chhota kro aur thumbnail-controls ke bich ka gap
-    // kam kro"): the hero cover was sized to near-full screen width
-    // (width - 36) with a 32dp gap before the title/controls below —
-    // read as oversized and too spaced-out compared to the reference.
-    // Smaller side inset multiplier (0.62 of width instead of ~0.95) and
-    // a tighter post-art gap (18 instead of 32) close both up.
-    final artSize = (screenSize.width * 0.62)
-        .clamp(0.0, screenSize.height * 0.32);
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 20, 0, 0),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Center(
-            child: Hero(
-              tag: 'spotify_full_player_art_${song.id}',
-              child: PhysicalModel(
-                color: Colors.black,
-                elevation: 18,
-                shadowColor: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-                child: AurumArtwork(
-                  url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                  size: artSize,
-                  borderRadius: 8,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        song.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 23,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
                   ),
                 ),
-                const SizedBox(width: 12),
-                AurumLikeButton(
-                  isLiked: favorites.isFavorite(song.id),
-                  size: 26,
-                  likedColor: const Color(0xFF1ED760),
-                  unlikedColor: Colors.white70,
-                  onTap: () {
-                    AurumHaptics.light();
-                    favorites.toggleFavorite(song);
-                  },
+                const SizedBox(height: 3),
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 12),
+          AurumLikeButton(
+            isLiked: favorites.isFavorite(song.id),
+            size: 27,
+            likedColor: const Color(0xFF1ED760),
+            unlikedColor: Colors.white,
+            onTap: () {
+              AurumHaptics.light();
+              favorites.toggleFavorite(song);
+            },
           ),
         ],
       ),
@@ -818,7 +883,7 @@ class _ControlsBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 14, 0, 0),
+      padding: const EdgeInsets.fromLTRB(0, 6, 0, 0),
       child: Column(
         children: [
           AurumSeekBar(
@@ -947,7 +1012,7 @@ class _IconActionsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 26, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -1017,7 +1082,7 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
   // under the "Lyrics" header, clipped short enough that only a hint of
   // it is visible — the rest only appears once the user actually scrolls
   // it into fuller view or taps through to the full lyrics screen.
-  static const double _peekHeight = 76.0;
+  static const double _peekHeight = 132.0;
 
   bool _loading = true;
   LyricsResult? _result;
@@ -1069,7 +1134,7 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
 
     return Container(
       height: _peekHeight,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         gradient: const LinearGradient(
@@ -1091,14 +1156,13 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.lyrics_rounded,
-                        color: Colors.white70, size: 18),
-                    const SizedBox(width: 10),
+                    // Reference layout: bold "Lyrics" on the left, a
+                    // "Show" affordance on the right (no leading icon).
                     const Text(
                       'Lyrics',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1113,8 +1177,14 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
                         ),
                       )
                     else if (hasLyrics)
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: Colors.white.withOpacity(0.75)),
+                      Text(
+                        'Show',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
