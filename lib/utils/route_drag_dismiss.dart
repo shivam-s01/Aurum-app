@@ -53,6 +53,10 @@ class RouteDragDismiss {
       return true;
     }
     final route = ModalRoute.of(context);
+    // `controller` is @protected on TransitionRoute; reading it here is the
+    // same thing CupertinoPageRoute's back-swipe does internally, and is
+    // the only way to drive the route's own animation with the finger.
+    // ignore: invalid_use_of_protected_member
     final ctrl = route?.controller;
     final nav = Navigator.maybeOf(context);
     if (route == null ||
