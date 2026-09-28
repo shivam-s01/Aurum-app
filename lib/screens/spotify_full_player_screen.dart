@@ -85,7 +85,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _dismiss = RouteDragDismiss(context);
     _scrollCtrl.addListener(_onScroll);
   }
 
@@ -98,7 +97,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
-    _dismiss.cancel();
     _collapseN.dispose();
     super.dispose();
   }
@@ -175,61 +173,14 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   // and only thing that moves the screen — the whole player (artwork
   // included) slides as a single piece, with no second transform stacked
   // on top, no extra layer, and no double slide on release.
-  late final RouteDragDismiss _dismiss;
-
   static const double _dismissDistance = 120.0;
   static const double _dismissVelocity = 900.0;
 
-  // Raw vertical-drag gesture, gated on "the list is scrolled to its very
-  // top". This does NOT depend on OverscrollNotification — on Android,
-  // BouncingScrollPhysics can absorb/settle an overscroll before it is
-  // ever reported, which is exactly why the notification-based version
-  // sometimes never started the dismiss at all (the whole screen looked
-  // "stuck", only the artwork/thumbnail area still seemed to move because
-  // it happens to sit in its own repaint layer). A direct pointer drag has
-  // no such gap: it fires on every frame the finger moves, unconditionally.
-  bool _dragCapturing = false;
-
-  void _onVerticalDragStart(DragStartDetails d) {
-    // Only allowed to START a dismiss drag when the inner list is already
-    // at its top (or the gesture began outside the scrollable entirely —
-    // e.g. on the header/artwork area, where there is nothing to scroll
-    // and it should behave as "at the top"); otherwise this is normal
-    // list scrolling and stays untouched.
-    _dragCapturing = !_scrollCtrl.hasClients ||
-        _scrollCtrl.position.pixels <= _scrollCtrl.position.minScrollExtent;
-  }
-
-  void _onVerticalDragUpdate(DragUpdateDetails d) {
-    if (!_dragCapturing) return;
-    final dy = d.delta.dy;
-    if (!_dismiss.isActive) {
-      // Only capture on a genuine downward move; upward stays as scroll.
-      if (dy <= 0) return;
-      if (!_dismiss.start()) {
-        _dragCapturing = false;
-        return;
-      }
-    }
-    _dismiss.update(dy);
-  }
-
-  void _onVerticalDragEnd(DragEndDetails d) {
-    if (!_dragCapturing) return;
-    _dragCapturing = false;
-    if (_dismiss.isActive) {
-      _dismiss.end(
-        velocityPxPerSec: d.primaryVelocity ?? 0.0,
-        dismissDistance: _dismissDistance,
-        dismissVelocity: _dismissVelocity,
-      );
-    }
-  }
-
-  void _onVerticalDragCancel() {
-    _dragCapturing = false;
-    if (_dismiss.isActive) _dismiss.cancel();
-  }
+  // Finger side of the dismiss lives in PullDownDismiss (raw Listener, see
+  // utils/route_drag_dismiss.dart) — a GestureDetector above the scroll view
+  // never won the gesture arena, so the scroll view over-scrolled and only
+  // the artwork moved.
+  final PullDownDismissController _pull = PullDownDismissController();
 
   @override
   Widget build(BuildContext context) {
@@ -250,15 +201,11 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
         // one rigid piece and nothing is composited twice.
         return Scaffold(
           backgroundColor: const Color(0xFF121212),
-          body: GestureDetector(
-            // translucent: taps/scroll still reach children normally; this
-            // only "wins" once _dragCapturing is set by a genuine
-            // top-of-list downward pull (see _onVerticalDragStart).
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragStart: _onVerticalDragStart,
-            onVerticalDragUpdate: _onVerticalDragUpdate,
-            onVerticalDragEnd: _onVerticalDragEnd,
-            onVerticalDragCancel: _onVerticalDragCancel,
+          body: PullDownDismiss(
+            controller: _pull,
+            scrollController: _scrollCtrl,
+            dismissDistance: _dismissDistance,
+            dismissVelocity: _dismissVelocity,
             child: RepaintBoundary(
               child: ColoredBox(
                 color: const Color(0xFF121212),
@@ -307,9 +254,7 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                                           .toDouble();
                                   return SingleChildScrollView(
                                     controller: _scrollCtrl,
-                                    physics: const BouncingScrollPhysics(
-                                      parent: AlwaysScrollableScrollPhysics(),
-                                    ),
+                                    physics: _pull.physics,
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,

@@ -45,59 +45,15 @@ class _QueueScreenState extends State<QueueScreen> {
   // gated on "the list is at its very top". On Android, BouncingScrollPhysics
   // can absorb/settle an overscroll before it is ever reported, which is
   // why a notification-based dismiss could silently never start.
-  late final RouteDragDismiss _dismiss;
   final ScrollController _scrollCtrl = ScrollController();
-  bool _dragCapturing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _dismiss = RouteDragDismiss(context);
-  }
 
   static const double _dismissDistance = 110.0;
   static const double _dismissVelocity = 900.0;
 
-  void _onVerticalDragStart(DragStartDetails d) {
-    // Only allowed to START when the list is already at its top (or has no
-    // client yet, e.g. an empty queue) — otherwise this is normal scrolling.
-    _dragCapturing = !_scrollCtrl.hasClients ||
-        _scrollCtrl.position.pixels <= _scrollCtrl.position.minScrollExtent;
-  }
-
-  void _onVerticalDragUpdate(DragUpdateDetails d) {
-    if (!_dragCapturing) return;
-    final dy = d.delta.dy;
-    if (!_dismiss.isActive) {
-      if (dy <= 0) return;
-      if (!_dismiss.start()) {
-        _dragCapturing = false;
-        return;
-      }
-    }
-    _dismiss.update(dy);
-  }
-
-  void _onVerticalDragEnd(DragEndDetails d) {
-    if (!_dragCapturing) return;
-    _dragCapturing = false;
-    if (_dismiss.isActive) {
-      _dismiss.end(
-        velocityPxPerSec: d.primaryVelocity ?? 0.0,
-        dismissDistance: _dismissDistance,
-        dismissVelocity: _dismissVelocity,
-      );
-    }
-  }
-
-  void _onVerticalDragCancel() {
-    _dragCapturing = false;
-    if (_dismiss.isActive) _dismiss.cancel();
-  }
+  final PullDownDismissController _pull = PullDownDismissController();
 
   @override
   void dispose() {
-    _dismiss.cancel();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -108,12 +64,11 @@ class _QueueScreenState extends State<QueueScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onVerticalDragStart: _onVerticalDragStart,
-        onVerticalDragUpdate: _onVerticalDragUpdate,
-        onVerticalDragEnd: _onVerticalDragEnd,
-        onVerticalDragCancel: _onVerticalDragCancel,
+      body: PullDownDismiss(
+        controller: _pull,
+        scrollController: _scrollCtrl,
+        dismissDistance: _dismissDistance,
+        dismissVelocity: _dismissVelocity,
         // The route's SlideTransition moves this whole subtree; no
         // per-frame transform/opacity/rebuild happens here.
         child: RepaintBoundary(
@@ -165,8 +120,7 @@ class _QueueScreenState extends State<QueueScreen> {
 
             return CustomScrollView(
               controller: _scrollCtrl,
-              physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics()),
+              physics: _pull.physics,
               slivers: [
                 SliverToBoxAdapter(
                   child: Column(
@@ -636,12 +590,17 @@ class _QueueRow extends StatelessWidget {
                 )
               else
                 const SizedBox(width: 8),
-              ReorderableDragStartListener(
-                index: index,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.drag_handle_rounded,
-                      color: Colors.white38, size: 20),
+              // Reorder handle: this pointer belongs to reordering, never to
+              // the swipe-down-dismiss (child Listener fires first).
+              Listener(
+                onPointerDown: (e) => PullDownDismiss.ignorePointer = e.pointer,
+                child: ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.drag_handle_rounded,
+                        color: Colors.white38, size: 20),
+                  ),
                 ),
               ),
             ],
