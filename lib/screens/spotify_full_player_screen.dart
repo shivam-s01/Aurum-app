@@ -21,17 +21,16 @@
 // screens keeps playback state intact.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
-import '../models/artist.dart' show Artist;
 import '../models/song.dart';
 import '../models/lyrics.dart' show LyricsResult, LyricLine;
 import '../widgets/aurum_artwork.dart';
+import '../utils/artwork_palette_cache.dart';
 import '../widgets/aurum_seek_bar.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
@@ -158,68 +157,69 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     );
   }
 
-  // Tracks the live vertical drag offset for the whole-screen swipe-down-
-  // to-dismiss gesture (Spotify-style: drag from anywhere in the header/
-  // hero area downward past a threshold, or with enough velocity, closes
-  // the player; otherwise it springs back). Only active while collapseT
-  // is ~0 (i.e. the scroll view itself is at the top) so it never fights
-  // the SingleChildScrollView's own vertical drag when the user is
-  // scrolling the lyrics/artists content.
+  // ── Swipe-down-to-dismiss, scroll-native ────────────────────────────────
+  //
+  // ROOT CAUSE of "niche scroll nahi ho raha": the old version froze the
+  // list with NeverScrollableScrollPhysics on every pointer-down while the
+  // list sat at the top — and only unfroze it on pointer-up if NO drag had
+  // started. A finger-up drag (scrolling down to lyrics/artists) is a drag,
+  // so the lock was taken at touch-down, the list was already frozen by
+  // the time the scroll gesture began, and nothing could ever scroll.
+  //
+  // The list is now NEVER locked. Instead the ScrollView keeps full
+  // ownership of every gesture, and we simply *observe* it through a
+  // NotificationListener: when the list is at the very top and the finger
+  // keeps pulling down (overscroll), that overscroll is what drives the
+  // dismiss translation. Scrolling and dismissing therefore share one
+  // gesture recognizer — no arena fight, no lock, no dead zones.
   double _dragDy = 0.0;
   bool _dragging = false;
 
-  static const double _dismissDistance = 140.0;
-  static const double _dismissVelocity = 700.0;
+  static const double _dismissDistance = 120.0;
+  static const double _dismissVelocity = 900.0;
 
-  // FIX ("thumbnail ke paas se swipe down se dismiss nahi ho raha"): the
-  // outer GestureDetector and the inner SingleChildScrollView were both
-  // vertical-drag recognizers competing over the exact same touch area
-  // (the hero/artwork sits INSIDE the scroll view, not above it) — in
-  // Flutter's gesture arena the Scrollable routinely wins that race, so
-  // a drag starting over the thumbnail scrolled the list instead of
-  // dismissing. Freezing the list to NeverScrollableScrollPhysics for the
-  // duration of a from-the-top downward drag removes the competing
-  // recognizer entirely, so the outer detector is the only thing that can
-  // claim the gesture. Physics are restored the instant the drag ends
-  // (dismiss or spring-back) so normal scrolling is completely unaffected
-  // once the user isn't actively dragging from the top.
-  bool _scrollLocked = false;
+  // Latest fling velocity (px/s, +down) seen while the list was at the top —
+  // used to decide "flick to dismiss" even for a short pull.
+  double _lastVelocity = 0.0;
 
-  void _onVerticalDragStart(DragStartDetails details) {
-    if (_collapseT > 0.02) return; // let the scroll view handle it instead
-    setState(() {
-      _dragging = true;
-      _scrollLocked = true;
-    });
+  double get _maxDrag => MediaQuery.of(context).size.height * 0.28;
+
+  bool _onScrollNotification(ScrollNotification n) {
+    // Only the outer vertical list — ignore nested horizontal scrollables.
+    if (n.metrics.axis != Axis.vertical) return false;
+
+    if (n is OverscrollNotification) {
+      // overscroll < 0  ⇒ finger pulling the top of the list down.
+      if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
+        final next = (_dragDy - n.overscroll).clamp(0.0, _maxDrag).toDouble();
+        if (next != _dragDy) {
+          setState(() {
+            _dragging = true;
+            _dragDy = next;
+          });
+        }
+      }
+    } else if (n is ScrollUpdateNotification) {
+      // Finger moving back up while we are mid-dismiss-drag: retract the
+      // translation first, before the list itself starts scrolling.
+      final dy = n.scrollDelta ?? 0.0; // + = content moving up
+      if (_dragDy > 0 && dy > 0) {
+        final next = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble();
+        setState(() => _dragDy = next);
+      }
+      if (n.dragDetails != null) {
+        _lastVelocity = 0.0;
+      }
+    } else if (n is ScrollEndNotification) {
+      _finishDrag(n.dragDetails?.primaryVelocity ?? 0.0);
+    }
+    return false;
   }
 
-  void _onVerticalDragUpdate(DragUpdateDetails details) {
-    if (!_dragging) return;
-    // FIX ("thumbnail ekdam niche chala jaata hai, unstable/akward"): this
-    // used a flat clamp(0.0, 400.0) — a fixed pixel cap with no relation
-    // to the device's actual screen height. On a shorter screen 400px of
-    // travel is most/all of the screen, so the whole Column (hero art +
-    // controls + icon row, all inside the single Transform.translate in
-    // build() below) could drag almost fully off-screen before the
-    // release threshold (140px) even mattered — reading as the artwork
-    // "falling" and the bottom row "jumping up" to meet the header.
-    // Scaling the cap to a fraction of the real screen height (same
-    // approach Classic's own _DragTransform in full_player_screen.dart
-    // uses) keeps the drag small, proportional and stable on every
-    // device, while the 140px/700 velocity thresholds below still decide
-    // when it actually dismisses.
-    final screenH = MediaQuery.of(context).size.height;
-    final maxDrag = screenH * 0.28;
-    setState(() {
-      _dragDy = (_dragDy + details.delta.dy).clamp(0.0, maxDrag);
-    });
-  }
-
-  void _onVerticalDragEnd(DragEndDetails details) {
-    if (!_dragging) return;
+  void _finishDrag(double velocity) {
+    if (!_dragging && _dragDy == 0.0) return;
     final shouldDismiss = _dragDy > _dismissDistance ||
-        details.primaryVelocity != null &&
-            details.primaryVelocity! > _dismissVelocity;
+        (_dragDy > 24.0 && velocity > _dismissVelocity);
     if (shouldDismiss) {
       Navigator.of(context).maybePop();
       return;
@@ -227,7 +227,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     setState(() {
       _dragging = false;
       _dragDy = 0.0;
-      _scrollLocked = false;
     });
   }
 
@@ -257,40 +256,9 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
 
         return Scaffold(
           backgroundColor: const Color(0xFF121212),
-          body: Listener(
-            // FIX ("thumbnail ke paas se swipe down dismiss nahi ho raha"):
-            // fires on the raw pointer-down, before the gesture arena
-            // between this drag detector and the scroll view's own
-            // Scrollable even starts resolving. Locking scroll physics
-            // here — whenever a touch lands while the list is still at
-            // the top — guarantees the outer vertical-drag detector below
-            // is the only recognizer left standing for that touch, so a
-            // drag starting on the thumbnail always dismisses instead of
-            // occasionally scrolling instead.
-            onPointerDown: (_) {
-              if (_collapseT <= 0.02 && !_scrollLocked) {
-                setState(() => _scrollLocked = true);
-              }
-            },
-            // A plain tap (no drag ever recognized) leaves _dragging false,
-            // so onVerticalDragEnd never fires to release the lock taken on
-            // pointer-down above — release it here instead whenever the
-            // pointer goes up/away without a drag having started.
-            onPointerUp: (_) {
-              if (!_dragging && _scrollLocked) {
-                setState(() => _scrollLocked = false);
-              }
-            },
-            onPointerCancel: (_) {
-              if (!_dragging && _scrollLocked) {
-                setState(() => _scrollLocked = false);
-              }
-            },
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onVerticalDragStart: _onVerticalDragStart,
-              onVerticalDragUpdate: _onVerticalDragUpdate,
-              onVerticalDragEnd: _onVerticalDragEnd,
+          body: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: ClipRect(
               child: Transform.translate(
               offset: Offset(0, _dragDy),
               child: Transform.scale(
@@ -338,12 +306,9 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                                           .toDouble();
                                   return SingleChildScrollView(
                                     controller: _scrollCtrl,
-                                    physics: _scrollLocked
-                                        ? const NeverScrollableScrollPhysics()
-                                        : const BouncingScrollPhysics(
-                                            parent:
-                                                AlwaysScrollableScrollPhysics(),
-                                          ),
+                                    physics: const BouncingScrollPhysics(
+                                      parent: AlwaysScrollableScrollPhysics(),
+                                    ),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -517,49 +482,121 @@ class _LyricsPageWrapper extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Background — soft blurred glow from the artwork's dominant tone.
+// Background — Spotify-style SOLID TINT, not a blurred copy of the artwork.
+//
+// Why not blur: a heavily blurred, scaled-up copy of the cover turns
+// multi-coloured / white-heavy artwork (like the Imtihan poster) into a
+// muddy, washed-out smear, and it costs a full-screen Gaussian blur every
+// frame. Spotify instead extracts ONE dominant colour from the cover and
+// fades it top → the app's near-black, which is why every Spotify player
+// looks clean regardless of the cover.
+//
+// Here that colour comes from the app's own ArtworkPaletteCache (same
+// extractor the classic player uses, cached, so it is instant for songs
+// already seen). It is pushed through ensureContrastSafe() so white text
+// can never disappear on a light cover, and the tint animates smoothly
+// when the song changes rather than snapping.
 // ─────────────────────────────────────────────────────────────────────────────
-class _BackgroundGlow extends StatelessWidget {
+class _BackgroundGlow extends StatefulWidget {
   final String artworkUrl;
   const _BackgroundGlow({required this.artworkUrl});
 
   @override
+  State<_BackgroundGlow> createState() => _BackgroundGlowState();
+}
+
+class _BackgroundGlowState extends State<_BackgroundGlow> {
+  static const Color _base = Color(0xFF121212);
+  // Calm neutral shown only until the first colour arrives.
+  static const Color _neutral = Color(0xFF2A2A2A);
+
+  Color _tint = _neutral;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BackgroundGlow old) {
+    super.didUpdateWidget(old);
+    if (old.artworkUrl != widget.artworkUrl) _resolve();
+  }
+
+  // Turns the extracted cover colour into the player's top tint.
+  //
+  // Rules, tuned so it behaves like Spotify's own now-playing screen:
+  //  • keep the cover's HUE and most of its saturation — a red cover reads
+  //    red, not brown;
+  //  • brightness is capped (≈0.50) so white title/controls always have
+  //    strong contrast, and never lifted for dark covers — a near-black
+  //    cover must stay near-black (Spotify does not turn it grey);
+  //  • near-grey / near-white covers (no real hue) get a small, neutral
+  //    charcoal instead of a flat mid-grey slab, which is what looked
+  //    "washed out" on pale artwork.
+  Color _pick(ArtworkPalette p) {
+    final raw =
+        p.gradientColors.isNotEmpty ? p.gradientColors.first : p.dominant;
+    final hsv = HSVColor.fromColor(raw);
+
+    // Colourless cover (grey / white / black): neutral charcoal, scaled a
+    // little by how light the cover is so it still feels connected to it.
+    if (hsv.saturation < 0.12) {
+      final v = (0.16 + hsv.value * 0.10).clamp(0.16, 0.26).toDouble();
+      return HSVColor.fromAHSV(1.0, hsv.hue, 0.0, v).toColor();
+    }
+
+    // Coloured cover: keep hue, tame neon, cap brightness. No lower lift —
+    // a genuinely dark colour stays dark.
+    final sat = (hsv.saturation * 0.88).clamp(0.30, 0.82).toDouble();
+    final val = (hsv.value * 0.62).clamp(0.20, 0.50).toDouble();
+    return HSVColor.fromAHSV(1.0, hsv.hue, sat, val).toColor();
+  }
+
+  Future<void> _resolve() async {
+    final url = widget.artworkUrl;
+    if (url.isEmpty) return;
+
+    // 1) Instant: already cached from a previous play/other screen.
+    final cached = ArtworkPaletteCache.peek(url);
+    if (cached != null) {
+      if (mounted) setState(() => _tint = _pick(cached));
+      return;
+    }
+    // 2) Quick coarse colour first so the screen is tinted almost at once…
+    ArtworkPaletteCache.getFast(url).then((fast) {
+      if (!mounted || widget.artworkUrl != url || fast == null) return;
+      setState(() => _tint = _pick(fast));
+    });
+    // 3) …then the accurate palette replaces it (animated, so no jump).
+    final full = await ArtworkPaletteCache.get(url);
+    if (!mounted || widget.artworkUrl != url) return;
+    setState(() => _tint = _pick(full));
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const ColoredBox(color: Color(0xFF121212)),
-          Opacity(
-            opacity: 0.55,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
-              child: Transform.scale(
-                scale: 1.4,
-                child: AurumArtwork(
-                  url: artworkUrl,
-                  size: double.infinity,
-                  fadeIn: false,
-                  isBlurredBackground: true,
-                ),
-              ),
-            ),
-          ),
-          DecoratedBox(
+      child: TweenAnimationBuilder<Color?>(
+        // Only `end` changes; the builder animates from whatever colour is
+        // currently on screen to the new one, so song changes cross-fade.
+        tween: ColorTween(end: _tint),
+        duration: const Duration(milliseconds: 550),
+        curve: Curves.easeOut,
+        builder: (context, color, _) {
+          final c = color ?? _tint;
+          return DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.15),
-                  const Color(0xFF121212).withOpacity(0.55),
-                  const Color(0xFF121212),
-                ],
-                stops: const [0.0, 0.5, 0.85],
+                colors: [c, Color.lerp(c, _base, 0.5)!, _base],
+                stops: const [0.0, 0.38, 0.85],
               ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -1082,7 +1119,7 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
   // under the "Lyrics" header, clipped short enough that only a hint of
   // it is visible — the rest only appears once the user actually scrolls
   // it into fuller view or taps through to the full lyrics screen.
-  static const double _peekHeight = 132.0;
+  static const double _peekHeight = 200.0;
 
   bool _loading = true;
   LyricsResult? _result;
@@ -1203,16 +1240,21 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
                             )
                           : hasSynced
                               ? _LivePeekLines(result: result!)
-                              : Center(
+                              : Align(
+                                  alignment: Alignment.topLeft,
                                   child: Text(
-                                    result!.plain!.split('\n').first,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
+                                    result!.plain!
+                                        .split('\n')
+                                        .where((l) => l.trim().isNotEmpty)
+                                        .take(5)
+                                        .join('\n'),
+                                    maxLines: 5,
+                                    overflow: TextOverflow.fade,
                                     style: const TextStyle(
                                       color: Colors.white70,
-                                      fontSize: 14.5,
-                                      height: 1.4,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.5,
                                     ),
                                   ),
                                 ),
@@ -1227,54 +1269,106 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live single-line lyric peek — shows ONLY the currently-active line,
-// updating live with playback position, top-aligned in a short box with a
-// fade at the bottom so it reads as "there's more below" rather than the
-// full lyrics view sitting inline. Tapping the card (see _LyricsPreviewCard
-// above) opens the app's full AurumLyricsPage for the complete scroll.
+// Live lyrics peek — a real, moving view of the synced lyrics inside the
+// card. The active line is bright/bold and glides to a fixed resting spot
+// near the top of the viewport as the song plays; already-sung lines dim
+// out above it and upcoming lines sit softly below, fading at the bottom
+// so it reads as "more below". Driven purely by playback position via
+// LyricsResult.activeIndexFor(); the scroll target is computed from a
+// fixed per-line extent, so there is no measuring/re-layout jitter.
+// Tapping the card still opens the full AurumLyricsPage.
 // ─────────────────────────────────────────────────────────────────────────────
-class _LivePeekLines extends StatelessWidget {
+class _LivePeekLines extends StatefulWidget {
   final LyricsResult result;
   const _LivePeekLines({required this.result});
+
+  @override
+  State<_LivePeekLines> createState() => _LivePeekLinesState();
+}
+
+class _LivePeekLinesState extends State<_LivePeekLines> {
+  // Fixed slot height per lyric line (single line, ellipsised) — keeps the
+  // scroll maths exact and the motion perfectly smooth.
+  static const double _lineExtent = 34.0;
+
+  final ScrollController _ctrl = ScrollController();
+  int _lastActive = -2;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _glideTo(int active) {
+    if (!_ctrl.hasClients) return;
+    // Rest the active line one slot below the top edge so a dimmed
+    // "previous" line stays visible above it, like the reference.
+    final target = ((active - 1) * _lineExtent)
+        .clamp(0.0, _ctrl.position.maxScrollExtent)
+        .toDouble();
+    _ctrl.animateTo(
+      target,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final position =
         context.select<PlayerProvider, Duration>((p) => p.position);
-    final lines = result.synced!;
-    final activeIndex = result.activeIndexFor(position);
-    final activeText = (activeIndex >= 0 && activeIndex < lines.length)
-        ? lines[activeIndex].text
-        : (lines.isNotEmpty ? lines.first.text : '');
+    final lines = widget.result.synced!;
+    final active = widget.result.activeIndexFor(position);
 
-    return ClipRect(
-      child: ShaderMask(
-        shaderCallback: (rect) => const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.white, Colors.white, Colors.transparent],
-          stops: [0.0, 0.55, 1.0],
-        ).createShader(rect),
-        blendMode: BlendMode.dstIn,
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            child: Text(
-              activeText.isEmpty ? ' ' : activeText,
-              key: ValueKey(activeIndex),
-              maxLines: 2,
-              overflow: TextOverflow.fade,
-              softWrap: true,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
+    if (active != _lastActive) {
+      _lastActive = active;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _glideTo(active < 0 ? 0 : active);
+      });
+    }
+
+    return ShaderMask(
+      shaderCallback: (rect) => const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Colors.white, Colors.white, Colors.transparent],
+        stops: [0.0, 0.7, 1.0],
+      ).createShader(rect),
+      blendMode: BlendMode.dstIn,
+      child: ListView.builder(
+        controller: _ctrl,
+        // The card is a peek, not a scroller: the outer page owns all
+        // vertical gestures, so this inner list must never grab them.
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        itemExtent: _lineExtent,
+        itemCount: lines.length,
+        itemBuilder: (context, i) {
+          final isActive = i == active;
+          final isPast = active >= 0 && i < active;
+          final text = lines[i].text.trim();
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOut,
+              style: TextStyle(
+                color: isActive
+                    ? Colors.white
+                    : Colors.white.withOpacity(isPast ? 0.38 : 0.6),
+                fontSize: isActive ? 17 : 15.5,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                height: 1.2,
+              ),
+              child: Text(
+                text.isEmpty ? '♪' : text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1335,6 +1429,7 @@ class _ArtistsSectionState extends State<_ArtistsSection> {
         for (final name in _names) ...[
           _SingleArtistCard(
             artistName: name,
+            fallbackImageUrl: widget.song.artworkUrl,
             // Only the song's own primary artist name carries a known
             // channel id from search time; other split names (a featured
             // artist, a co-singer) always resolve by name.
@@ -1353,7 +1448,14 @@ class _ArtistsSectionState extends State<_ArtistsSection> {
 class _SingleArtistCard extends StatefulWidget {
   final String artistName;
   final String? knownArtistId;
-  const _SingleArtistCard({required this.artistName, this.knownArtistId});
+  // Song's own artwork — shown whenever no real artist photo can be found,
+  // so the card is never an empty grey placeholder.
+  final String fallbackImageUrl;
+  const _SingleArtistCard({
+    required this.artistName,
+    required this.fallbackImageUrl,
+    this.knownArtistId,
+  });
 
   @override
   State<_SingleArtistCard> createState() => _SingleArtistCardState();
@@ -1363,7 +1465,7 @@ class _SingleArtistCardState extends State<_SingleArtistCard> {
   bool _loading = true;
   bool _navigating = false;
   String? _resolvedId;
-  String? _imageUrl;
+  String? _imageUrl; // real artist photo, when one exists
 
   @override
   void initState() {
@@ -1371,37 +1473,77 @@ class _SingleArtistCardState extends State<_SingleArtistCard> {
     _load();
   }
 
-  Future<void> _load() async {
-    try {
-      var id = widget.knownArtistId;
-      id ??= await ApiService.resolveArtistId(widget.artistName);
-      if (id == null) {
-        if (mounted) setState(() => _loading = false);
-        return;
-      }
-      final Artist? artist = await ApiService.fetchArtist(id, songCount: 1, albumCount: 1);
-      if (!mounted) return;
+  @override
+  void didUpdateWidget(covariant _SingleArtistCard old) {
+    super.didUpdateWidget(old);
+    // Same card widget reused for a different artist (song changed).
+    if (old.artistName != widget.artistName ||
+        old.knownArtistId != widget.knownArtistId) {
       setState(() {
-        _resolvedId = id;
-        _imageUrl = artist?.imageUrl;
-        _loading = false;
+        _loading = true;
+        _resolvedId = null;
+        _imageUrl = null;
       });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      _load();
     }
   }
 
+  // ONE fast search call returns BOTH the artist's channel id and their
+  // real photo (ApiService.searchArtists → ArtistSimple). The previous
+  // version resolved the id, then called the heavy fetchArtist() just to
+  // read imageUrl — which pulls a whole artist page (and can chain a
+  // second uploads fetch with a very long timeout). That was slow and the
+  // main reason artist photos often never showed up.
+  Future<void> _load() async {
+    final wanted = widget.artistName;
+    try {
+      final results = await ApiService.searchArtists(wanted, limit: 3)
+          .timeout(const Duration(seconds: 8));
+      if (!mounted || wanted != widget.artistName) return;
+
+      ArtistSimple? pick;
+      final lower = wanted.trim().toLowerCase();
+      for (final r in results) {
+        if (r.name.trim().toLowerCase() == lower) {
+          pick = r;
+          break;
+        }
+      }
+      pick ??= results.isNotEmpty ? results.first : null;
+
+      setState(() {
+        _resolvedId = widget.knownArtistId ?? pick?.id;
+        _imageUrl = (pick != null && pick.imageUrl.isNotEmpty)
+            ? pick.imageUrl
+            : null;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _resolvedId = widget.knownArtistId;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  // Always lands on the REAL artist page. If the id isn't resolved yet (or
+  // the search failed earlier), ArtistScreen is handed just the name and
+  // resolves it itself — so a tap never dead-ends.
   Future<void> _open(BuildContext context) async {
     if (_navigating) return;
     AurumHaptics.selection();
     var id = _resolvedId;
     if (id == null) {
       setState(() => _navigating = true);
-      id = await ApiService.resolveArtistId(widget.artistName);
+      try {
+        id = await ApiService.resolveArtistId(widget.artistName);
+      } catch (_) {}
       if (!mounted) return;
       setState(() => _navigating = false);
     }
-    if (id == null || !context.mounted) return;
+    if (!context.mounted) return;
     AurumDepthRoute.to(
       context,
       ArtistScreen(artistId: id, artistName: widget.artistName),
@@ -1427,23 +1569,19 @@ class _SingleArtistCardState extends State<_SingleArtistCard> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (_loading)
-                    const ColoredBox(
-                      color: Color(0xFF1B1B1B),
-                      child: Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: Colors.white38,
-                          ),
-                        ),
-                      ),
-                    )
-                  else if (_imageUrl != null && _imageUrl!.isNotEmpty)
+                  // Real artist photo when we have one; otherwise (still
+                  // loading, or none exists) the song's own thumbnail so the
+                  // card always shows a real image instead of grey.
+                  if (_imageUrl != null && _imageUrl!.isNotEmpty)
                     AurumArtwork(
                       url: _imageUrl!,
+                      size: double.infinity,
+                      borderRadius: 0,
+                    )
+                  else if (widget.fallbackImageUrl.isNotEmpty)
+                    AurumArtwork(
+                      url: AurumArtwork.upgradeForFullPlayer(
+                          widget.fallbackImageUrl),
                       size: double.infinity,
                       borderRadius: 0,
                     )

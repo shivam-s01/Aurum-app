@@ -26,16 +26,69 @@ import '../utils/aurum_haptics.dart';
 // as everywhere else in the app instead of doing nothing.
 import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 
-class QueueScreen extends StatelessWidget {
+class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
+
+  @override
+  State<QueueScreen> createState() => _QueueScreenState();
+}
+
+class _QueueScreenState extends State<QueueScreen> {
+  // ── Swipe-down-to-dismiss ────────────────────────────────────────────────
+  // ROOT CAUSE of "up next swipe down nahi ho raha": this screen had NO
+  // dismiss gesture at all — the drag handle at the top was purely
+  // decorative — so the only way out was the system back button.
+  //
+  // Same scroll-native technique as the player: the list keeps every
+  // gesture, and when it is already at the top and the finger keeps
+  // pulling down, that overscroll drives the screen downward. Past the
+  // distance/velocity threshold it pops; otherwise it springs back.
+  // (Reordering uses its own long-press/drag-handle recognizer, so it is
+  // unaffected.)
+  double _dragDy = 0.0;
+  static const double _dismissDistance = 110.0;
+  static const double _dismissVelocity = 900.0;
+
+  double get _maxDrag => MediaQuery.of(context).size.height * 0.30;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n is OverscrollNotification) {
+      if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
+        final next = (_dragDy - n.overscroll).clamp(0.0, _maxDrag).toDouble();
+        if (next != _dragDy) setState(() => _dragDy = next);
+      }
+    } else if (n is ScrollUpdateNotification) {
+      final dy = n.scrollDelta ?? 0.0;
+      if (_dragDy > 0 && dy > 0) {
+        setState(
+            () => _dragDy = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble());
+      }
+    } else if (n is ScrollEndNotification) {
+      final v = n.dragDetails?.primaryVelocity ?? 0.0;
+      if (_dragDy > _dismissDistance || (_dragDy > 24.0 && v > _dismissVelocity)) {
+        Navigator.of(context).maybePop();
+      } else if (_dragDy != 0.0) {
+        setState(() => _dragDy = 0.0);
+      }
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final dragT = (_dragDy / _maxDrag).clamp(0.0, 1.0);
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: Opacity(
+          opacity: 1.0 - dragT * 0.35,
+          child: Transform.translate(
+            offset: Offset(0, _dragDy),
+            child: SafeArea(
         bottom: false,
         child: Selector<PlayerProvider, (int, int, String)>(
           selector: (_, p) => (
@@ -70,6 +123,8 @@ class QueueScreen extends StatelessWidget {
             );
 
             return CustomScrollView(
+              physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics()),
               slivers: [
                 SliverToBoxAdapter(
                   child: Column(
@@ -135,6 +190,9 @@ class QueueScreen extends StatelessWidget {
               ],
             );
           },
+        ),
+            ),
+          ),
         ),
       ),
     );
