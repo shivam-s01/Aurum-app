@@ -33,7 +33,8 @@ class QueueScreen extends StatefulWidget {
   State<QueueScreen> createState() => _QueueScreenState();
 }
 
-class _QueueScreenState extends State<QueueScreen> {
+class _QueueScreenState extends State<QueueScreen>
+    with SingleTickerProviderStateMixin {
   // ── Swipe-down-to-dismiss ────────────────────────────────────────────────
   // ROOT CAUSE of "up next swipe down nahi ho raha": this screen had NO
   // dismiss gesture at all — the drag handle at the top was purely
@@ -45,61 +46,147 @@ class _QueueScreenState extends State<QueueScreen> {
   // distance/velocity threshold it pops; otherwise it springs back.
   // (Reordering uses its own long-press/drag-handle recognizer, so it is
   // unaffected.)
-  double _dragDy = 0.0;
+  // PERF: ValueNotifier instead of setState — a swipe frame only moves
+  // one cached layer (ValueListenableBuilder below); the queue list,
+  // provider Selector and rows are NOT rebuilt while dragging.
+  final ValueNotifier<double> _dragN = ValueNotifier<double>(0.0);
+  double get _dragDy => _dragN.value;
+  set _dragDy(double v) => _dragN.value = v;
+
+  // Release animation (spring-back / slide-out) — drives only _dragN.
+  late final AnimationController _settleCtrl =
+      AnimationController(vsync: this)..addListener(_onSettleTick);
+  double _settleFrom = 0.0;
+  double _settleTo = 0.0;
+  bool _closing = false;
+
+  void _onSettleTick() {
+    _dragN.value = _settleFrom + (_settleTo - _settleFrom) * _settleCtrl.value;
+  }
+
+  // Live finger velocity (px/s, +down). ScrollEndNotification.dragDetails
+  // is null after a fling, so the old flick-dismiss always read 0.
+  double _velPx = 0.0;
+  int _lastTickUs = 0;
+
+  void _trackVelocity(double deltaDown) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    if (_lastTickUs != 0) {
+      final dt = (now - _lastTickUs) / 1e6;
+      if (dt > 0.0005) {
+        _velPx = _velPx * 0.6 + (deltaDown / dt) * 0.4;
+      }
+    }
+    _lastTickUs = now;
+  }
+
+  void _settle({required double to, required int ms, required Curve curve}) {
+    _settleFrom = _dragN.value;
+    _settleTo = to;
+    _settleCtrl
+      ..duration = Duration(milliseconds: ms)
+      ..value = 0.0;
+    _settleCtrl.animateTo(1.0, curve: curve);
+  }
+
+  void _popWhenDone(AnimationStatus st) {
+    if (st != AnimationStatus.completed) return;
+    _settleCtrl.removeStatusListener(_popWhenDone);
+    if (!mounted) return;
+    Navigator.of(context).maybePop().then((popped) {
+      if (popped == true || !mounted) return;
+      _closing = false;
+      _settle(to: 0.0, ms: 240, curve: Curves.easeOutCubic);
+    });
+  }
   static const double _dismissDistance = 110.0;
   static const double _dismissVelocity = 900.0;
 
-  double get _maxDrag => MediaQuery.of(context).size.height * 0.30;
+  double get _maxDrag => MediaQuery.of(context).size.height;
 
   bool _onScroll(ScrollNotification n) {
     if (n.metrics.axis != Axis.vertical) return false;
-    if (n is OverscrollNotification) {
+    if (_closing) return false;
+
+    if (n is ScrollStartNotification) {
+      if (_settleCtrl.isAnimating) _settleCtrl.stop();
+      _velPx = 0.0;
+      _lastTickUs = 0;
+    } else if (n is OverscrollNotification) {
       if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
+        if (n.dragDetails != null) _trackVelocity(-n.overscroll);
         final next = (_dragDy - n.overscroll).clamp(0.0, _maxDrag).toDouble();
-        if (next != _dragDy) setState(() => _dragDy = next);
+        if (next != _dragDy) _dragDy = next;
       }
     } else if (n is ScrollUpdateNotification) {
       final dy = n.scrollDelta ?? 0.0;
       if (_dragDy > 0 && dy > 0) {
-        setState(
-            () => _dragDy = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble());
+        _trackVelocity(-dy);
+        _dragDy = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble();
       }
     } else if (n is ScrollEndNotification) {
-      final v = n.dragDetails?.primaryVelocity ?? 0.0;
-      if (_dragDy > _dismissDistance || (_dragDy > 24.0 && v > _dismissVelocity)) {
-        Navigator.of(context).maybePop();
-      } else if (_dragDy != 0.0) {
-        setState(() => _dragDy = 0.0);
+      final v = n.dragDetails?.primaryVelocity ?? _velPx;
+      if (_dragDy == 0.0) return false;
+      if (_dragDy > _dismissDistance ||
+          (_dragDy > 24.0 && v > _dismissVelocity)) {
+        _closing = true;
+        final h = MediaQuery.of(context).size.height;
+        _settle(to: h, ms: 200, curve: Curves.easeOutCubic);
+        _settleCtrl.addStatusListener(_popWhenDone);
+      } else {
+        _settle(to: 0.0, ms: 240, curve: Curves.easeOutCubic);
       }
     }
     return false;
   }
 
   @override
+  void dispose() {
+    _settleCtrl.dispose();
+    _dragN.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final dragT = (_dragDy / _maxDrag).clamp(0.0, 1.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: Colors.transparent,
       body: NotificationListener<ScrollNotification>(
         onNotification: _onScroll,
-        child: Opacity(
-          opacity: 1.0 - dragT * 0.35,
-          child: Transform.translate(
-            offset: Offset(0, _dragDy),
-            child: SafeArea(
+        // Pure 1:1 translate of a cached, repaint-isolated subtree — no
+        // Opacity/scale/clip, so no extra layer is composited behind it
+        // while swiping.
+        child: ValueListenableBuilder<double>(
+          valueListenable: _dragN,
+          builder: (context, dy, cached) =>
+              Transform.translate(offset: Offset(0, dy), child: cached),
+          child: RepaintBoundary(
+            child: ColoredBox(
+              // Solid base travels WITH the content (was fixed on the
+              // Scaffold, leaving a static layer behind while dragging).
+              color: const Color(0xFF121212),
+              child: SafeArea(
         bottom: false,
-        child: Selector<PlayerProvider, (int, int, String)>(
-          selector: (_, p) => (
-            p.queue.length,
-            p.currentIndex,
-            p.queue.map((s) => s.id).join(','),
-          ),
+        child: Selector<PlayerProvider, (int, int, int, bool, LoopMode)>(
+          // PERF: was queue.map(id).join(',') — allocated a list + a huge
+          // string on EVERY provider notify (100+ songs, several times a
+          // second). A rolling int hash over the ids is allocation-free
+          // and still changes on add / remove / reorder.
+          // FIX: shuffle + loop are now part of the key, so the pills
+          // actually refresh when toggled (before, they never updated).
+          selector: (_, p) {
+            final q = p.queue;
+            var h = 0;
+            for (var i = 0; i < q.length; i++) {
+              h = 0x1fffffff & (h * 31 + q[i].id.hashCode);
+            }
+            return (q.length, p.currentIndex, h, p.shuffle, p.loopMode);
+          },
           builder: (context, _, __) {
             final player = context.read<PlayerProvider>();
             final queue = player.queue;
-            final favorites = context.watch<FavoritesProvider>();
             final currentSong = player.currentSong;
 
             if (queue.isEmpty || currentSong == null) {
@@ -131,13 +218,20 @@ class _QueueScreenState extends State<QueueScreen> {
                     children: [
                       const _DragHandle(),
                       const SizedBox(height: 4),
-                      _CurrentTrackCard(
-                        song: currentSong,
-                        isLiked: favorites.isFavorite(currentSong.id),
-                        onToggleLike: () {
-                          AurumHaptics.light();
-                          favorites.toggleFavorite(currentSong);
-                        },
+                      // Scoped rebuild: a like change repaints only this
+                      // card, never the whole queue.
+                      Selector<FavoritesProvider, bool>(
+                        selector: (_, f) => f.isFavorite(currentSong.id),
+                        builder: (context, isLiked, _) => _CurrentTrackCard(
+                          song: currentSong,
+                          isLiked: isLiked,
+                          onToggleLike: () {
+                            AurumHaptics.light();
+                            context
+                                .read<FavoritesProvider>()
+                                .toggleFavorite(currentSong);
+                          },
+                        ),
                       ),
                       const SizedBox(height: 18),
                       _QueueMetaPill(
@@ -191,6 +285,7 @@ class _QueueScreenState extends State<QueueScreen> {
             );
           },
         ),
+            ),
             ),
           ),
         ),
@@ -325,7 +420,7 @@ class _QueueMetaPill extends StatelessWidget {
         height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.06),
+          color: const Color(0x0FFFFFFF),
           borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
@@ -436,7 +531,7 @@ class _TogglePill extends StatelessWidget {
     final accent = AurumTheme.accentOf(context);
     final bg = filled
         ? accent
-        : (active ? accent.withOpacity(0.22) : Colors.white.withOpacity(0.06));
+        : (active ? accent.withAlpha(56) : const Color(0x0FFFFFFF));
     final fg = filled ? Colors.black : (active ? accent : Colors.white70);
 
     return Material(
@@ -513,11 +608,12 @@ class _QueueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = AurumTheme.accentOf(context);
 
-    return Container(
+    return RepaintBoundary(
+      child: Container(
       key: ValueKey('${song.id}_row_$index'),
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: isCurrent ? accent.withOpacity(0.16) : Colors.transparent,
+        color: isCurrent ? accent.withAlpha(41) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
       child: AurumPressable(
@@ -541,11 +637,10 @@ class _QueueRow extends StatelessWidget {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.45),
+                        color: const Color(0x73000000),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Icon(Icons.equalizer_rounded,
-                          color: accent, size: 20),
+                      child: _EqualizerBars(color: accent),
                     ),
                 ],
               ),
@@ -599,6 +694,101 @@ class _QueueRow extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Equalizer bars for the current row. One tiny controller, only exists for
+// the single current row, and it STOPS while paused (zero frames, zero
+// CPU). It listens to isPlaying itself, so the queue list is never
+// rebuilt for it. Painted by a CustomPainter inside a RepaintBoundary —
+// no widget tree churn per frame.
+// ─────────────────────────────────────────────────────────────────────────────
+class _EqualizerBars extends StatefulWidget {
+  final Color color;
+  const _EqualizerBars({required this.color});
+
+  @override
+  State<_EqualizerBars> createState() => _EqualizerBarsState();
+}
+
+class _EqualizerBarsState extends State<_EqualizerBars>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+  PlayerProvider? _player;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final p = context.read<PlayerProvider>();
+    if (!identical(p, _player)) {
+      _player?.removeListener(_sync);
+      _player = p..addListener(_sync);
+    }
+    _sync();
+  }
+
+  void _sync() {
+    final playing = _player?.isPlaying ?? false;
+    if (playing) {
+      if (!_c.isAnimating) _c.repeat();
+    } else if (_c.isAnimating) {
+      _c.stop(); // freeze bars in place while paused
+    }
+  }
+
+  @override
+  void dispose() {
+    _player?.removeListener(_sync);
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: RepaintBoundary(
+        child: CustomPaint(
+          size: const Size(18, 18),
+          painter: _BarsPainter(_c, widget.color),
+        ),
+      ),
+    );
+  }
+}
+
+class _BarsPainter extends CustomPainter {
+  final Animation<double> t;
+  final Color color;
+  _BarsPainter(this.t, this.color) : super(repaint: t);
+
+  static const _phase = [0.0, 0.33, 0.66];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final barW = size.width / 5;
+    for (var i = 0; i < 3; i++) {
+      // triangle wave 0..1..0, phase-shifted per bar
+      final v = ((t.value + _phase[i]) % 1.0);
+      final h = 0.25 + 0.75 * (v < 0.5 ? v * 2 : (1 - v) * 2);
+      final bh = size.height * h;
+      final x = i * barW * 2;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, size.height - bh, barW, bh),
+          const Radius.circular(1.5),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BarsPainter old) => old.color != color;
 }

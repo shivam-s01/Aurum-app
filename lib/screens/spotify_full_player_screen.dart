@@ -69,12 +69,16 @@ class SpotifyFullPlayerScreen extends StatefulWidget {
       _SpotifyFullPlayerScreenState();
 }
 
-class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
+class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scrollCtrl = ScrollController();
   // Drives the header collapse fade — a plain double kept in sync with
   // scroll offset via a listener, not a second AnimationController. Only
   // triggers a rebuild of the small header row, not the whole screen.
-  double _collapseT = 0.0;
+  // PERF: ValueNotifier — scrolling the first 120px used to setState the
+  // WHOLE player (artwork, lyrics, controls…) every frame just to fade the
+  // header. Now only the header subtree rebuilds.
+  final ValueNotifier<double> _collapseN = ValueNotifier<double>(0.0);
 
   static const double _collapseDistance = 120.0;
 
@@ -86,13 +90,16 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
 
   void _onScroll() {
     final t = (_scrollCtrl.offset / _collapseDistance).clamp(0.0, 1.0);
-    if (t != _collapseT) setState(() => _collapseT = t);
+    if (t != _collapseN.value) _collapseN.value = t;
   }
 
   @override
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
+    _settleCtrl.dispose();
+    _dragN.dispose();
+    _collapseN.dispose();
     super.dispose();
   }
 
@@ -135,7 +142,12 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        barrierColor: Colors.black87,
+        // FIX (swipe-down: background me alag layer): a route-level
+        // barrierColor is a separate full-screen layer that stays put and
+        // fades on its own while the queue moves — that was the extra
+        // layer visible behind. QueueScreen now carries its own solid
+        // base that moves WITH it, so no barrier layer is needed.
+        barrierColor: null,
         transitionDuration: const Duration(milliseconds: 260),
         reverseTransitionDuration: const Duration(milliseconds: 220),
         pageBuilder: (_, __, ___) => const QueueScreen(),
@@ -172,31 +184,64 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   // keeps pulling down (overscroll), that overscroll is what drives the
   // dismiss translation. Scrolling and dismissing therefore share one
   // gesture recognizer — no arena fight, no lock, no dead zones.
-  double _dragDy = 0.0;
+  // PERF: drag offset lives in a ValueNotifier so a swipe frame only
+  // repaints the transform layer (via ValueListenableBuilder below) —
+  // no setState, no rebuild of the player tree, child stays cached.
+  final ValueNotifier<double> _dragN = ValueNotifier<double>(0.0);
+  double get _dragDy => _dragN.value;
+  set _dragDy(double v) => _dragN.value = v;
   bool _dragging = false;
+
+  // Release animation (spring-back / slide-out). Drives ONLY _dragN, so
+  // it is as light as the drag itself — no rebuilds.
+  late final AnimationController _settleCtrl =
+      AnimationController(vsync: this)..addListener(_onSettleTick);
+  double _settleFrom = 0.0;
+  double _settleTo = 0.0;
+  bool _closing = false;
+
+  void _onSettleTick() {
+    _dragN.value = _settleFrom + (_settleTo - _settleFrom) * _settleCtrl.value;
+  }
+
+  // Finger velocity (px/s, +down) tracked live while overscroll-dragging.
+  // ScrollEndNotification.dragDetails is null after a fling, which made
+  // the old flick-to-dismiss read velocity 0 and never fire.
+  double _velPx = 0.0;
+  int _lastTickUs = 0;
+
+  void _settle({required double to, required int ms, required Curve curve}) {
+    _settleFrom = _dragN.value;
+    _settleTo = to;
+    _settleCtrl
+      ..duration = Duration(milliseconds: ms)
+      ..value = 0.0;
+    _settleCtrl.animateTo(1.0, curve: curve);
+  }
 
   static const double _dismissDistance = 120.0;
   static const double _dismissVelocity = 900.0;
 
-  // Latest fling velocity (px/s, +down) seen while the list was at the top —
-  // used to decide "flick to dismiss" even for a short pull.
-  double _lastVelocity = 0.0;
-
-  double get _maxDrag => MediaQuery.of(context).size.height * 0.28;
+  double get _maxDrag => MediaQuery.of(context).size.height;
 
   bool _onScrollNotification(ScrollNotification n) {
     // Only the outer vertical list — ignore nested horizontal scrollables.
     if (n.metrics.axis != Axis.vertical) return false;
+    if (_closing) return false;
 
-    if (n is OverscrollNotification) {
+    if (n is ScrollStartNotification) {
+      // Finger touched again mid spring-back: take over from where it is.
+      if (_settleCtrl.isAnimating) _settleCtrl.stop();
+      _velPx = 0.0;
+      _lastTickUs = 0;
+    } else if (n is OverscrollNotification) {
       // overscroll < 0  ⇒ finger pulling the top of the list down.
       if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
+        if (n.dragDetails != null) _trackVelocity(-n.overscroll);
         final next = (_dragDy - n.overscroll).clamp(0.0, _maxDrag).toDouble();
         if (next != _dragDy) {
-          setState(() {
-            _dragging = true;
-            _dragDy = next;
-          });
+          _dragging = true;
+          _dragDy = next;
         }
       }
     } else if (n is ScrollUpdateNotification) {
@@ -204,29 +249,56 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
       // translation first, before the list itself starts scrolling.
       final dy = n.scrollDelta ?? 0.0; // + = content moving up
       if (_dragDy > 0 && dy > 0) {
-        final next = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble();
-        setState(() => _dragDy = next);
-      }
-      if (n.dragDetails != null) {
-        _lastVelocity = 0.0;
+        _trackVelocity(-dy);
+        _dragDy = (_dragDy - dy).clamp(0.0, _maxDrag).toDouble();
       }
     } else if (n is ScrollEndNotification) {
-      _finishDrag(n.dragDetails?.primaryVelocity ?? 0.0);
+      _finishDrag(n.dragDetails?.primaryVelocity ?? _velPx);
     }
     return false;
+  }
+
+  // Cheap exponential-smoothed velocity from per-notification deltas.
+  void _trackVelocity(double deltaDown) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    if (_lastTickUs != 0) {
+      final dt = (now - _lastTickUs) / 1e6;
+      if (dt > 0.0005) {
+        final inst = deltaDown / dt;
+        _velPx = _velPx * 0.6 + inst * 0.4;
+      }
+    }
+    _lastTickUs = now;
   }
 
   void _finishDrag(double velocity) {
     if (!_dragging && _dragDy == 0.0) return;
     final shouldDismiss = _dragDy > _dismissDistance ||
         (_dragDy > 24.0 && velocity > _dismissVelocity);
+    _dragging = false;
     if (shouldDismiss) {
-      Navigator.of(context).maybePop();
+      _closing = true;
+      // Slide the rest of the way out from the CURRENT position (no jump),
+      // then pop the route with its own transition already at "gone".
+      final h = MediaQuery.of(context).size.height;
+      _settle(to: h, ms: 200, curve: Curves.easeOutCubic);
+      _settleCtrl.addStatusListener(_popWhenDone);
       return;
     }
-    setState(() {
-      _dragging = false;
-      _dragDy = 0.0;
+    // Not far enough: spring back smoothly instead of snapping.
+    _settle(to: 0.0, ms: 240, curve: Curves.easeOutCubic);
+  }
+
+  void _popWhenDone(AnimationStatus st) {
+    if (st != AnimationStatus.completed) return;
+    _settleCtrl.removeStatusListener(_popWhenDone);
+    if (!mounted) return;
+    // Player is already fully off-screen, so the route's own reverse slide
+    // is invisible. If the pop is refused (e.g. WillPop), come back cleanly.
+    Navigator.of(context).maybePop().then((popped) {
+      if (popped == true || !mounted) return;
+      _closing = false;
+      _settle(to: 0.0, ms: 240, curve: Curves.easeOutCubic);
     });
   }
 
@@ -249,23 +321,27 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
         // FIX: kept in sync with the height-scaled cap in
         // _onVerticalDragUpdate above (was a flat 400.0, same
         // instability). Denominator matches maxDrag there exactly.
-        final screenH = MediaQuery.of(context).size.height;
-        final dragT = (_dragDy / (screenH * 0.28)).clamp(0.0, 1.0);
-        final scale = 1.0 - (dragT * 0.06);
-        final opacity = 1.0 - (dragT * 0.35);
-
+        // Swipe-down = PURE 1:1 translate of the whole player (finger
+        // follows exactly, like Spotify). No scale (that made it look
+        // "patla"/thin), no fade, no ClipRect — nothing extra to
+        // composite, so no extra layer is created behind it while
+        // dragging. The route itself is transparent (opaque:false), so
+        // the previous screen simply shows through as the player leaves.
         return Scaffold(
-          backgroundColor: const Color(0xFF121212),
+          backgroundColor: Colors.transparent,
           body: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
-            child: ClipRect(
-              child: Transform.translate(
-              offset: Offset(0, _dragDy),
-              child: Transform.scale(
-                scale: scale,
-                alignment: Alignment.topCenter,
-                child: Opacity(
-                  opacity: opacity,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _dragN,
+              builder: (context, dy, cached) =>
+                  Transform.translate(offset: Offset(0, dy), child: cached),
+              child: RepaintBoundary(
+                child: ColoredBox(
+                  // Solid base lives INSIDE the moving layer, so it
+                  // travels with the player. (Before, the Scaffold kept a
+                  // fixed solid background while content moved down —
+                  // that was the extra "layer" visible behind.)
+                  color: const Color(0xFF121212),
                   child: Stack(
                     children: [
                       _BackgroundGlow(
@@ -276,15 +352,20 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                         bottom: false,
                         child: Column(
                           children: [
-                            _CollapsingHeader(
-                              collapseT: _collapseT,
-                              song: song,
-                              favorites: favorites,
-                              onClose: () => Navigator.of(context).maybePop(),
-                              onMore: () => showAurumSongOptions(
-                                context,
-                                song,
-                                showPlayerTools: true,
+                            ValueListenableBuilder<double>(
+                              valueListenable: _collapseN,
+                              builder: (context, collapseT, _) =>
+                                  _CollapsingHeader(
+                                collapseT: collapseT,
+                                song: song,
+                                favorites: favorites,
+                                onClose: () =>
+                                    Navigator.of(context).maybePop(),
+                                onMore: () => showAurumSongOptions(
+                                  context,
+                                  song,
+                                  showPlayerTools: true,
+                                ),
                               ),
                             ),
                             Expanded(
@@ -349,7 +430,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                   ),
                 ),
               ),
-            ),
             ),
           ),
         );
@@ -818,18 +898,21 @@ class _PlayerPage extends StatelessWidget {
                       .clamp(0.0, 4000.0)
                       .toDouble();
               return Center(
-                child: Hero(
-                  tag: 'spotify_full_player_art_${song.id}',
-                  child: PhysicalModel(
-                    color: Colors.black,
-                    elevation: 20,
-                    shadowColor: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                    child: AurumArtwork(
-                      url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
-                      size: side,
-                      borderRadius: 8,
-                    ),
+                // FIX (swipe-down: thumbnail alag neeche jata tha): the
+                // Hero here made the artwork fly on its own during the
+                // pop/drag, detaching it from the rest of the player.
+                // No matching Hero exists on the previous route, so it
+                // only ever caused that detached motion. Plain artwork
+                // now moves rigidly with the whole player.
+                child: PhysicalModel(
+                  color: Colors.black,
+                  elevation: 20,
+                  shadowColor: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                  child: AurumArtwork(
+                    url: AurumArtwork.upgradeForFullPlayer(song.artworkUrl),
+                    size: side,
+                    borderRadius: 8,
                   ),
                 ),
               );
