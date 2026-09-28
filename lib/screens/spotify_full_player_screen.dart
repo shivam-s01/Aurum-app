@@ -85,7 +85,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _dismiss = RouteDragDismiss(context);
     _scrollCtrl.addListener(_onScroll);
   }
 
@@ -98,7 +97,6 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
-    _dismiss.cancel();
     _collapseN.dispose();
     super.dispose();
   }
@@ -167,83 +165,22 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
     );
   }
 
-  // ── Swipe-down-to-dismiss, scroll-native ────────────────────────────────
+  // ── Swipe-down-to-dismiss ────────────────────────────────────────────────
   //
-  // ROOT CAUSE of "niche scroll nahi ho raha": the old version froze the
-  // list with NeverScrollableScrollPhysics on every pointer-down while the
-  // list sat at the top — and only unfroze it on pointer-up if NO drag had
-  // started. A finger-up drag (scrolling down to lyrics/artists) is a drag,
-  // so the lock was taken at touch-down, the list was already frozen by
-  // the time the scroll gesture began, and nothing could ever scroll.
-  //
-  // The list is now NEVER locked. Instead the ScrollView keeps full
-  // ownership of every gesture, and we simply *observe* it through a
-  // NotificationListener: when the list is at the very top and the finger
-  // keeps pulling down (overscroll), that overscroll is what drives the
-  // dismiss translation. Scrolling and dismissing therefore share one
-  // gesture recognizer — no arena fight, no lock, no dead zones.
   // Swipe-down-to-dismiss is driven by the ROUTE'S OWN animation controller
   // (see utils/route_drag_dismiss.dart). The finger sets the route's
   // controller value directly, so the route's SlideTransition is the ONE
   // and only thing that moves the screen — the whole player (artwork
   // included) slides as a single piece, with no second transform stacked
   // on top, no extra layer, and no double slide on release.
-  late final RouteDragDismiss _dismiss;
-
-  // Finger velocity (px/s, +down), tracked live while overscroll-dragging.
-  // ScrollEndNotification.dragDetails is null after a fling, so the old
-  // flick-to-dismiss read velocity 0 and never fired.
-  double _velPx = 0.0;
-  int _lastTickUs = 0;
-
   static const double _dismissDistance = 120.0;
   static const double _dismissVelocity = 900.0;
 
-  bool _onScrollNotification(ScrollNotification n) {
-    // Only the outer vertical list — ignore nested horizontal scrollables.
-    if (n.metrics.axis != Axis.vertical) return false;
-
-    if (n is ScrollStartNotification) {
-      _velPx = 0.0;
-      _lastTickUs = 0;
-    } else if (n is OverscrollNotification) {
-      // overscroll < 0  ⇒ finger pulling the top of the list down.
-      if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
-        if (!_dismiss.isActive && !_dismiss.start()) return false;
-        if (n.dragDetails != null) _trackVelocity(-n.overscroll);
-        _dismiss.update(-n.overscroll);
-      }
-    } else if (n is ScrollUpdateNotification) {
-      // Finger moving back up while mid-dismiss-drag: retract the route
-      // first, before the list itself starts scrolling.
-      final dy = n.scrollDelta ?? 0.0; // + = content moving up
-      if (_dismiss.isActive && dy > 0) {
-        _trackVelocity(-dy);
-        _dismiss.update(-dy);
-      }
-    } else if (n is ScrollEndNotification) {
-      if (_dismiss.isActive) {
-        _dismiss.end(
-          velocityPxPerSec: n.dragDetails?.primaryVelocity ?? _velPx,
-          dismissDistance: _dismissDistance,
-          dismissVelocity: _dismissVelocity,
-        );
-      }
-    }
-    return false;
-  }
-
-  // Cheap exponential-smoothed velocity from per-notification deltas.
-  void _trackVelocity(double deltaDown) {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    if (_lastTickUs != 0) {
-      final dt = (now - _lastTickUs) / 1e6;
-      if (dt > 0.0005) {
-        _velPx = _velPx * 0.6 + (deltaDown / dt) * 0.4;
-      }
-    }
-    _lastTickUs = now;
-  }
+  // Finger side of the dismiss lives in PullDownDismiss (raw Listener, see
+  // utils/route_drag_dismiss.dart) — a GestureDetector above the scroll view
+  // never won the gesture arena, so the scroll view over-scrolled and only
+  // the artwork moved.
+  final PullDownDismissController _pull = PullDownDismissController();
 
   @override
   Widget build(BuildContext context) {
@@ -264,8 +201,11 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
         // one rigid piece and nothing is composited twice.
         return Scaffold(
           backgroundColor: const Color(0xFF121212),
-          body: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
+          body: PullDownDismiss(
+            controller: _pull,
+            scrollController: _scrollCtrl,
+            dismissDistance: _dismissDistance,
+            dismissVelocity: _dismissVelocity,
             child: RepaintBoundary(
               child: ColoredBox(
                 color: const Color(0xFF121212),
@@ -314,9 +254,7 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
                                           .toDouble();
                                   return SingleChildScrollView(
                                     controller: _scrollCtrl,
-                                    physics: const BouncingScrollPhysics(
-                                      parent: AlwaysScrollableScrollPhysics(),
-                                    ),
+                                    physics: _pull.physics,
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,

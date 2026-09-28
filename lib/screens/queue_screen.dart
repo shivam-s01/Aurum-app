@@ -21,6 +21,7 @@ import '../widgets/aurum_like_button.dart';
 import '../providers/favorites_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/route_drag_dismiss.dart';
 // Real shared "3-dot" song menu (albums/liked/download/playlist/etc.) —
 // used for the meta pill's overflow button so it opens the same sheet
 // as everywhere else in the app instead of doing nothing.
@@ -35,80 +36,25 @@ class QueueScreen extends StatefulWidget {
 
 class _QueueScreenState extends State<QueueScreen> {
   // ── Swipe-down-to-dismiss ────────────────────────────────────────────────
-  // ROOT CAUSE of "up next swipe down nahi ho raha": this screen had NO
-  // dismiss gesture at all — the drag handle at the top was purely
-  // decorative — so the only way out was the system back button.
-  //
-  // Same scroll-native technique as the player: the list keeps every
-  // gesture, and when it is already at the top and the finger keeps
-  // pulling down, that overscroll drives the screen downward. Past the
-  // distance/velocity threshold it pops; otherwise it springs back.
-  // (Reordering uses its own long-press/drag-handle recognizer, so it is
-  // unaffected.)
   // Driven by the ROUTE'S OWN animation controller (see
   // utils/route_drag_dismiss.dart): the finger sets the route's value, the
   // route's SlideTransition moves the whole queue, and releasing lets the
   // same controller finish. One motion only — no extra transform/layer.
-  late final RouteDragDismiss _dismiss;
-
-  @override
-  void initState() {
-    super.initState();
-    _dismiss = RouteDragDismiss(context);
-  }
-
-  // Live finger velocity (px/s, +down). ScrollEndNotification.dragDetails
-  // is null after a fling, so the old flick-dismiss always read 0.
-  double _velPx = 0.0;
-  int _lastTickUs = 0;
-
-  void _trackVelocity(double deltaDown) {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    if (_lastTickUs != 0) {
-      final dt = (now - _lastTickUs) / 1e6;
-      if (dt > 0.0005) {
-        _velPx = _velPx * 0.6 + (deltaDown / dt) * 0.4;
-      }
-    }
-    _lastTickUs = now;
-  }
+  //
+  // A raw vertical-drag gesture (not OverscrollNotification) drives it —
+  // gated on "the list is at its very top". On Android, BouncingScrollPhysics
+  // can absorb/settle an overscroll before it is ever reported, which is
+  // why a notification-based dismiss could silently never start.
+  final ScrollController _scrollCtrl = ScrollController();
 
   static const double _dismissDistance = 110.0;
   static const double _dismissVelocity = 900.0;
 
-  bool _onScroll(ScrollNotification n) {
-    if (n.metrics.axis != Axis.vertical) return false;
-
-    if (n is ScrollStartNotification) {
-      _velPx = 0.0;
-      _lastTickUs = 0;
-    } else if (n is OverscrollNotification) {
-      if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
-        if (!_dismiss.isActive && !_dismiss.start()) return false;
-        if (n.dragDetails != null) _trackVelocity(-n.overscroll);
-        _dismiss.update(-n.overscroll);
-      }
-    } else if (n is ScrollUpdateNotification) {
-      final dy = n.scrollDelta ?? 0.0;
-      if (_dismiss.isActive && dy > 0) {
-        _trackVelocity(-dy);
-        _dismiss.update(-dy);
-      }
-    } else if (n is ScrollEndNotification) {
-      if (_dismiss.isActive) {
-        _dismiss.end(
-          velocityPxPerSec: n.dragDetails?.primaryVelocity ?? _velPx,
-          dismissDistance: _dismissDistance,
-          dismissVelocity: _dismissVelocity,
-        );
-      }
-    }
-    return false;
-  }
+  final PullDownDismissController _pull = PullDownDismissController();
 
   @override
   void dispose() {
-    _dismiss.cancel();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
@@ -118,8 +64,11 @@ class _QueueScreenState extends State<QueueScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _onScroll,
+      body: PullDownDismiss(
+        controller: _pull,
+        scrollController: _scrollCtrl,
+        dismissDistance: _dismissDistance,
+        dismissVelocity: _dismissVelocity,
         // The route's SlideTransition moves this whole subtree; no
         // per-frame transform/opacity/rebuild happens here.
         child: RepaintBoundary(
@@ -170,8 +119,8 @@ class _QueueScreenState extends State<QueueScreen> {
             );
 
             return CustomScrollView(
-              physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics()),
+              controller: _scrollCtrl,
+              physics: _pull.physics,
               slivers: [
                 SliverToBoxAdapter(
                   child: Column(
@@ -641,12 +590,17 @@ class _QueueRow extends StatelessWidget {
                 )
               else
                 const SizedBox(width: 8),
-              ReorderableDragStartListener(
-                index: index,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.drag_handle_rounded,
-                      color: Colors.white38, size: 20),
+              // Reorder handle: this pointer belongs to reordering, never to
+              // the swipe-down-dismiss (child Listener fires first).
+              Listener(
+                onPointerDown: (e) => PullDownDismiss.ignorePointer = e.pointer,
+                child: ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.drag_handle_rounded,
+                        color: Colors.white38, size: 20),
+                  ),
                 ),
               ),
             ],
