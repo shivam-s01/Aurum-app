@@ -36,21 +36,18 @@ class QueueScreen extends StatefulWidget {
 
 class _QueueScreenState extends State<QueueScreen> {
   // ── Swipe-down-to-dismiss ────────────────────────────────────────────────
-  // ROOT CAUSE of "up next swipe down nahi ho raha": this screen had NO
-  // dismiss gesture at all — the drag handle at the top was purely
-  // decorative — so the only way out was the system back button.
-  //
-  // Same scroll-native technique as the player: the list keeps every
-  // gesture, and when it is already at the top and the finger keeps
-  // pulling down, that overscroll drives the screen downward. Past the
-  // distance/velocity threshold it pops; otherwise it springs back.
-  // (Reordering uses its own long-press/drag-handle recognizer, so it is
-  // unaffected.)
   // Driven by the ROUTE'S OWN animation controller (see
   // utils/route_drag_dismiss.dart): the finger sets the route's value, the
   // route's SlideTransition moves the whole queue, and releasing lets the
   // same controller finish. One motion only — no extra transform/layer.
+  //
+  // A raw vertical-drag gesture (not OverscrollNotification) drives it —
+  // gated on "the list is at its very top". On Android, BouncingScrollPhysics
+  // can absorb/settle an overscroll before it is ever reported, which is
+  // why a notification-based dismiss could silently never start.
   late final RouteDragDismiss _dismiss;
+  final ScrollController _scrollCtrl = ScrollController();
+  bool _dragCapturing = false;
 
   @override
   void initState() {
@@ -58,58 +55,50 @@ class _QueueScreenState extends State<QueueScreen> {
     _dismiss = RouteDragDismiss(context);
   }
 
-  // Live finger velocity (px/s, +down). ScrollEndNotification.dragDetails
-  // is null after a fling, so the old flick-dismiss always read 0.
-  double _velPx = 0.0;
-  int _lastTickUs = 0;
-
-  void _trackVelocity(double deltaDown) {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    if (_lastTickUs != 0) {
-      final dt = (now - _lastTickUs) / 1e6;
-      if (dt > 0.0005) {
-        _velPx = _velPx * 0.6 + (deltaDown / dt) * 0.4;
-      }
-    }
-    _lastTickUs = now;
-  }
-
   static const double _dismissDistance = 110.0;
   static const double _dismissVelocity = 900.0;
 
-  bool _onScroll(ScrollNotification n) {
-    if (n.metrics.axis != Axis.vertical) return false;
+  void _onVerticalDragStart(DragStartDetails d) {
+    // Only allowed to START when the list is already at its top (or has no
+    // client yet, e.g. an empty queue) — otherwise this is normal scrolling.
+    _dragCapturing = !_scrollCtrl.hasClients ||
+        _scrollCtrl.position.pixels <= _scrollCtrl.position.minScrollExtent;
+  }
 
-    if (n is ScrollStartNotification) {
-      _velPx = 0.0;
-      _lastTickUs = 0;
-    } else if (n is OverscrollNotification) {
-      if (n.overscroll < 0 && n.metrics.pixels <= n.metrics.minScrollExtent) {
-        if (!_dismiss.isActive && !_dismiss.start()) return false;
-        if (n.dragDetails != null) _trackVelocity(-n.overscroll);
-        _dismiss.update(-n.overscroll);
-      }
-    } else if (n is ScrollUpdateNotification) {
-      final dy = n.scrollDelta ?? 0.0;
-      if (_dismiss.isActive && dy > 0) {
-        _trackVelocity(-dy);
-        _dismiss.update(-dy);
-      }
-    } else if (n is ScrollEndNotification) {
-      if (_dismiss.isActive) {
-        _dismiss.end(
-          velocityPxPerSec: n.dragDetails?.primaryVelocity ?? _velPx,
-          dismissDistance: _dismissDistance,
-          dismissVelocity: _dismissVelocity,
-        );
+  void _onVerticalDragUpdate(DragUpdateDetails d) {
+    if (!_dragCapturing) return;
+    final dy = d.delta.dy;
+    if (!_dismiss.isActive) {
+      if (dy <= 0) return;
+      if (!_dismiss.start()) {
+        _dragCapturing = false;
+        return;
       }
     }
-    return false;
+    _dismiss.update(dy);
+  }
+
+  void _onVerticalDragEnd(DragEndDetails d) {
+    if (!_dragCapturing) return;
+    _dragCapturing = false;
+    if (_dismiss.isActive) {
+      _dismiss.end(
+        velocityPxPerSec: d.primaryVelocity ?? 0.0,
+        dismissDistance: _dismissDistance,
+        dismissVelocity: _dismissVelocity,
+      );
+    }
+  }
+
+  void _onVerticalDragCancel() {
+    _dragCapturing = false;
+    if (_dismiss.isActive) _dismiss.cancel();
   }
 
   @override
   void dispose() {
     _dismiss.cancel();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
@@ -119,8 +108,12 @@ class _QueueScreenState extends State<QueueScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _onScroll,
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart: _onVerticalDragStart,
+        onVerticalDragUpdate: _onVerticalDragUpdate,
+        onVerticalDragEnd: _onVerticalDragEnd,
+        onVerticalDragCancel: _onVerticalDragCancel,
         // The route's SlideTransition moves this whole subtree; no
         // per-frame transform/opacity/rebuild happens here.
         child: RepaintBoundary(
@@ -171,6 +164,7 @@ class _QueueScreenState extends State<QueueScreen> {
             );
 
             return CustomScrollView(
+              controller: _scrollCtrl,
               physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics()),
               slivers: [
