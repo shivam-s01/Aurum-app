@@ -13,6 +13,7 @@ import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
+import '../utils/route_drag_dismiss.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
 import '../services/aurum_image_cache.dart';
@@ -414,9 +415,13 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // FullPlayerScreen's own themed Scaffold/inner ColoredBox paint
         // over it immediately after — so the "flat color for the whole
         // transition" complaint this comment describes does not return.
+        // routeDragCurve = AurumMotion.standard for normal open/close, but
+        // LINEAR while a swipe-down owns the route, so the player follows
+        // the finger 1:1 and release continues the same motion.
         transitionsBuilder: (context, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: AurumMotion.standard)),
+              .animate(routeDragCurve(context, anim,
+                  curve: AurumMotion.standard)),
           child: child,
         ),
         // Explicit 380ms both directions — matches the tuned duration
