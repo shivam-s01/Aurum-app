@@ -259,10 +259,14 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
   double _ampAnim = 0.0; // eases 0→1 on play, 1→0 on pause (flattens the wave)
   double _thumbFraction = 0.0; // eases 0→1 on drag start, 1→0 on drag end
   Duration _lastElapsed = Duration.zero;
+  // PERF: bumped once per tick. The CustomPaint listens to this directly
+  // (painter `repaint:`), so a frame repaints ONLY the bar's canvas —
+  // no setState, no rebuild of the Column / time labels / parent tree.
+  final ValueNotifier<int> _frame = ValueNotifier<int>(0);
 
   // Wave shape constants — tuned to the "barely there" variant.
-  static const double _wavelength = 26; // px per wave cycle
-  static const double _waveSpeed = 14; // px per second, slow relaxed drift
+  static const double _wavelength = 24; // px per wave cycle
+  static const double _waveSpeed = 34; // px per second — lively flow
 
   double _scrollX = 0;
 
@@ -357,16 +361,14 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
     final thumbSettled = (nextThumb - thumbTarget).abs() <= 0.001;
 
     if (!ampSettled || !thumbSettled || playing) {
-      setState(() {
-        _ampAnim = nextAmp;
-        _thumbFraction = nextThumb;
-      });
+      _ampAnim = nextAmp;
+      _thumbFraction = nextThumb;
+      _frame.value++;
     } else if (_ticker.isTicking) {
       // Both eases reached their resting state — stop burning frames.
-      setState(() {
-        _ampAnim = nextAmp;
-        _thumbFraction = thumbTarget;
-      });
+      _ampAnim = nextAmp;
+      _thumbFraction = thumbTarget;
+      _frame.value++;
       _ticker.stop();
     }
   }
@@ -374,6 +376,7 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
   @override
   void dispose() {
     _ticker.dispose();
+    _frame.dispose();
     super.dispose();
   }
 
@@ -434,17 +437,23 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
                 onHorizontalDragUpdate: (d) => handleUpdate(d.localPosition),
                 onHorizontalDragEnd: (_) => widget.onDragEnd(widget.dragValue ?? progress),
                 onHorizontalDragCancel: () => widget.onDragEnd(widget.dragValue ?? progress),
-                child: CustomPaint(
-                  size: Size(width, 32),
-                  painter: _WaveformPainter(
-                    progress: progress,
-                    activeColor: widget.activeColor,
-                    inactiveColor: widget.inactiveColor,
-                    scrollX: _scrollX,
-                    ampAnim: _ampAnim,
-                    wavelength: _wavelength,
-                    dragging: widget.dragging,
-                    thumbInteractionFraction: _thumbFraction,
+                // RepaintBoundary: the wave animates at 60fps in its own
+                // layer, so the rest of the player never repaints with it.
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    size: Size(width, 32),
+                    painter: _WaveformPainter(
+                      repaint: _frame,
+                      // Read at PAINT time (not build time), so every
+                      // ticker frame draws the newest wave state without
+                      // rebuilding any widget.
+                      live: () => (_scrollX, _ampAnim, _thumbFraction),
+                      progress: progress,
+                      activeColor: widget.activeColor,
+                      inactiveColor: widget.inactiveColor,
+                      wavelength: _wavelength,
+                      dragging: widget.dragging,
+                    ),
                   ),
                 ),
               );
@@ -478,32 +487,36 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
   }
 }
 
+// Height of the thumb's bob relative to the full wave (0..1).
+const double _thumbAmpScale = 0.6;
+
 class _WaveformPainter extends CustomPainter {
+  final (double, double, double) Function() live; // scrollX, ampAnim, thumbFrac
   final double progress;
   final Color activeColor;
   final Color inactiveColor;
-  final double scrollX;
-  final double ampAnim;
   final double wavelength;
   final bool dragging;
-  final double thumbInteractionFraction; // 0 = idle dot, 1 = dragging capsule
 
   _WaveformPainter({
+    required Listenable repaint,
+    required this.live,
     required this.progress,
     required this.activeColor,
     required this.inactiveColor,
-    required this.scrollX,
-    required this.ampAnim,
     required this.wavelength,
     required this.dragging,
-    required this.thumbInteractionFraction,
-  });
+  }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final (scrollX, ampAnim, thumbInteractionFraction) = live();
     final centerY = size.height / 2;
     final progressX = size.width * progress;
-    final maxAmp = size.height * 0.10;
+    // Livelier amplitude (was height * 0.10 ≈ 3.2px on a 32px bar, which
+    // read as "barely moving"): now ≈ 4px at full play — visible flow,
+    // still calm and premium.
+    final maxAmp = size.height * 0.125;
     final k = (2 * math.pi) / wavelength;
     final f = thumbInteractionFraction; // shorthand
 
@@ -534,7 +547,12 @@ class _WaveformPainter extends CustomPainter {
     final fadeZone = wavelength * 0.85;
     final waveEndX = (progressX - gap / 2).clamp(0.0, size.width);
 
-    double edgeFadeAt(double x) => (1.0 - ((progressX - x) / fadeZone)).clamp(0.0, 1.0);
+    // Path amp eases from FULL (behind) to _thumbAmpScale (at the thumb)
+    // across the fade zone, so the line glides into the dot's softer bob.
+    double edgeFadeAt(double x) {
+      final t = ((progressX - x) / fadeZone).clamp(0.0, 1.0); // 0 at head
+      return _thumbAmpScale + (1.0 - _thumbAmpScale) * t;
+    }
 
     final activePath = Path();
     bool started = false;
@@ -591,8 +609,16 @@ class _WaveformPainter extends CustomPainter {
     // always the mathematical continuation of the line beneath it, never
     // a separately-computed value that can visibly disagree with where
     // the path actually ends.
+    // Thumb bob: the dot sits on the wave's exact continuation (same
+    // sine, same phase, same amplitude as the path's last point) but at
+    // ~60% of its height — a soft, small up/down that feels alive without
+    // ever jumping off the line — and eases to dead-center as it morphs
+    // into the drag capsule. The played wave's own last stretch fades
+    // toward that same reduced height (see _thumbAmpScale below), so the
+    // dot and line always meet cleanly.
     final waveHeadY = centerY +
-        math.sin(k * (progressX - scrollX)) * (maxAmp * ampAnim * edgeFadeAt(progressX) * (1.0 - f));
+        math.sin(k * (progressX - scrollX)) *
+            (maxAmp * ampAnim * _thumbAmpScale * (1.0 - f));
     final headY = waveHeadY * (1.0 - f) + centerY * f;
 
     final thumbPaint = Paint()..color = activeColor;
@@ -612,10 +638,7 @@ class _WaveformPainter extends CustomPainter {
       old.progress != progress ||
       old.activeColor != activeColor ||
       old.inactiveColor != inactiveColor ||
-      old.scrollX != scrollX ||
-      old.ampAnim != ampAnim ||
-      old.dragging != dragging ||
-      old.thumbInteractionFraction != thumbInteractionFraction;
+      old.dragging != dragging;
 }
 
 // Buffered/preloaded region overlay for the Slim/Thick/Rounded (plain
