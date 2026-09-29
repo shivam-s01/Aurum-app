@@ -994,6 +994,7 @@ class AurumAudioEngine(
 
     fun setDataSaverActive(active: Boolean) {
         dataSaverActive = active
+        YoutubeSaverResolver.active = active
     }
 
     // FIX (loading-stuck / "10-20s pe atak jaata hai"): between a tap and

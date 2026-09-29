@@ -2591,7 +2591,7 @@ class ApiService {
     final rawUrl = (best is Map ? (best['url'] ?? '') : '').toString();
     if (rawUrl.isEmpty) return '';
 
-    return rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+    return _scaledArtworkUrl(rawUrl, 500, suffix: '-p');
   }
 
   static String _flexColumnText(Map<String, dynamic> item, int index) {
@@ -4257,8 +4257,7 @@ class ApiService {
           final best = thumbs.isNotEmpty ? thumbs.last : null;
           var thumbnail = (best?['url'] ?? '').toString();
           if (thumbnail.isNotEmpty) {
-            thumbnail =
-                thumbnail.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544');
+            thumbnail = _scaledArtworkUrl(thumbnail, 544);
           }
 
           out.add(Song(
@@ -5094,7 +5093,7 @@ class ApiService {
         if (thumbs.isEmpty) continue;
         final rawUrl = (thumbs.last['url'] ?? '').toString();
         if (rawUrl.isEmpty) continue;
-        final imageUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+        final imageUrl = _scaledArtworkUrl(rawUrl, 500, suffix: '-p');
 
         final headerNameRuns = (headerRenderer['title']?['runs'] as List?) ?? const [];
         final headerName = headerNameRuns.isNotEmpty
@@ -5173,7 +5172,7 @@ class ApiService {
         if (thumbs.isEmpty) continue;
         final rawUrl = (thumbs.last['url'] ?? '').toString();
         if (rawUrl.isEmpty) continue;
-        final imageUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+        final imageUrl = _scaledArtworkUrl(rawUrl, 500, suffix: '-p');
 
         final headerNameRuns = (headerRenderer['title']?['runs'] as List?) ?? const [];
         final headerName = headerNameRuns.isNotEmpty
@@ -5388,7 +5387,12 @@ class ApiService {
   }
 
   static String _bestThumbnail(dynamic t) {
-    for (final url in [t.highResUrl, t.mediumResUrl, t.lowResUrl]) {
+    // Data Saver: mqdefault (320x180, ~10KB) before hqdefault (480x360,
+    // ~30KB). Same image, still fetched — only the size changes.
+    final order = AudioPrefs.dataSaverActiveNotifier.value
+        ? [t.mediumResUrl, t.highResUrl, t.lowResUrl]
+        : [t.highResUrl, t.mediumResUrl, t.lowResUrl];
+    for (final url in order) {
       if (url != null && url.toString().isNotEmpty) return url.toString();
     }
     return '';
@@ -5396,7 +5400,7 @@ class ApiService {
 
   static String _upgradeYtThumbnail(String url) {
     if (url.isEmpty) return url;
-    return url.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544');
+    return _scaledArtworkUrl(url, 544);
   }
 
   static int _anonymousResolveCounter = 0;

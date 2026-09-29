@@ -23,6 +23,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
+import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
 
 // Worker base URL for YT Music-backed routes (artist search, artist page,
@@ -97,6 +98,11 @@ String _hqArtwork(String url) {
 // never a placeholder, and 480x360 is still plenty sharp for a song
 // tile/cover/full-player background.
 String _bestYtThumbnail(yt.ThumbnailSet thumbnails) {
+  // Data Saver: mqdefault (320x180) first — same image, ~1/3 the bytes.
+  if (AudioPrefs.dataSaverActiveNotifier.value &&
+      thumbnails.mediumResUrl.isNotEmpty) {
+    return thumbnails.mediumResUrl;
+  }
   if (thumbnails.highResUrl.isNotEmpty) return thumbnails.highResUrl;
   if (thumbnails.mediumResUrl.isNotEmpty) return thumbnails.mediumResUrl;
   return thumbnails.lowResUrl;

@@ -49,7 +49,10 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
         // Native path first: no MethodChannel round-trip, no Worker network
         // hop — fastest path for the vast majority of videos.
         val native = try {
-            YoutubeInnertube.resolve(song.id)
+            // Data Saver: low-bitrate pick from the separate saver resolver
+            // first; null (or saver off) -> normal best-quality path.
+            (if (YoutubeSaverResolver.active) YoutubeSaverResolver.resolve(song.id) else null)
+                ?: YoutubeInnertube.resolve(song.id)
         } catch (e: Exception) {
             Log.w(TAG, "Native resolve threw for ${song.id}: ${e.message}")
             null
