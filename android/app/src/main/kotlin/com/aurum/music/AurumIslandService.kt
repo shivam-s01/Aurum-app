@@ -19,6 +19,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
@@ -36,6 +37,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
@@ -107,6 +109,12 @@ class AurumIslandService : Service() {
         private const val KEY_WIDTH = "flutter.island_width_dp"          // float, dp
         private const val KEY_HEIGHT = "flutter.island_height_dp"        // float, dp
         private const val KEY_COLOR = "flutter.island_accent_color"      // int ARGB, e.g. 0xFFB89640
+
+        // shared_preferences (Dart) stores doubles as a prefixed String and
+        // ints as Long in this same file, so plain getFloat()/getInt() throw
+        // ClassCastException and silently fall back to defaults — which is
+        // why position/size/color from Settings never really applied.
+        private const val DOUBLE_PREFIX = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBEb3VibGUu"
 
         private const val DEFAULT_X_DP = 0f
         private const val DEFAULT_Y_DP = 8f
@@ -204,25 +212,34 @@ class AurumIslandService : Service() {
     )
 
     private fun readPrefs(): IslandPrefs {
-        // getFloat throws ClassCastException if the key was ever written
-        // as a different type (e.g. a stale Double from an older build) —
-        // guarded per-key so one bad legacy value can't crash the whole
-        // overlay on every addView.
-        fun safeFloat(key: String, default: Float): Float =
-            try { prefs.getFloat(key, default) } catch (_: Throwable) { default }
+        // Reads whatever type Dart's shared_preferences actually wrote
+        // (prefixed String / Double / Float / Long) — see DOUBLE_PREFIX.
+        fun safeFloat(key: String, default: Float): Float {
+            val raw = try { prefs.all[key] } catch (_: Throwable) { null }
+            val v: Float? = when (raw) {
+                is Number -> raw.toFloat()
+                is String -> raw.removePrefix(DOUBLE_PREFIX).toFloatOrNull()
+                else -> null
+            }
+            return if (v == null || v.isNaN() || v.isInfinite()) default else v
+        }
 
-        val xDp = safeFloat(KEY_X, DEFAULT_X_DP).coerceIn(-150f, 150f)
-        val yDp = safeFloat(KEY_Y, DEFAULT_Y_DP).coerceIn(0f, 300f)
-        // Width/height floors kept above the pill's natural content size
-        // (24dp artwork + 16dp wave glyph + padding ≈ 78dp wide, ~36dp
-        // tall including vertical padding) so a low slider value shrinks
-        // the tap target/background only down to something that still
-        // fully contains the pill's children — never clips the artwork
-        // or waveform bars.
+        val xDp = safeFloat(KEY_X, DEFAULT_X_DP).coerceIn(-500f, 500f)
+        val yDp = safeFloat(KEY_Y, DEFAULT_Y_DP).coerceIn(0f, 900f)
         val widthDp = safeFloat(KEY_WIDTH, DEFAULT_WIDTH_DP).coerceIn(90f, 360f)
         val heightDp = safeFloat(KEY_HEIGHT, DEFAULT_HEIGHT_DP).coerceIn(32f, 96f)
-        val accent = try { prefs.getInt(KEY_COLOR, DEFAULT_ACCENT) } catch (_: Throwable) { DEFAULT_ACCENT }
+        val accent = try { (prefs.all[KEY_COLOR] as? Number)?.toInt() ?: DEFAULT_ACCENT } catch (_: Throwable) { DEFAULT_ACCENT }
         return IslandPrefs(xDp, yDp, widthDp, heightDp, accent)
+    }
+
+    /** Persists a dragged position in the exact format Dart's
+     *  shared_preferences reads back (prefixed double string). */
+    private fun savePosition(xPx: Int, yPx: Int) {
+        val d = resources.displayMetrics.density
+        prefs.edit()
+            .putString(KEY_X, DOUBLE_PREFIX + (xPx / d).toDouble().toString())
+            .putString(KEY_Y, DOUBLE_PREFIX + (yPx / d).toDouble().toString())
+            .apply()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -682,7 +699,7 @@ class AurumIslandService : Service() {
             // 32dp radius, so the art never reads as a hard square glued
             // inside a rounded card the way a plain ImageView did before.
             val pillBmp = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = null) }
-            val expandedBmp = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = dpToPx(18f).toFloat()) }
+            val expandedBmp = withContext(Dispatchers.Default) { roundBitmap(bmp, cornerRadiusPx = min(bmp.width, bmp.height) * 0.2f) }
             lastPillBitmap = pillBmp
             lastExpandedBitmap = expandedBmp
             pillView?.findViewById<ImageView>(R.id.island_pill_artwork)?.setImageBitmap(pillBmp)
@@ -781,8 +798,18 @@ class AurumIslandService : Service() {
         // Y (vertical drop from the top) still applies to both, since
         // that's just "how far down from the status bar" for either.
         params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        params.x = if (applySize) dpToPx(prefsSnapshot.xDp) else 0
-        params.y = dpToPx(prefsSnapshot.yDp)
+        val metrics = resources.displayMetrics
+        if (applySize) {
+            val maxX = ((metrics.widthPixels - dpToPx(prefsSnapshot.widthDp)) / 2).coerceAtLeast(0)
+            params.x = dpToPx(prefsSnapshot.xDp).coerceIn(-maxX, maxX)
+            params.y = dpToPx(prefsSnapshot.yDp)
+                .coerceIn(0, (metrics.heightPixels - dpToPx(prefsSnapshot.heightDp)).coerceAtLeast(0))
+        } else {
+            params.x = 0
+            // Keep the (taller) expanded card fully on screen.
+            params.y = dpToPx(prefsSnapshot.yDp)
+                .coerceIn(0, (metrics.heightPixels - dpToPx(330f)).coerceAtLeast(0))
+        }
 
         if (applySize) {
             // Real width/height instead of a uniform scale transform — the
@@ -845,6 +872,70 @@ class AurumIslandService : Service() {
         else
             @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
 
+    /** Lets the overlay sit truly at the top of the screen (over the
+     *  status bar / camera cutout) instead of being pushed below it. */
+    private fun allowTopPlacement(params: WindowManager.LayoutParams) {
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+
+    /** The pill itself is the position control: drag it anywhere (up,
+     *  down, left, right); a plain tap still expands it. Snaps softly to
+     *  the horizontal center and saves the spot when the finger lifts. */
+    private fun attachPillTouch(view: View, params: WindowManager.LayoutParams) {
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var dragging = false
+        view.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY
+                    startX = params.x; startY = params.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!dragging && (abs(dx) > slop || abs(dy) > slop)) {
+                        dragging = true
+                        autoCollapseJob?.cancel()
+                        tick(v)
+                        v.animate().scaleX(1.06f).scaleY(1.06f).setDuration(120L).start()
+                    }
+                    if (dragging) {
+                        val m = resources.displayMetrics
+                        val maxX = ((m.widthPixels - v.width) / 2).coerceAtLeast(0)
+                        var nx = (startX + dx.toInt()).coerceIn(-maxX, maxX)
+                        if (abs(nx) < dpToPx(6f)) nx = 0
+                        params.x = nx
+                        params.y = (startY + dy.toInt()).coerceIn(0, (m.heightPixels - v.height).coerceAtLeast(0))
+                        try { windowManager.updateViewLayout(v, params) } catch (_: Throwable) {}
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(140L).start()
+                    if (dragging) savePosition(params.x, params.y) else v.performClick()
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(140L).start()
+                    dragging = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
     private fun addPillView() {
         if (pillView != null) return
         val inflater = LayoutInflater.from(this)
@@ -860,9 +951,11 @@ class AurumIslandService : Service() {
             PixelFormat.TRANSLUCENT,
         )
         params.y = 12
+        allowTopPlacement(params)
         applyCustomization(view, params, prefsSnapshot, applySize = true)
 
         view.setOnClickListener { expand() }
+        attachPillTouch(view, params)
 
         try {
             windowManager.addView(view, params)
@@ -895,10 +988,14 @@ class AurumIslandService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         )
         params.y = 12
+        allowTopPlacement(params)
+        // Fixed, comfortable card width (never wraps to a thin column).
+        params.width = min(dpToPx(340f), resources.displayMetrics.widthPixels - dpToPx(24f))
         applyCustomization(view, params, prefsSnapshot, applySize = false)
 
         wireExpandedControls(view)
@@ -1018,15 +1115,15 @@ class AurumIslandService : Service() {
      *  Island / Spotify expand its small "springy settle" instead of
      *  gliding to a dead stop. Kept subtle deliberately: a strong overshoot
      *  reads as bouncy/toy-like, not premium. */
-    private fun animateIn(view: View, fromScale: Float) {
+    private fun animateIn(view: View, fromScale: Float, fromScaleY: Float = fromScale) {
         view.alpha = 0f
         view.scaleX = fromScale
-        view.scaleY = fromScale
+        view.scaleY = fromScaleY
         view.animate()
             .alpha(1f)
             .scaleX(1f).scaleY(1f)
             .setDuration(TRANSITION_MS)
-            .setInterpolator(OvershootInterpolator(1.2f))
+            .setInterpolator(OvershootInterpolator(1.0f))
             .start()
     }
 
@@ -1179,7 +1276,15 @@ class AurumIslandService : Service() {
                     .setInterpolator(OvershootInterpolator(1.2f))
                     .start()
             }
-            animateIn(ev, fromScale = 0.86f)
+            // Hidden until laid out, then grown from its top-center (where
+            // the pill sits) so it reads as the pill itself opening
+            // downward, not a card popping in from the middle.
+            ev.alpha = 0f
+            ev.post {
+                ev.pivotX = ev.width / 2f
+                ev.pivotY = 0f
+                animateIn(ev, fromScale = 0.5f, fromScaleY = 0.3f)
+            }
             animateCornerRadius(ev, fromRadiusPx = dpToPx(28f).toFloat(), toRadiusPx = dpToPx(32f).toFloat())
         }
         if (outgoingPill != null) {
@@ -1224,7 +1329,10 @@ class AurumIslandService : Service() {
                     .setInterpolator(android.view.animation.AccelerateInterpolator())
                     .start()
             }
-            animateOut(outgoingExpanded, toScale = 1.06f) {
+            // Shrink back up into the pill's spot (top-center pivot).
+            outgoingExpanded.pivotX = outgoingExpanded.width / 2f
+            outgoingExpanded.pivotY = 0f
+            animateOut(outgoingExpanded, toScale = 0.5f) {
                 try { windowManager.removeView(outgoingExpanded) } catch (_: Throwable) {}
             }
         }

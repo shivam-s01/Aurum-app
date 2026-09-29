@@ -288,7 +288,13 @@ class MainActivity : FlutterFragmentActivity() {
                                 result.error("NO_OVERLAY_PERMISSION", "SYSTEM_ALERT_WINDOW not granted", null)
                                 return@setMethodCallHandler
                             }
-                            startService(Intent(this, AurumIslandService::class.java))
+                            // Never draw the Island over Aurum's own UI: while the
+                            // app is open (e.g. toggling it on in Settings) just
+                            // report success — onStop() starts it the moment the
+                            // app is minimized.
+                            if (!appInForeground) {
+                                startService(Intent(this, AurumIslandService::class.java))
+                            }
                             result.success(null)
                         } catch (e: Exception) {
                             Log.w(TAG, "startIslandOverlay error", e)
@@ -612,9 +618,11 @@ class MainActivity : FlutterFragmentActivity() {
     // all (see AutoSleepGuard.recordActivity, called independently from
     // the player listener and in-app taps).
     private var screenUnlockReceiver: android.content.BroadcastReceiver? = null
+    private var appInForeground = false
 
     override fun onStart() {
         super.onStart()
+        appInForeground = true
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.action == Intent.ACTION_USER_PRESENT) {
@@ -636,6 +644,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onStop() {
+        appInForeground = false
         screenUnlockReceiver?.let {
             try { unregisterReceiver(it) } catch (_: Exception) {}
         }

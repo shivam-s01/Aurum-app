@@ -28,6 +28,7 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
   static const _kWidth = 'island_width_dp';
   static const _kHeight = 'island_height_dp';
   static const _kColor = 'island_accent_color';
+  static const _kDoublePrefix = 'VGhpcyBpcyB0aGUgcHJlZml4IGZvciBEb3VibGUu';
 
   // Defaults chosen to match the old top_center / 1.0 scale look so
   // existing users see no visual jump the first time they open this page.
@@ -64,17 +65,23 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
     // Guard against a corrupt/out-of-range persisted value (e.g. from a
     // future build with a wider range) ever reaching the Slider widget,
     // which throws if value is NaN or outside min/max.
-    double safeDouble(double? v, double fallback, double min, double max) {
+    double safeDouble(Object? raw, double fallback, double min, double max) {
+      double? v;
+      if (raw is num) {
+        v = raw.toDouble();
+      } else if (raw is String) {
+        v = double.tryParse(raw.replaceFirst(_kDoublePrefix, ''));
+      }
       if (v == null || v.isNaN || v.isInfinite) return fallback;
       return v.clamp(min, max);
     }
 
     setState(() {
       _enabled = p.getBool(_kEnabled) ?? false;
-      _x = safeDouble(p.getDouble(_kX), 0, -150, 150);
-      _y = safeDouble(p.getDouble(_kY), 8, 0, 300);
-      _width = safeDouble(p.getDouble(_kWidth), _defaultWidth, 90, 360);
-      _height = safeDouble(p.getDouble(_kHeight), _defaultHeight, 32, 96);
+      _x = safeDouble(p.get(_kX), 0, -500, 500);
+      _y = safeDouble(p.get(_kY), 8, 0, 900);
+      _width = safeDouble(p.get(_kWidth), _defaultWidth, 90, 360);
+      _height = safeDouble(p.get(_kHeight), _defaultHeight, 32, 96);
       _accentColor = p.getInt(_kColor) ?? _defaultAccent;
       _loaded = true;
     });
@@ -134,14 +141,6 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
       ),
       body: Column(
         children: [
-          // Live mock preview — the real overlay is intentionally hidden
-          // while Aurum itself is in the foreground (it would otherwise
-          // draw on top of this very screen), so dragging a slider here
-          // has nothing on-screen to visibly move. This mock strip mirrors
-          // the pill's exact X/Y/width/height/color in real time instead,
-          // giving the same "drag = see it move" feedback the sliders are
-          // supposed to provide, without needing the real overlay visible.
-          if (_enabled) _livePreview(context),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
@@ -151,33 +150,16 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
                 if (_enabled) ...[
                   _sectionCard(
                     context: context,
-                    title: 'Position & Size Adjustment',
+                    title: 'Position',
                     children: [
-                      _slider(
-                        context: context,
-                        label: 'Horizontal Position (X)',
-                        value: _x,
-                        min: -150,
-                        max: 150,
-                        suffix: 'dp',
-                        onChanged: (v) {
-                          setState(() => _x = v);
-                          _push();
-                        },
-                      ),
-                      _slider(
-                        context: context,
-                        label: 'Vertical Position (Y)',
-                        value: _y,
-                        min: 0,
-                        max: 300,
-                        suffix: 'dp',
-                        onChanged: (v) {
-                          setState(() => _y = v);
-                          _push();
-                        },
-                      ),
-                      const Divider(height: 32),
+                      _positionStage(context),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _sectionCard(
+                    context: context,
+                    title: 'Size',
+                    children: [
                       _slider(
                         context: context,
                         label: 'Island Width',
@@ -238,51 +220,139 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
     );
   }
 
-  /// Mock pill strip that mirrors the real overlay's X/Y/width/height/color
-  /// live as the sliders move. Sized down to fit inline at the top of this
-  /// screen (a fixed 90dp-tall stage, matching the real overlay's Y-slider
-  /// max of 300dp scaled to fit) rather than 1:1 physical dp, since the
-  /// real pill sits above the status bar/camera cutout, which this screen
-  /// doesn't have room to reproduce full-scale.
-  Widget _livePreview(BuildContext context) {
-    const stageHeight = 96.0;
-    const stageMaxY = 300.0; // matches the Y slider's own max
-    final screenWidth = MediaQuery.of(context).size.width;
-    // Scale factor so the widest possible pill (360dp) and the tallest
-    // possible Y offset (300dp) both stay inside the stage without needing
-    // per-frame clamping logic beyond a simple min().
-    final scale = (stageHeight / stageMaxY).clamp(0.0, 1.0);
+  /// The pill IS the position control: drag it anywhere on this mock of the
+  /// top of the phone (up / down / left / right). Same coordinate system as
+  /// the real overlay (dp from horizontal center / dp from top), scaled to
+  /// fit. Snaps softly to the center line. The real island never draws
+  /// inside the app — it only appears once Aurum is minimized.
+  Widget _positionStage(BuildContext context) {
+    const stageDpH = 320.0; // top slice of the screen shown in the stage
+    final screenW = MediaQuery.of(context).size.width;
+    final stageW = screenW - 40 - 32; // list padding + card padding
+    final scale = stageW / screenW;
+    final stageH = stageDpH * scale;
 
-    final previewWidth = (_width * scale).clamp(24.0, screenWidth - 32);
-    final previewHeight = (_height * scale).clamp(12.0, stageHeight);
-    final previewY = (_y * scale).clamp(0.0, stageHeight - previewHeight);
-    final previewX = _x * scale;
+    final maxX = ((screenW - _width) / 2).clamp(0.0, double.infinity);
+    final maxY = (stageDpH - _height).clamp(0.0, double.infinity);
+    final dx = _x.clamp(-maxX, maxX).toDouble();
+    final dy = _y.clamp(0.0, maxY).toDouble();
 
-    return Container(
-      height: stageHeight,
-      width: double.infinity,
-      color: Colors.black,
-      child: Stack(
-        children: [
-          Positioned(
-            top: previewY,
-            left: (screenWidth / 2) - (previewWidth / 2) + previewX,
-            child: Container(
-              width: previewWidth,
-              height: previewHeight,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(previewHeight / 2),
-                border: Border.all(color: Color(_accentColor), width: 1.5),
-              ),
-              child: Center(
-                child: Icon(Icons.graphic_eq_rounded,
-                    color: Color(_accentColor), size: (previewHeight * 0.5).clamp(10.0, 20.0)),
-              ),
+    final pillW = _width * scale;
+    final pillH = _height * scale;
+    final accent = Color(_accentColor);
+    final centered = dx.abs() < 0.5;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanUpdate: (d) {
+            var nx = (_x + d.delta.dx / scale).clamp(-maxX, maxX).toDouble();
+            final ny = (_y + d.delta.dy / scale).clamp(0.0, maxY).toDouble();
+            final wasCentered = _x.abs() < 0.5;
+            if (nx.abs() < 6) nx = 0;
+            if (nx == 0 && !wasCentered) AurumHaptics.selection();
+            setState(() {
+              _x = nx;
+              _y = ny;
+            });
+          },
+          onPanEnd: (_) => _push(),
+          onPanCancel: _push,
+          child: Container(
+            width: stageW,
+            height: stageH,
+            decoration: BoxDecoration(
+              color: const Color(0xFF050508),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              children: [
+                // center guide
+                Positioned(
+                  left: stageW / 2 - 0.5,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 1,
+                    color: centered ? accent.withOpacity(0.55) : Colors.white10,
+                  ),
+                ),
+                // status-bar hint + camera dot
+                const Positioned(
+                  left: 14, top: 8,
+                  child: Text('9:41',
+                      style: TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.w600)),
+                ),
+                const Positioned(
+                  right: 14, top: 8,
+                  child: Icon(Icons.battery_full_rounded, color: Colors.white24, size: 14),
+                ),
+                Positioned(
+                  left: stageW / 2 - 4,
+                  top: 6,
+                  child: Container(
+                    width: 8, height: 8,
+                    decoration: const BoxDecoration(color: Colors.white12, shape: BoxShape.circle),
+                  ),
+                ),
+                // the island (drag me)
+                Positioned(
+                  left: stageW / 2 - pillW / 2 + dx * scale,
+                  top: dy * scale,
+                  child: Container(
+                    width: pillW,
+                    height: pillH,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(pillH / 2),
+                      border: Border.all(color: accent.withOpacity(0.55), width: 1.2),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: pillH * 0.22),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          width: pillH * 0.6,
+                          height: pillH * 0.6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: accent.withOpacity(0.22),
+                          ),
+                          child: Icon(Icons.music_note_rounded,
+                              color: accent, size: (pillH * 0.38).clamp(8.0, 18.0)),
+                        ),
+                        Icon(Icons.graphic_eq_rounded,
+                            color: accent, size: (pillH * 0.5).clamp(10.0, 22.0)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text('Drag the island anywhere',
+                  style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context).withOpacity(0.6),
+                      fontSize: 12)),
+            ),
+            Text('X ${dx.round()}  •  Y ${dy.round()} dp',
+                style: TextStyle(
+                    color: AurumTheme.accentOf(context),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ],
     );
   }
 

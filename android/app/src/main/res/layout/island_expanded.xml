@@ -1,80 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Expanded Dynamic Island card — Spotify-full-player-style layout:
-  big artwork on top, title/artist below it, seekbar with mm:ss
-  timestamps either side, a 4-icon transport row (shuffle/prev/
-  play-pause/next), a small "Astra" wordmark + audio-route glyph up
-  top, and an UP NEXT thumbnail strip at the bottom. Colors here are
-  the shipped defaults; AurumIslandService overwrites the
-  background/accent tints at runtime from the user's Settings ->
-  Player customization (position/size/color), so the hex values below
-  only matter for res/layout preview purposes.
+  Expanded Dynamic Island card — compact "now playing" layout:
+  artwork + title/artist + like on the first row, seekbar with mm:ss
+  timestamps, a centered transport row (shuffle / prev / play-pause /
+  next / audio-route), and an UP NEXT thumbnail strip with the small
+  "ASTRA" wordmark. Card width is set by AurumIslandService (340dp,
+  capped to the screen); accent/background tints are applied at runtime
+  from Settings, the hex values here are only shipped defaults.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/island_expanded_root"
-    android:layout_width="336dp"
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/island_expanded_bg"
-    android:padding="18dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="14dp"
     android:elevation="10dp">
 
-    <!-- Top bar: Astra wordmark (left) + audio-route glyph (right) —
-         mirrors Spotify's own app-icon-top-left / cast-icon-top-right
-         header row on its full-player card. -->
+    <!-- Header: artwork, title/artist, like -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="10dp">
-
-        <TextView
-            android:id="@+id/island_expanded_wordmark"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ASTRA"
-            android:textColor="#B89640"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.18"
-            android:fontFamily="sans-serif-medium"/>
-
-        <ImageView
-            android:id="@+id/island_expanded_route_icon"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_island_speaker"
-            android:contentDescription="@null"/>
-
-    </LinearLayout>
-
-    <!-- Big artwork, full card width, square — the visual centerpiece,
-         matching Spotify's own full-player art size/placement instead
-         of the old small 48dp thumbnail-next-to-title layout. -->
-    <ImageView
-        android:id="@+id/island_expanded_artwork"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0"
-        android:background="@drawable/ic_widget_play"
-        android:scaleType="centerCrop"
-        android:contentDescription="@null"
-        android:adjustViewBounds="true"/>
-
-    <!-- Title/artist + like ("+") button row, right under the artwork -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/island_expanded_artwork"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:background="@drawable/ic_widget_play"
+            android:scaleType="centerCrop"
+            android:contentDescription="@null"/>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="12dp"
             android:orientation="vertical">
 
             <TextView
@@ -83,7 +48,7 @@
                 android:layout_height="wrap_content"
                 android:text="Aurum"
                 android:textColor="#FFFFFFFF"
-                android:textSize="17sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:singleLine="true"
                 android:ellipsize="marquee"
@@ -96,34 +61,31 @@
                 android:id="@+id/island_expanded_artist"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="2dp"
                 android:text=""
                 android:textColor="#99FFFFFF"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:singleLine="true"
                 android:ellipsize="end"/>
         </LinearLayout>
 
         <ImageView
             android:id="@+id/island_expanded_like"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
-            android:layout_marginStart="12dp"
-            android:padding="1dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="10dp"
+            android:padding="2dp"
             android:src="@drawable/ic_like_outline"
             android:contentDescription="@null"/>
 
     </LinearLayout>
 
-    <!-- Seekbar — draggable; AurumIslandService seeks the player live on
-         user drag via SeekBar.OnSeekBarChangeListener, same as tapping a
-         position on Spotify's own progress bar. Thumb is enlarged over
-         the pill-era version so it's a comfortable drag target. -->
+    <!-- Seekbar (draggable; service seeks the player on release) -->
     <SeekBar
         android:id="@+id/island_expanded_seekbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="12dp"
         android:paddingStart="0dp"
         android:paddingEnd="0dp"
         android:progressTint="#B89640"
@@ -156,15 +118,15 @@
             android:textSize="11sp"/>
     </LinearLayout>
 
-    <!-- Transport controls: shuffle / prev / play-pause / next —
-         bigger targets than the old layout (Spotify-style prominence
-         for the center play/pause button). -->
+    <!-- Transport: shuffle / prev / play-pause / next / audio route.
+         Shuffle and route glyph mirror each other so the play button sits
+         dead-center. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="6dp"
         android:orientation="horizontal"
-        android:gravity="center"
+        android:gravity="center_vertical"
         android:baselineAligned="false">
 
         <ImageView
@@ -188,14 +150,9 @@
             android:contentDescription="@null"/>
 
         <Space
-            android:layout_width="22dp"
+            android:layout_width="20dp"
             android:layout_height="1dp"/>
 
-        <!-- Play/pause: AurumIslandService swaps this drawable and runs a
-             quick scale-pop (1.0 -> 1.18 -> 1.0) on every toggle — the
-             "icon-swap + scale-pop" approach agreed on in place of
-             porting the Dart player's full triangle<->bars path morph
-             (aurum_play_pause_icon.dart) into native XML/Kotlin. -->
         <ImageView
             android:id="@+id/island_expanded_play_pause"
             android:layout_width="52dp"
@@ -204,7 +161,7 @@
             android:contentDescription="@null"/>
 
         <Space
-            android:layout_width="22dp"
+            android:layout_width="20dp"
             android:layout_height="1dp"/>
 
         <ImageView
@@ -219,27 +176,46 @@
             android:layout_height="1dp"
             android:layout_weight="1"/>
 
-        <!-- Right-side spacer matching the shuffle icon's footprint so
-             prev/play/next stay visually centered (Spotify's own row has
-             shuffle on the far left and repeat on the far right; Aurum
-             doesn't have a repeat-mode toggle on this card, so this is a
-             blank same-size spacer rather than a dead-looking icon). -->
-        <Space
+        <ImageView
+            android:id="@+id/island_expanded_route_icon"
             android:layout_width="30dp"
-            android:layout_height="30dp"/>
+            android:layout_height="30dp"
+            android:padding="5dp"
+            android:src="@drawable/ic_island_speaker"
+            android:contentDescription="@null"/>
 
     </LinearLayout>
 
-    <!-- UP NEXT label + queue thumbnail row -->
-    <TextView
-        android:layout_width="wrap_content"
+    <!-- UP NEXT label + wordmark -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="UP NEXT"
-        android:textColor="#66FFFFFF"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.12"/>
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="UP NEXT"
+            android:textColor="#66FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"/>
+
+        <TextView
+            android:id="@+id/island_expanded_wordmark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ASTRA"
+            android:textColor="#B89640"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.18"
+            android:singleLine="true"
+            android:fontFamily="sans-serif-medium"/>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/island_expanded_queue_row"
@@ -252,7 +228,7 @@
         <ImageView
             android:id="@+id/island_queue_thumb_1"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
             android:background="@drawable/ic_widget_play"
@@ -262,7 +238,7 @@
         <ImageView
             android:id="@+id/island_queue_thumb_2"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
             android:background="@drawable/ic_widget_play"
@@ -272,7 +248,7 @@
         <ImageView
             android:id="@+id/island_queue_thumb_3"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
             android:background="@drawable/ic_widget_play"
@@ -282,7 +258,7 @@
         <ImageView
             android:id="@+id/island_queue_thumb_4"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:background="@drawable/ic_widget_play"
             android:scaleType="centerCrop"
