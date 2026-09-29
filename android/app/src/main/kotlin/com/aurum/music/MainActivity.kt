@@ -264,6 +264,21 @@ class MainActivity : FlutterFragmentActivity() {
                     "checkOverlayPermission" -> {
                         result.success(hasOverlayPermission())
                     }
+                    "checkIslandAccessibility" -> {
+                        result.success(AurumIslandAccessibilityService.isEnabled(this))
+                    }
+                    "openAccessibilitySettings" -> {
+                        try {
+                            startActivity(
+                                Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "openAccessibilitySettings error", e)
+                            result.success(null)
+                        }
+                    }
                     "requestOverlayPermission" -> {
                         try {
                             requestOverlayPermission()

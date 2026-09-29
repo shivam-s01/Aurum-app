@@ -2,4 +2,5 @@
 <resources>
     <string name="widget_compact_description">Now playing — compact</string>
     <string name="widget_full_description">Now playing — with controls</string>
+    <string name="island_a11y_description">Lets the Dynamic Island pill receive taps over the camera area. No screen content is read.</string>
 </resources>

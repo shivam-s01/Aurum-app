@@ -21,7 +21,8 @@ class IslandCustomizeScreen extends StatefulWidget {
   State<IslandCustomizeScreen> createState() => _IslandCustomizeScreenState();
 }
 
-class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
+class _IslandCustomizeScreenState extends State<IslandCustomizeScreen>
+    with WidgetsBindingObserver {
   static const _kEnabled = 'island_enabled';
   static const _kX = 'island_x_dp';
   static const _kY = 'island_y_dp';
@@ -57,7 +58,28 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _refreshA11y();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // User comes back from system Accessibility settings -> re-check.
+    if (state == AppLifecycleState.resumed) _refreshA11y();
+  }
+
+  bool _a11yOn = false;
+
+  Future<void> _refreshA11y() async {
+    final on = await AudioPrefs.checkIslandAccessibility();
+    if (mounted && on != _a11yOn) setState(() => _a11yOn = on);
   }
 
   Future<void> _load() async {
@@ -146,6 +168,8 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
               children: [
                 _enableCard(context),
+                const SizedBox(height: 12),
+                _a11yCard(context),
                 const SizedBox(height: 20),
                 if (_enabled) ...[
                   _sectionCard(
@@ -353,6 +377,54 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _a11yCard(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: _a11yOn ? null : () => AudioPrefs.openAccessibilitySettings(),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _a11yOn ? Icons.check_circle_rounded : Icons.touch_app_rounded,
+              color: _a11yOn ? Colors.green : AurumTheme.accentOf(context),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _a11yOn ? 'Camera-area taps: ON' : 'Fix taps on camera area',
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _a11yOn
+                        ? 'Aurum Island accessibility service is enabled.'
+                        : 'Tap, then enable "Aurum Island" in Accessibility. No screen content is read.',
+                    style: TextStyle(
+                        color: AurumTheme.textMutedOf(context), fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (!_a11yOn)
+              Icon(Icons.chevron_right_rounded,
+                  color: AurumTheme.textMutedOf(context)),
+          ],
+        ),
+      ),
     );
   }
 
