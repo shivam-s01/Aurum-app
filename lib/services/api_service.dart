@@ -732,6 +732,15 @@ class ApiService {
       _explodeWarmedUp = true;
       Future.microtask(() async {
         try {
+          // DATA SAVER: this warm-up downloads a full YouTube watch page
+          // (~1 MB) on EVERY app start. AudioPrefs isn't loaded yet this
+          // early, so read the persisted flags directly and skip it.
+          final sp = await SharedPreferences.getInstance();
+          if (sp.getBool('data_saver') == true ||
+              sp.getString('stream_quality') == 'DataSaver') {
+            _explodeWarmedUp = false;
+            return;
+          }
 
           await _yt.videos.get('JGwWNGJdvx8')
               .timeout(const Duration(seconds: 8));
@@ -1005,7 +1014,9 @@ class ApiService {
     final fast = await _fetchSaavnSection(
       query,
       label,
-      variants: <String>{query, '$query audio'},
+      variants: AudioPrefs.dataSaverActiveNotifier.value
+          ? <String>{query}
+          : <String>{query, '$query audio'},
       includeDeepPage: false,
       target: _kFastFirstTarget,
     );
@@ -1017,6 +1028,10 @@ class ApiService {
     String label,
     void Function(SongSection section) onTopUp,
   ) {
+    // DATA SAVER: this silent top-up runs ~5 more searches plus a deep page
+    // for EVERY home section (the biggest single cost at app start). The
+    // fast pass has already painted each shelf, so under Data Saver stop here.
+    if (AudioPrefs.dataSaverActiveNotifier.value) return;
     unawaited(_fetchSaavnSection(
       query,
       label,
@@ -1403,18 +1418,21 @@ class ApiService {
     final label = _languageLabels[language] ?? '$language Hits';
     try {
 
+      final saver = AudioPrefs.dataSaverActiveNotifier.value;
       return await _fetchSaavnSection(
         '$language top songs',
         label,
-        variants: <String>{
-          '$language top songs',
-          '$language top songs audio',
-          '$language top songs official',
-          '$language top songs hd',
-          '$language top songs hits',
-        },
-        includeDeepPage: true,
-        target: _kHomeSectionTarget,
+        variants: saver
+            ? <String>{'$language top songs'}
+            : <String>{
+                '$language top songs',
+                '$language top songs audio',
+                '$language top songs official',
+                '$language top songs hd',
+                '$language top songs hits',
+              },
+        includeDeepPage: !saver,
+        target: saver ? 50 : _kHomeSectionTarget,
       );
     } catch (e) {
       _log('[fetchSaavnLanguageSection] $language error: $e');
@@ -1921,11 +1939,16 @@ class ApiService {
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
 
-      final relatedQueries = [
+      final allRelatedQueries = [
         if (topMatch.album.trim().isNotEmpty)
           AutoQueueQuery('${topMatch.album.trim()} movie all songs', weight: 3),
         ...RecommendationEngine.generateQueries(topMatch),
       ];
+      // DATA SAVER: the "related" list still appears, built from the 2
+      // best-weighted queries instead of every generated one.
+      final relatedQueries = AudioPrefs.dataSaverActiveNotifier.value
+          ? allRelatedQueries.take(2).toList()
+          : allRelatedQueries;
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
 
@@ -2461,6 +2484,26 @@ class ApiService {
   }
 
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async {
+
+    // DATA SAVER: the normal path below fires the compact worker search AND
+    // the raw InnerTube search at the same time (fastest wins) — but the
+    // loser still downloads its whole body, and the raw InnerTube one is
+    // 10-30x bigger than the worker's trimmed JSON. Under Data Saver ask the
+    // worker first and only fall back to direct InnerTube if it returns
+    // nothing. Same results, roughly half the bytes on every search/home.
+    if (AudioPrefs.dataSaverActiveNotifier.value) {
+      try {
+        final w = await _searchYtMusic(query, limit)
+            .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[]);
+        if (w.isNotEmpty) return w;
+      } catch (_) {}
+      try {
+        return await _searchYtMusicDirect(query, limit)
+            .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[]);
+      } catch (_) {
+        return <Song>[];
+      }
+    }
 
     final workerFuture = _searchYtMusic(query, limit)
         .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[])
@@ -5327,18 +5370,25 @@ class ApiService {
 
   static Future<SongSection?> _ytSectionV1(String query, String label) async {
 
-    final variants = <String>{
-      query,
-      '$query audio',
-      '$query official',
-      '$query lyrics',
-      '$query hd songs',
-    };
+    // DATA SAVER: one query, no deep multi-page crawl (that alone is up to
+    // 6 YouTube result pages). The shelf still shows, just from fewer results.
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    final variants = saver
+        ? <String>{query}
+        : <String>{
+            query,
+            '$query audio',
+            '$query official',
+            '$query lyrics',
+            '$query hd songs',
+          };
     final results = await Future.wait(
       variants.map((q) => _searchYt(q, limit: 60)),
     );
 
-    final deepVideos = await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
+    final deepVideos = saver
+        ? <Video>[]
+        : await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
     final deepSongs = deepVideos.map(_songFromYtVideo).toList();
 
     final seenIdsRaw = <String>{};
@@ -6246,6 +6296,23 @@ class ApiService {
   }) async {
     if (query.trim().isEmpty) return const [];
 
+    if (AudioPrefs.dataSaverActiveNotifier.value) {
+      final attempts = <Future<List<ArtistSimple>> Function()>[
+        () => _searchArtistsAttempt(query, limit,
+            useArtistFilter: true, timeout: const Duration(seconds: 4)),
+        () => _searchArtistsAttempt(query, limit,
+            useArtistFilter: false, timeout: const Duration(seconds: 4)),
+        if (includeSaavn) () => _searchArtistsSaavn(query, limit),
+      ];
+      for (final run in attempts) {
+        try {
+          final r = await run();
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+      }
+      return const [];
+    }
+
     return _firstNonEmptyArtists([
       _searchArtistsAttempt(query, limit,
           useArtistFilter: true, timeout: const Duration(seconds: 4)),
@@ -6428,6 +6495,23 @@ class ApiService {
 
   static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) async {
     if (query.trim().isEmpty) return const [];
+
+    if (AudioPrefs.dataSaverActiveNotifier.value) {
+      final attempts = <Future<List<BrowseAlbum>> Function()>[
+        () => _searchAlbumsAttempt(query, limit,
+            useAlbumFilter: true, timeout: const Duration(seconds: 4)),
+        () => _searchAlbumsAttempt(query, limit,
+            useAlbumFilter: false, timeout: const Duration(seconds: 4)),
+        () => _searchAlbumsSaavn(query, limit),
+      ];
+      for (final run in attempts) {
+        try {
+          final r = await run();
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+      }
+      return const [];
+    }
 
     return _firstNonEmptyAlbums([
       _searchAlbumsAttempt(query, limit,
