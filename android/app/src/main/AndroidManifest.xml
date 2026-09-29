@@ -114,20 +114,6 @@
             android:name=".AurumIslandService"
             android:exported="false"/>
 
-        <!-- Only hosts the island window above the status bar (no events read). -->
-        <service
-            android:name=".AurumIslandAccessibilityService"
-            android:exported="false"
-            android:label="Aurum Island"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService"/>
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/island_accessibility_service"/>
-        </service>
-
         <!-- Bootstraps the Cast SDK: CastContext.getSharedInstance() reads
              this meta-data to find AurumCastOptionsProvider (below), which
              supplies the receiver app ID and discovery filters. Without

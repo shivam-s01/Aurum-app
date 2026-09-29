@@ -190,10 +190,6 @@ class AurumIslandService : Service() {
     }
 
     private lateinit var windowManager: WindowManager
-    /** True when the pill/card live in an accessibility overlay window (drawn ABOVE
-     *  the system status bar, so taps on the camera strip reach us). Picked once in
-     *  onCreate so add/remove always use the same WindowManager. */
-    private var useA11yOverlay = false
     private lateinit var prefs: SharedPreferences
     private var pillView: View? = null
     private var expandedView: View? = null
@@ -378,10 +374,7 @@ class AurumIslandService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val a11y = AurumIslandAccessibilityService.instance
-        useA11yOverlay = a11y != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        val wmOwner: Context = if (useA11yOverlay && a11y != null) a11y else this
-        windowManager = wmOwner.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         isRunning = true
         activeInstance = this
@@ -1131,9 +1124,7 @@ class AurumIslandService : Service() {
     // ---- Overlay windows ---------------------------------------------------
 
     private fun overlayType(): Int =
-        if (useA11yOverlay)
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE

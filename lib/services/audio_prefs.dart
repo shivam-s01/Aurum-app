@@ -671,24 +671,6 @@ class AudioPrefs {
     }
   }
 
-  /// True if Aurum's Island accessibility service (lets the pill receive taps
-  /// over the camera / status-bar strip) is switched on in system settings.
-  static Future<bool> checkIslandAccessibility() async {
-    try {
-      return await _nativeChannel.invokeMethod<bool>('checkIslandAccessibility') ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Opens the system Accessibility settings so the user can enable
-  /// "Aurum Island".
-  static Future<void> openAccessibilitySettings() async {
-    try {
-      await _nativeChannel.invokeMethod('openAccessibilitySettings');
-    } catch (_) {}
-  }
-
   /// Opens the system's "Display over other apps" grant screen for Aurum.
   static Future<void> requestOverlayPermission() async {
     try {
