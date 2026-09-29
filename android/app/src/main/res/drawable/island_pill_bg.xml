@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Solid near-black pill background for the Dynamic Island compact overlay —
-  mimics the real Dynamic Island's own capsule so it visually blends with
-  the camera-cutout area regardless of the device's actual system theme
-  (this is a WindowManager overlay, not a themed app view).
+  Pure-black capsule so the pill melts into the camera cutout. No stroke on
+  purpose. The corner radius is overwritten at runtime with height/2 so any
+  user-chosen height is always a perfect capsule.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="#FF000000"/>
-    <corners android:radius="28dp"/>
+    <corners android:radius="16dp"/>
 </shape>

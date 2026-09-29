@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Slim rounded seekbar track. The progress layer is tinted with the accent
+     color at runtime; the thumb stays white. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="2dp"/>
+            <solid android:color="#33FFFFFF"/>
+            <size android:height="4dp"/>
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="2dp"/>
+                <solid android:color="#FFFFFFFF"/>
+                <size android:height="4dp"/>
+            </shape>
+        </clip>
+    </item>
+</layer-list>

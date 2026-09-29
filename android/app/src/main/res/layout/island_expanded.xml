@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Expanded Dynamic Island card — compact "now playing" layout:
-  artwork + title/artist + like on the first row, seekbar with mm:ss
-  timestamps, a centered transport row (shuffle / prev / play-pause /
-  next / audio-route), and an UP NEXT thumbnail strip with the small
-  "ASTRA" wordmark. Card width is set by AurumIslandService (340dp,
-  capped to the screen); accent/background tints are applied at runtime
-  from Settings, the hex values here are only shipped defaults.
+  Expanded Dynamic Island card.
+  Row 1: artwork / title + artist / like.
+  Row 2: seekbar + timestamps.
+  Row 3: shuffle / prev / play-pause (white disc) / next / audio route.
+  Row 4: UP NEXT - four equal, perfectly square, tappable tiles. Their pixel
+         size is computed in AurumIslandService from the card width so the row
+         fills the card exactly; the rounded shape comes from a view outline
+         (not baked into the bitmap) so all four are identical.
+  Card width, top padding (kept clear of the camera hole) and colors are set at
+  runtime; the values here are only defaults.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/island_expanded_root"
@@ -14,13 +17,12 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/island_expanded_bg"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="16dp"
-    android:paddingBottom="14dp"
-    android:elevation="10dp">
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="18dp">
 
-    <!-- Header: artwork, title/artist, like -->
+    <!-- Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -29,9 +31,9 @@
 
         <ImageView
             android:id="@+id/island_expanded_artwork"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:background="@drawable/ic_widget_play"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
+            android:background="@drawable/island_thumb_placeholder"
             android:scaleType="centerCrop"
             android:contentDescription="@null"/>
 
@@ -39,7 +41,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="14dp"
             android:orientation="vertical">
 
             <TextView
@@ -48,7 +50,7 @@
                 android:layout_height="wrap_content"
                 android:text="Aurum"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp"
+                android:textSize="18sp"
                 android:textStyle="bold"
                 android:singleLine="true"
                 android:ellipsize="marquee"
@@ -61,41 +63,49 @@
                 android:id="@+id/island_expanded_artist"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="3dp"
                 android:text=""
-                android:textColor="#99FFFFFF"
-                android:textSize="12sp"
+                android:textColor="#B3FFFFFF"
+                android:textSize="13.5sp"
                 android:singleLine="true"
                 android:ellipsize="end"/>
         </LinearLayout>
 
         <ImageView
             android:id="@+id/island_expanded_like"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_marginStart="10dp"
-            android:padding="2dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:padding="10dp"
+            android:background="@drawable/island_ripple_circle"
             android:src="@drawable/ic_like_outline"
-            android:contentDescription="@null"/>
+            android:contentDescription="Like"/>
 
     </LinearLayout>
 
-    <!-- Seekbar (draggable; service seeks the player on release) -->
+    <!-- Seekbar. Negative margins + equal padding keep the thumb fully inside
+         the view while the track lines up with the card's content edges. -->
     <SeekBar
         android:id="@+id/island_expanded_seekbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp"
+        android:layout_height="30dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="-6dp"
+        android:layout_marginEnd="-6dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:progressDrawable="@drawable/island_seekbar_progress"
+        android:thumb="@drawable/island_seek_thumb"
         android:progressTint="#B89640"
-        android:thumbTint="#B89640"
+        android:minHeight="4dp"
+        android:maxHeight="4dp"
+        android:splitTrack="false"
         android:max="1000"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="-3dp"
         android:orientation="horizontal">
 
         <TextView
@@ -104,7 +114,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="0:00"
-            android:textColor="#99FFFFFF"
+            android:textColor="#A6FFFFFF"
             android:textSize="11sp"/>
 
         <TextView
@@ -114,73 +124,80 @@
             android:layout_weight="1"
             android:gravity="end"
             android:text="0:00"
-            android:textColor="#99FFFFFF"
+            android:textColor="#A6FFFFFF"
             android:textSize="11sp"/>
     </LinearLayout>
 
-    <!-- Transport: shuffle / prev / play-pause / next / audio route.
-         Shuffle and route glyph mirror each other so the play button sits
-         dead-center. -->
+    <!-- Transport. Shuffle and route icons mirror each other so the play disc
+         sits dead-center. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:baselineAligned="false">
 
         <ImageView
             android:id="@+id/island_expanded_shuffle"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:padding="5dp"
-            android:src="@drawable/ic_island_wave"
-            android:contentDescription="@null"/>
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:padding="11dp"
+            android:background="@drawable/island_ripple_circle"
+            android:src="@drawable/ic_island_shuffle"
+            android:contentDescription="Shuffle"/>
 
-        <Space
+        <View
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1"/>
 
         <ImageView
             android:id="@+id/island_expanded_prev"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="10dp"
+            android:background="@drawable/island_ripple_circle"
             android:src="@drawable/ic_widget_prev"
-            android:contentDescription="@null"/>
+            android:contentDescription="Previous"/>
 
-        <Space
-            android:layout_width="20dp"
+        <View
+            android:layout_width="14dp"
             android:layout_height="1dp"/>
 
         <ImageView
             android:id="@+id/island_expanded_play_pause"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
+            android:layout_width="62dp"
+            android:layout_height="62dp"
+            android:padding="18dp"
+            android:background="@drawable/island_play_bg"
             android:src="@drawable/ic_widget_play"
-            android:contentDescription="@null"/>
+            android:tint="#FF14131A"
+            android:contentDescription="Play or pause"/>
 
-        <Space
-            android:layout_width="20dp"
+        <View
+            android:layout_width="14dp"
             android:layout_height="1dp"/>
 
         <ImageView
             android:id="@+id/island_expanded_next"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="10dp"
+            android:background="@drawable/island_ripple_circle"
             android:src="@drawable/ic_widget_next"
-            android:contentDescription="@null"/>
+            android:contentDescription="Next"/>
 
-        <Space
+        <View
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1"/>
 
         <ImageView
             android:id="@+id/island_expanded_route_icon"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:padding="5dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:padding="11dp"
             android:src="@drawable/ic_island_speaker"
             android:contentDescription="@null"/>
 
@@ -190,7 +207,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="14dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
@@ -199,10 +216,10 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="UP NEXT"
-            android:textColor="#66FFFFFF"
+            android:textColor="#80FFFFFF"
             android:textSize="10sp"
             android:textStyle="bold"
-            android:letterSpacing="0.12"/>
+            android:letterSpacing="0.14"/>
 
         <TextView
             android:id="@+id/island_expanded_wordmark"
@@ -217,52 +234,50 @@
             android:fontFamily="sans-serif-medium"/>
     </LinearLayout>
 
+    <!-- Four equal squares. Width/height/margins are overwritten at runtime
+         (AurumIslandService.sizeQueueThumbs); 64dp is only the fallback. -->
     <LinearLayout
         android:id="@+id/island_expanded_queue_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:orientation="horizontal"
-        android:gravity="center">
+        android:gravity="center_horizontal">
 
         <ImageView
             android:id="@+id/island_queue_thumb_1"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/ic_widget_play"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/island_thumb_placeholder"
             android:scaleType="centerCrop"
-            android:contentDescription="@null"/>
+            android:contentDescription="Up next 1"/>
 
         <ImageView
             android:id="@+id/island_queue_thumb_2"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/ic_widget_play"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/island_thumb_placeholder"
             android:scaleType="centerCrop"
-            android:contentDescription="@null"/>
+            android:contentDescription="Up next 2"/>
 
         <ImageView
             android:id="@+id/island_queue_thumb_3"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/ic_widget_play"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/island_thumb_placeholder"
             android:scaleType="centerCrop"
-            android:contentDescription="@null"/>
+            android:contentDescription="Up next 3"/>
 
         <ImageView
             android:id="@+id/island_queue_thumb_4"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:background="@drawable/ic_widget_play"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/island_thumb_placeholder"
             android:scaleType="centerCrop"
-            android:contentDescription="@null"/>
+            android:contentDescription="Up next 4"/>
 
     </LinearLayout>
 

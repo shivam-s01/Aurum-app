@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Expanded Dynamic Island card background — dark, Aurum-gold-bordered,
-  Spotify-red-card-style but brand-consistent (gold instead of red). Always
-  dark regardless of system theme since this sits directly under the
-  camera cutout, same reasoning as island_pill_bg.
+  Expanded card background. Colors are replaced at runtime with a 3-stop
+  gradient sampled from the album art (dark top that melts into the camera,
+  colored middle, deeper bottom). These are only the "no artwork yet" defaults.
+  Always dark so white text stays readable on any system theme.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FF13121C"/>
-    <corners android:radius="32dp"/>
-    <stroke android:width="1dp" android:color="#33B89640"/>
+    <gradient
+        android:type="linear"
+        android:angle="270"
+        android:startColor="#FF0E0D14"
+        android:centerColor="#FF1C1B27"
+        android:endColor="#FF111018"/>
+    <corners android:radius="34dp"/>
+    <stroke android:width="1dp" android:color="#26FFFFFF"/>
 </shape>
