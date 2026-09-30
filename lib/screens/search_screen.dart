@@ -538,7 +538,7 @@ class _SearchScreenState extends State<SearchScreen>
       // DATA FIX: artist/album rows are heavy — skip for 1-2 char queries.
       // Submit path still fetches them, and ApiService memoises both so a
       // repeated/submitted query costs zero extra network.
-      if (query.length >= 3) {
+      if (query.length >= 3 && !AudioPrefs.dataSaverActiveNotifier.value) {
         ApiService.searchArtists(query).then((artists) {
           if (!mounted || myLiveGeneration != _searchGeneration) return;
           setState(() { _artistResults = artists; });

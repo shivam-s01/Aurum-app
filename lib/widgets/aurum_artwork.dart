@@ -108,6 +108,12 @@ class AurumArtwork extends StatelessWidget {
   static String upgradeForFullPlayer(String url) {
     if (url.isEmpty) return url;
     if (AudioPrefs.dataSaverActiveNotifier.value) {
+      // Saver search thumbs (marked -l60-rj, 128px) are too small to fill the
+      // player: fetch ONE 300px image for the song actually playing. Every
+      // other saver URL keeps the old "no extra download" behaviour.
+      if (url.contains('-l60-rj')) {
+        return url.replaceFirst(RegExp(r'=w\d+-h\d+'), '=w300-h300');
+      }
       return url;
     }
     // List-sized YouTube art (<=300px: search rows are 226px, shelves 300px)

@@ -1887,11 +1887,11 @@ class ApiService {
     final wantsVariant = _wantsVariantQuery(q);
 
     final movieCoreQuery = _extractMovieCoreQuery(q) ?? q;
-    final movieSearchFuture = _searchYt('$movieCoreQuery all songs', limit: 30)
+    final movieSearchFuture = _searchYt('$movieCoreQuery all songs', limit: AudioPrefs.dataSaverActiveNotifier.value ? 20 : 30)
         .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
 
-    final earlySearchYtFuture = _searchYt(q, limit: 60)
+    final earlySearchYtFuture = _searchYt(q, limit: AudioPrefs.dataSaverActiveNotifier.value ? 40 : 60)
         .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
 
@@ -1947,7 +1947,7 @@ class ApiService {
       // DATA SAVER: the "related" list still appears, built from the 2
       // best-weighted queries instead of every generated one.
       final relatedQueries = AudioPrefs.dataSaverActiveNotifier.value
-          ? allRelatedQueries.take(2).toList()
+          ? allRelatedQueries.take(1).toList()
           : allRelatedQueries.take(3).toList();
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
@@ -1958,7 +1958,7 @@ class ApiService {
 
       final sessionPlayedIds = RecommendationEngine.sessionRecentIds;
 
-      final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: 30)
+      final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: AudioPrefs.dataSaverActiveNotifier.value ? 20 : 30)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])).toList();
       final ytRelatedLists = await Future.wait(ytRelatedFutures);
@@ -2214,7 +2214,8 @@ class ApiService {
     final q = query.trim();
     if (q.isEmpty) return [];
 
-    final quickCacheKey = '${_normalise(q)}::$limit';
+    final saverNow = AudioPrefs.dataSaverActiveNotifier.value;
+    final quickCacheKey = '${_normalise(q)}::$limit::${saverNow ? 's' : 'n'}';
     final cachedQuick = _quickSearchCache[quickCacheKey];
     if (cachedQuick != null && !cachedQuick.isExpired) {
       return cachedQuick.results;
@@ -2228,7 +2229,9 @@ class ApiService {
 
     List<Song> ytQuickResults;
     final myEpoch = ++_liveSearchEpoch;
-    final ytFuture = _searchYt(q, limit: limit + 10, isStale: () => myEpoch != _liveSearchEpoch);
+    // Data Saver: live typing only needs the top rows; submit fetches more.
+    final liveFetch = saverNow ? (limit < 12 ? limit : 12) + 4 : limit + 10;
+    final ytFuture = _searchYt(q, limit: liveFetch, isStale: () => myEpoch != _liveSearchEpoch);
     try {
       ytQuickResults = await ytFuture.timeout(const Duration(seconds: 4));
     } on TimeoutException {
@@ -5436,8 +5439,24 @@ class ApiService {
   /// (AurumArtwork.upgradeForFullPlayer).
   static String _searchThumb(String url) {
     if (url.isEmpty) return url;
-    final size = AudioPrefs.dataSaverActiveNotifier.value ? 144 : 226;
-    return url.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w$size-h$size-l80-rj');
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    // 128px (not 96): song.artworkUrl also feeds the lock-screen/notification
+    // art, so it must stay legible there. Full player rescues it to 300px.
+    final size = saver ? 128 : 226;
+    final q = saver ? 60 : 80;
+    return url.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w$size-h$size-l$q-rj');
+  }
+
+  /// Data Saver ONLY: shrink artist/album search-result thumbnails to what
+  /// their tiles really show (artist tile 56dp, album card 130dp). Normal
+  /// mode is left exactly as it was (500px) because artist/album screens
+  /// can reuse these URLs for big headers.
+  static String _saverListThumb(String url, int saverSize) {
+    if (url.isEmpty || !AudioPrefs.dataSaverActiveNotifier.value) return url;
+    return url.replaceAllMapped(
+      RegExp(r'=w\d+-h\d+'),
+      (_) => '=w$saverSize-h$saverSize',
+    );
   }
 
   static int _anonymousResolveCounter = 0;
@@ -6266,7 +6285,7 @@ class ApiService {
 
   static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) {
     return _memoList<ArtistSimple>(
-      'art:${_normalise(query)}:$limit',
+      'art:${AudioPrefs.dataSaverActiveNotifier.value}:${_normalise(query)}:$limit',
       const Duration(minutes: 15),
       () => _searchArtistsInternal(query, limit: limit, includeSaavn: true),
     );
@@ -6511,7 +6530,7 @@ class ApiService {
 
       final isValidArtistId = browseId.startsWith('UC') || browseId.startsWith('MPLA');
       if (name.isEmpty || !isValidArtistId || !seen.add(browseId)) return;
-      out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: image));
+      out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: _saverListThumb(image, 112)));
     }
 
     for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
@@ -6564,7 +6583,7 @@ class ApiService {
 
   static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) {
     return _memoList<BrowseAlbum>(
-      'alb:${_normalise(query)}:$limit',
+      'alb:${AudioPrefs.dataSaverActiveNotifier.value}:${_normalise(query)}:$limit',
       const Duration(minutes: 15),
       () => _searchAlbumsUncached(query, limit),
     );
@@ -6674,7 +6693,7 @@ class ApiService {
         collectionId: browseId,
         name: _cleanText(name),
         artist: _cleanText(artist.isEmpty ? 'Various Artists' : artist),
-        artworkUrl: image,
+        artworkUrl: _saverListThumb(image, 144),
         releaseYear: year,
         isFromYoutube: true,
       ));
