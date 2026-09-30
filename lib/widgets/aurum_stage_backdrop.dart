@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
+import '../services/aurum_image_cache.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 
@@ -267,8 +269,8 @@ class _LiveBlur extends StatelessWidget {
           sigmaY: isLight ? 26 : 30,
           tileMode: TileMode.mirror,
         ),
-        // Uses the existing cached artwork provider — no extra network
-        // fetch, this is the same image the mini player/hero already hold.
+        // Uses the shared AurumImageCache disk cache — same file the
+        // mini player/hero already downloaded, so no extra network fetch.
         child: ShaderMask(
           shaderCallback: (rect) => const RadialGradient(
             radius: 0.85,
@@ -328,7 +330,9 @@ class _NoFadeArtwork extends StatelessWidget {
 /// to an ImageProvider — kept tiny and dependency-free here.
 ImageProvider resolveAurumImageProvider(String url) {
   if (url.startsWith('http')) {
-    return NetworkImage(url);
+    // Disk-cached via the shared AurumImageCache (was NetworkImage: RAM-only,
+    // re-downloaded on every cold start / cache eviction).
+    return CachedNetworkImageProvider(url, cacheManager: AurumImageCache());
   }
   if (url.startsWith('file://')) {
     return FileImage(_fileFromUri(url));

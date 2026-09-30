@@ -18,6 +18,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
+import '../services/aurum_image_cache.dart';
 
 // Settings — top-level redesign pass (Spotify/Apple-Music flagship tier).
 //
@@ -471,6 +472,7 @@ class _Avatar extends StatelessWidget {
 
     return ring(
       child: CachedNetworkImage(
+        cacheManager: AurumImageCache(),
         imageUrl: url!,
         fit: BoxFit.cover,
         placeholder: (_, __) => fallback(),

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/artist.dart';
 import 'api_service.dart';
+import 'audio_prefs.dart';
 
 /// Cold-start home feed cache (Spotify-style "show what we last had
 /// instantly, refresh in the background").
@@ -244,11 +245,17 @@ class HomeFeedCache {
   // natural refreshes a day — real listening-based content turnover
   // without a background fetch on every launch.
   static const Duration _maxFreshAge = Duration(hours: 6);
+  // Data Saver: refresh the feed at most once a day on cold start (pull-to-
+  // refresh still always fetches fresh) — fewer feed round-trips + thumbnails.
+  static const Duration _maxFreshAgeDataSaver = Duration(hours: 24);
 
   static bool _isRecent(int? savedAtMs) {
     if (savedAtMs == null) return false;
     final age = DateTime.now().millisecondsSinceEpoch - savedAtMs;
-    return age >= 0 && age < _maxFreshAge.inMilliseconds;
+    final maxAge = AudioPrefs.dataSaverActiveNotifier.value
+        ? _maxFreshAgeDataSaver
+        : _maxFreshAge;
+    return age >= 0 && age < maxAge.inMilliseconds;
   }
 
   // GATE for the caller's own background network fetch — not just what's

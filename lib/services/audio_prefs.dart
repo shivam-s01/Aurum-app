@@ -492,6 +492,19 @@ class AudioPrefs {
     _recomputeDataSaverActive();
   }
 
+  /// COLD-START FIX: main() calls this BEFORE runApp(). AudioPrefs.load()
+  /// runs after runApp(), but Home (and its first feed/thumbnail fetches)
+  /// builds on the very first frame — i.e. before load() finished — so those
+  /// first requests saw Data Saver as OFF and pulled full-size thumbnails.
+  /// This reads only the two Data Saver signals (SharedPreferences is
+  /// already initialised by Supabase/Hive at that point, so it is ~free).
+  static Future<void> primeDataSaverEarly() async {
+    final p = await SharedPreferences.getInstance();
+    streamQuality = p.getString(_kStreamQuality) ?? streamQuality;
+    dataSaver     = p.getBool(_kDataSaver) ?? dataSaver;
+    _recomputeDataSaverActive();
+  }
+
   static Future<void> setStreamQuality(String v) async {
     streamQuality = v;
     final p = await SharedPreferences.getInstance();
@@ -941,9 +954,11 @@ class AudioPrefs {
     }
     // > 150kbps measured — plenty of headroom; still capped to what the
     // caller allows (free tier never gets 320kbps here either).
+    // Data Saver must stay small even on a fast connection: 96kbps first,
+    // 48kbps next, higher tiers only if those two don't exist for a song.
     return allow320
-        ? const ['160kbps', '320kbps', '96kbps']
-        : const ['160kbps', '96kbps'];
+        ? const ['96kbps', '48kbps', '160kbps', '320kbps']
+        : const ['96kbps', '48kbps', '160kbps'];
   }
 
   /// Ordered list of Saavn quality strings to try, highest priority first —
@@ -966,8 +981,9 @@ class AudioPrefs {
     if (dataSaver) {
       return _smartSaverOrder(
         allow320: allow320,
-        // Exact original top-level dataSaver ladder — unchanged cold-start behaviour.
-        unknownFallback: const ['160kbps', '96kbps', '48kbps', '12kbps'],
+        // EXTREME saver: smallest tier first, even before bandwidth is measured
+        // (cold start). 12kbps only as a last-resort so playback never fails.
+        unknownFallback: const ['48kbps', '96kbps', '160kbps', '320kbps', '12kbps'],
       );
     }
 

@@ -1539,8 +1539,33 @@ class AurumAudioEngine(
         return MediaItem.Builder()
             .setMediaId(song.id)
             .setUri(url)
+            // DATA FIX: googlevideo URLs change on every resolve (expire/
+            // signature/ip params), so with the default URL-based cache key a
+            // replay / skip-back / repeat of a YouTube song never hit the disk
+            // cache and re-downloaded the whole file. Key by the actual bytes'
+            // identity instead. null (-> default URL key) if anything is missing.
+            .setCustomCacheKey(youtubeStableCacheKey(song.id, url))
             .setMediaMetadata(metadataBuilder.build())
             .build()
+    }
+
+    // Stable disk-cache key for googlevideo streams: videoId + itag (exact
+    // format) + clen (exact byte length) + lmt (last-modified). Same key =>
+    // same bytes, so a Data Saver (Opus ~50k) stream and a normal stream can
+    // never be mixed under one key. Returns null for any non-googlevideo URL
+    // or if itag/clen are absent, which keeps the old default behaviour.
+    private fun youtubeStableCacheKey(songId: String, url: String): String? {
+        return try {
+            val uri = android.net.Uri.parse(url)
+            val host = uri.host ?: return null
+            if (!host.endsWith("googlevideo.com")) return null
+            val itag = uri.getQueryParameter("itag") ?: return null
+            val clen = uri.getQueryParameter("clen") ?: return null
+            val lmt = uri.getQueryParameter("lmt") ?: ""
+            "yt:$songId:$itag:$clen:$lmt"
+        } catch (e: Exception) {
+            null
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────

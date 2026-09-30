@@ -27,6 +27,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'player_color_extractor.dart';
+import '../services/aurum_image_cache.dart';
 
 // FIX ("white/flat flash much worse on device/local song play than on
 // streamed songs"): every entry point below used to gate on
@@ -96,7 +97,7 @@ Future<ImageProvider?> _resolveArtworkProvider(String url) async {
     return FileImage(File(path));
   }
   if (url.startsWith('http')) {
-    return CachedNetworkImageProvider(url);
+    return CachedNetworkImageProvider(url, cacheManager: AurumImageCache());
   }
   return null;
 }

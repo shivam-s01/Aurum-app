@@ -25,6 +25,7 @@ import '../utils/aurum_transitions.dart';
 import '../widgets/faded_horizontal_list.dart';
 import 'album_screen.dart';
 import 'mix_screen.dart';
+import '../services/aurum_image_cache.dart';
 
 // Neutral fallback tile colors, cycled only when InnerTube genuinely sends
 // no `solid` color for a tile (see MoodGenreCategory.color's doc comment) —
@@ -236,6 +237,7 @@ class _MoodGenreTileCard extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
                     child: CachedNetworkImage(
+                      cacheManager: AurumImageCache(),
                       imageUrl: art,
                       width: 46,
                       height: 46,
@@ -444,6 +446,7 @@ class _CategoryItemCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: CachedNetworkImage(
+                cacheManager: AurumImageCache(),
                 imageUrl: item.artworkUrl,
                 width: 130,
                 height: 130,

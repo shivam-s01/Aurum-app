@@ -1069,7 +1069,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         : _prewarmWindow;
     final end = (fromIndex + 1 + window).clamp(0, q.length);
     for (var i = fromIndex + 1; i < end; i++) {
-      ApiService.prewarmYtStream(q[i]);
+      ApiService.prewarmYtStream(q[i], essential: true);
     }
   }
 

@@ -38,6 +38,7 @@ import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet;
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../widgets/aurum_song_options_sheet.dart';
+import '../services/aurum_image_cache.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -393,7 +394,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           !url.startsWith('/') &&
           !url.startsWith('file://')) {
         precacheImage(
-          CachedNetworkImageProvider(url, maxWidth: 220),
+          CachedNetworkImageProvider(url, maxWidth: 220, cacheManager: AurumImageCache()),
           context,
         ).catchError((_) {});
       }
@@ -1062,7 +1063,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     }
     if (!mounted) return;
     precacheImage(
-      CachedNetworkImageProvider(url, maxWidth: 220),
+      CachedNetworkImageProvider(url, maxWidth: 220, cacheManager: AurumImageCache()),
       context,
     ).catchError((_) {
       // Fine to ignore — AurumArtwork still handles the normal

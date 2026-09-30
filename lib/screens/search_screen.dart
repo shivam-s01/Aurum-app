@@ -31,6 +31,7 @@ import 'mix_screen.dart';
 import 'moods_genres_screen.dart';
 import '../utils/aurum_motion.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../services/aurum_image_cache.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -2934,6 +2935,7 @@ class _ExploreMoodTile extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
                     child: CachedNetworkImage(
+                      cacheManager: AurumImageCache(),
                       imageUrl: art,
                       width: 46,
                       height: 46,

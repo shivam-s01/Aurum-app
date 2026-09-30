@@ -232,6 +232,12 @@ Future<void> main() async {
     await AuthService.init();
   } catch (_) {} // app still works fully offline/unauthenticated if this fails
 
+  // Data Saver must already be known when the first frame builds Home —
+  // see AudioPrefs.primeDataSaverEarly(). Never throws / never blocks long.
+  try {
+    await AudioPrefs.primeDataSaverEarly();
+  } catch (_) {}
+
   runApp(AurumApp(engine: _audioEngine = NativeAudioEngine()));
 
   // ── COLD-START HANG FIX — everything below used to run BEFORE runApp() ──

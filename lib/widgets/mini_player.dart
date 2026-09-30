@@ -16,6 +16,7 @@ import '../screens/home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
 import '../utils/aurum_motion.dart';
+import '../services/aurum_image_cache.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -355,7 +356,7 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
         !artworkUrl.startsWith('/') &&
         !artworkUrl.startsWith('file://')) {
       precacheImage(
-        CachedNetworkImageProvider(artworkUrl, maxWidth: 220),
+        CachedNetworkImageProvider(artworkUrl, maxWidth: 220, cacheManager: AurumImageCache()),
         context,
       ).catchError((_) {
         // Fine to ignore — FullPlayerScreen's own AurumArtwork still

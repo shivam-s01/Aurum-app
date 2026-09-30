@@ -49,6 +49,7 @@ import '../widgets/aurum_morph_loader.dart';
 import '../services/user_region.dart';
 import '../services/home_feed_cache.dart';
 import '../services/artist_picker_loader.dart';
+import '../services/aurum_image_cache.dart';
 
 class SettingsRegionScreen extends StatefulWidget {
   const SettingsRegionScreen({super.key});
@@ -841,6 +842,7 @@ class _ArtistPickerGrid extends StatelessWidget {
                                   color: AurumTheme.textMutedOf(context)),
                             )
                           : CachedNetworkImage(
+                              cacheManager: AurumImageCache(),
                               imageUrl: artist.imageUrl,
                               fit: BoxFit.cover,
                               placeholder: (_, __) =>

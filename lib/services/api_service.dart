@@ -6031,9 +6031,16 @@ class ApiService {
   static const int _maxPrewarmConcurrency = 2;
   static final List<Song> _prewarmQueue = [];
 
-  static void prewarmYtStream(Song song) {
+  /// [essential] = true only for the queue's immediate next song
+  /// (PlayerProvider._prewarmUpcoming). Under Data Saver every other
+  /// speculative prewarm (Home cards, song tiles, history/favorites warm-up
+  /// at cold start) is skipped: each one is a real network round-trip for a
+  /// song the user may never play. The tap-to-play path still resolves on
+  /// demand, so playback is unaffected — only the first tap is slightly slower.
+  static void prewarmYtStream(Song song, {bool essential = false}) {
     if (song.source != SongSource.youtube) return;
     if (song.id.isEmpty) return;
+    if (!essential && AudioPrefs.dataSaverActiveNotifier.value) return;
     if (_prewarmedIds.contains(song.id)) return;
 
     final cacheKey = 'youtube:${song.id}';

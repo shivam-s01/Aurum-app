@@ -55,6 +55,7 @@ import '../utils/aurum_haptics.dart';
 import '../config/region_catalog.dart';
 import '../services/user_region.dart';
 import '../services/artist_picker_loader.dart';
+import '../services/aurum_image_cache.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root screen — steps through Country -> Genres -> Artists
@@ -1973,6 +1974,7 @@ class _ArtistCard extends StatelessWidget {
                               color: AurumTheme.textMutedOf(context)),
                         )
                       : CachedNetworkImage(
+                          cacheManager: AurumImageCache(),
                           imageUrl: artist.imageUrl,
                           fit: BoxFit.cover,
                           placeholder: (_, __) =>

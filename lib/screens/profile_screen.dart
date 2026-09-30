@@ -760,7 +760,7 @@ class _AccountCardState extends State<_AccountCard> {
                       radius: 22,
                       backgroundColor: AurumTheme.accentOf(context).withOpacity(0.15),
                       backgroundImage: auth.avatarUrl != null
-                          ? NetworkImage(auth.avatarUrl!)
+                          ? CachedNetworkImageProvider(auth.avatarUrl!, cacheManager: AurumImageCache())
                           : null,
                       child: auth.avatarUrl == null
                           ? Icon(Icons.person_rounded,
