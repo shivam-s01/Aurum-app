@@ -509,7 +509,7 @@ class ApiService {
   static final http.Client _client = IOClient(
     HttpClient()
       ..connectionTimeout = const Duration(seconds: 5)
-      ..idleTimeout = const Duration(seconds: 3)
+      ..idleTimeout = const Duration(seconds: 20)
       ..maxConnectionsPerHost = 6,
   );
 
@@ -1887,11 +1887,11 @@ class ApiService {
     final wantsVariant = _wantsVariantQuery(q);
 
     final movieCoreQuery = _extractMovieCoreQuery(q) ?? q;
-    final movieSearchFuture = _searchYt('$movieCoreQuery all songs', limit: 40)
+    final movieSearchFuture = _searchYt('$movieCoreQuery all songs', limit: 30)
         .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
 
-    final earlySearchYtFuture = _searchYt(q, limit: 100)
+    final earlySearchYtFuture = _searchYt(q, limit: 60)
         .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
 
@@ -1948,7 +1948,7 @@ class ApiService {
       // best-weighted queries instead of every generated one.
       final relatedQueries = AudioPrefs.dataSaverActiveNotifier.value
           ? allRelatedQueries.take(2).toList()
-          : allRelatedQueries;
+          : allRelatedQueries.take(3).toList();
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
 
@@ -1958,7 +1958,7 @@ class ApiService {
 
       final sessionPlayedIds = RecommendationEngine.sessionRecentIds;
 
-      final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: 50)
+      final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: 30)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])).toList();
       final ytRelatedLists = await Future.wait(ytRelatedFutures);
@@ -2208,6 +2208,8 @@ class ApiService {
     return clean.substring(0, clean.length.clamp(0, 30));
   }
 
+  static int _liveSearchEpoch = 0;
+
   static Future<List<Song>> quickSearch(String query, {int limit = 20}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
@@ -2225,7 +2227,8 @@ class ApiService {
     const minLiveRelevanceScore = 5.0;
 
     List<Song> ytQuickResults;
-    final ytFuture = _searchYt(q, limit: limit + 20);
+    final myEpoch = ++_liveSearchEpoch;
+    final ytFuture = _searchYt(q, limit: limit + 10, isStale: () => myEpoch != _liveSearchEpoch);
     try {
       ytQuickResults = await ytFuture.timeout(const Duration(seconds: 4));
     } on TimeoutException {
@@ -2288,11 +2291,20 @@ class ApiService {
     final mergedQuick = <Song>[...ytScoredQuick.map((s) => s.song)];
 
     final quickResult = mergedQuick.take(limit).toList();
-    _writeQuickSearchCache(quickCacheKey, quickResult);
+    // Never cache empty (failed / superseded) results.
+    if (quickResult.isNotEmpty) _writeQuickSearchCache(quickCacheKey, quickResult);
     return quickResult;
   }
 
-  static Future<List<String>> suggest(String query) async {
+  static Future<List<String>> suggest(String query) {
+    return _memoList<String>(
+      'sug:${_normalise(query)}',
+      const Duration(minutes: 30),
+      () => _suggestUncached(query),
+    );
+  }
+
+  static Future<List<String>> _suggestUncached(String query) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
 
@@ -2483,7 +2495,7 @@ class ApiService {
     return _searchYt(query, limit: limit);
   }
 
-  static Future<List<Song>> _searchYt(String query, {int limit = 30}) async {
+  static Future<List<Song>> _searchYt(String query, {int limit = 30, bool Function()? isStale}) async {
 
     // DATA SAVER: the normal path below fires the compact worker search AND
     // the raw InnerTube search at the same time (fastest wins) — but the
@@ -2505,51 +2517,15 @@ class ApiService {
       }
     }
 
-    final workerFuture = _searchYtMusic(query, limit)
-        .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[])
-        .catchError((e) {
-          _log('[_searchYt] yt-music-search (worker) error: $e');
-          return <Song>[];
-        });
-    final directFuture = _searchYtMusicDirect(query, limit)
-        .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[])
-        .catchError((e) {
-          _log('[_searchYt] yt-music-search (direct) error: $e');
-          return <Song>[];
-        });
-
-    List<Song>? workerResult;
-    List<Song>? directResult;
-    final firstNonEmpty = Completer<List<Song>>();
-    void checkDone() {
-      if (firstNonEmpty.isCompleted) return;
-      if (workerResult != null && workerResult!.isNotEmpty) {
-        firstNonEmpty.complete(workerResult!);
-      } else if (directResult != null && directResult!.isNotEmpty) {
-        firstNonEmpty.complete(directResult!);
-      } else if (workerResult != null && directResult != null) {
-
-        firstNonEmpty.complete(const <Song>[]);
-      }
-    }
-
-    workerFuture.then((r) {
-      workerResult = r;
-      checkDone();
-    });
-    directFuture.then((r) {
-      directResult = r;
-      checkDone();
-    });
-
-    try {
-      return await firstNonEmpty.future.timeout(const Duration(seconds: 3));
-    } on TimeoutException {
-      return firstNonEmpty.future.timeout(
-        const Duration(seconds: 7),
-        onTimeout: () => workerResult ?? directResult ?? const <Song>[],
-      );
-    }
+    // Hedged: small worker JSON first; heavy raw InnerTube only if the worker
+    // is empty/failed or hasn't answered within 1.2s (was: both in parallel,
+    // loser still downloaded its whole 100-300KB body on every keystroke).
+    return _hedged<Song>([
+      () => _searchYtMusic(query, limit)
+          .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[]),
+      () => _searchYtMusicDirect(query, limit)
+          .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[]),
+    ], stagger: const Duration(milliseconds: 1200), isStale: isStale);
   }
 
   static const String _ytmApiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
@@ -4300,7 +4276,7 @@ class ApiService {
           final best = thumbs.isNotEmpty ? thumbs.last : null;
           var thumbnail = (best?['url'] ?? '').toString();
           if (thumbnail.isNotEmpty) {
-            thumbnail = _scaledArtworkUrl(thumbnail, 544);
+            thumbnail = _searchThumb(thumbnail);
           }
 
           out.add(Song(
@@ -4336,7 +4312,7 @@ class ApiService {
       final uri = Uri.parse(
         '$_saavn/api/yt-music-search?query=${Uri.encodeComponent(query)}&limit=$limit',
       );
-      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
+      final resp = await _client.get(uri).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) { _YtSearchHealth.markFailure(); return []; }
       final data = jsonDecode(resp.body);
       if (data['success'] != true) { _YtSearchHealth.markFailure(); return []; }
@@ -4352,7 +4328,7 @@ class ApiService {
 
               artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
               album: _cleanText((r['album'] ?? '').toString()),
-              artworkUrl: _upgradeYtThumbnail((r['image'] ?? '').toString()),
+              artworkUrl: _searchThumb((r['image'] ?? '').toString()),
               streamUrl: null,
               duration: r['duration'] is int ? r['duration'] as int : null,
               source: SongSource.youtube,
@@ -5453,6 +5429,17 @@ class ApiService {
     return _scaledArtworkUrl(url, 544);
   }
 
+  /// List-row thumbnail for SEARCH results. Rows render ~52dp (~156px on a 3x
+  /// phone) so 544px was ~5x more pixels than ever shown. 226px (144 under
+  /// Data Saver) + explicit quality 80 keeps rows sharp at a fraction of the
+  /// bytes. Full player upgrades to 600px on demand
+  /// (AurumArtwork.upgradeForFullPlayer).
+  static String _searchThumb(String url) {
+    if (url.isEmpty) return url;
+    final size = AudioPrefs.dataSaverActiveNotifier.value ? 144 : 226;
+    return url.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w$size-h$size-l80-rj');
+  }
+
   static int _anonymousResolveCounter = 0;
 
   static Future<bool> _isUrlAlive(String url) async {
@@ -6277,8 +6264,12 @@ class ApiService {
 
   static const String _ytmPlaylistsFilterParam = 'EgWKAQIoAWoKEAMQBBAJEAoQBQ%3D%3D';
 
-  static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
-    return _searchArtistsInternal(query, limit: limit, includeSaavn: true);
+  static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) {
+    return _memoList<ArtistSimple>(
+      'art:${_normalise(query)}:$limit',
+      const Duration(minutes: 15),
+      () => _searchArtistsInternal(query, limit: limit, includeSaavn: true),
+    );
   }
 
   static Future<List<ArtistSimple>> searchArtistsRegionScoped(
@@ -6313,13 +6304,91 @@ class ApiService {
       return const [];
     }
 
-    return _firstNonEmptyArtists([
-      _searchArtistsAttempt(query, limit,
+    return _hedged<ArtistSimple>([
+      () => _searchArtistsAttempt(query, limit,
           useArtistFilter: true, timeout: const Duration(seconds: 4)),
-      _searchArtistsAttempt(query, limit,
+      () => _searchArtistsAttempt(query, limit,
           useArtistFilter: false, timeout: const Duration(seconds: 4)),
-      if (includeSaavn) _searchArtistsSaavn(query, limit),
-    ]);
+      if (includeSaavn) () => _searchArtistsSaavn(query, limit),
+    ], stagger: const Duration(milliseconds: 1500));
+  }
+
+  // ── Tiny result memo: TTL cache + in-flight dedupe ─────────────────────
+  // Same query typed again / backspaced / submitted while the live fetch is
+  // still running => zero extra network. Empty results are never cached
+  // (usually a transient failure) so a retry can still succeed.
+  static final Map<String, _MemoEntry> _memo = {};
+  static final Map<String, Future<List<dynamic>>> _memoInFlight = {};
+
+  static Future<List<T>> _memoList<T>(
+    String key,
+    Duration ttl,
+    Future<List<T>> Function() run,
+  ) {
+    final hit = _memo[key];
+    if (hit != null && DateTime.now().difference(hit.at) < ttl) {
+      return Future.value(List<T>.from(hit.value));
+    }
+    final inflight = _memoInFlight[key];
+    if (inflight != null) return inflight.then((v) => List<T>.from(v));
+    final f = run().then<List<dynamic>>((v) {
+      if (v.isNotEmpty) {
+        if (_memo.length >= 80) _memo.remove(_memo.keys.first);
+        _memo[key] = _MemoEntry(DateTime.now(), List<dynamic>.from(v));
+      }
+      return v;
+    }).whenComplete(() {
+      _memoInFlight.remove(key);
+    });
+    _memoInFlight[key] = f;
+    return f.then((v) => List<T>.from(v));
+  }
+
+  /// Hedged request: start attempt #1 now; start the next only if the previous
+  /// finished empty/failed OR [stagger] passed with no answer. Fast path = 1
+  /// request / 1 body downloaded instead of N parallel ones.
+  static Future<List<T>> _hedged<T>(
+    List<Future<List<T>> Function()> attempts, {
+    Duration stagger = const Duration(milliseconds: 1200),
+    bool Function()? isStale,
+  }) {
+    final done = Completer<List<T>>();
+    var finished = 0;
+    var started = 0;
+    Timer? timer;
+    void startNext() {
+      if (done.isCompleted || started >= attempts.length) return;
+      // Superseded by a newer keystroke: don't spend more bytes on a query
+      // nobody is looking at anymore (its result is discarded anyway).
+      if (started > 0 && (isStale?.call() ?? false)) {
+        timer?.cancel();
+        done.complete(<T>[]);
+        return;
+      }
+      final idx = started++;
+      timer?.cancel();
+      if (started < attempts.length) timer = Timer(stagger, startNext);
+      void fail() {
+        if (done.isCompleted) return;
+        finished++;
+        if (finished >= attempts.length) {
+          done.complete(<T>[]);
+        } else if (finished >= started) {
+          startNext();
+        }
+      }
+      attempts[idx]().then((r) {
+        if (done.isCompleted) return;
+        if (r.isNotEmpty) {
+          timer?.cancel();
+          done.complete(r);
+        } else {
+          fail();
+        }
+      }).catchError((_) => fail());
+    }
+    startNext();
+    return done.future;
   }
 
   static Future<List<ArtistSimple>> _firstNonEmptyArtists(
@@ -6493,7 +6562,15 @@ class ApiService {
 
   static const String _ytmAlbumsFilterParam = 'EgWKAQIYAWoKEAMQBBAJEAoQBQ%3D%3D';
 
-  static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) async {
+  static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) {
+    return _memoList<BrowseAlbum>(
+      'alb:${_normalise(query)}:$limit',
+      const Duration(minutes: 15),
+      () => _searchAlbumsUncached(query, limit),
+    );
+  }
+
+  static Future<List<BrowseAlbum>> _searchAlbumsUncached(String query, int limit) async {
     if (query.trim().isEmpty) return const [];
 
     if (AudioPrefs.dataSaverActiveNotifier.value) {
@@ -6513,13 +6590,13 @@ class ApiService {
       return const [];
     }
 
-    return _firstNonEmptyAlbums([
-      _searchAlbumsAttempt(query, limit,
+    return _hedged<BrowseAlbum>([
+      () => _searchAlbumsAttempt(query, limit,
           useAlbumFilter: true, timeout: const Duration(seconds: 4)),
-      _searchAlbumsAttempt(query, limit,
+      () => _searchAlbumsAttempt(query, limit,
           useAlbumFilter: false, timeout: const Duration(seconds: 4)),
-      _searchAlbumsSaavn(query, limit),
-    ]);
+      () => _searchAlbumsSaavn(query, limit),
+    ], stagger: const Duration(milliseconds: 1500));
   }
 
   static Future<List<BrowseAlbum>> searchAlbumsYtOnly(String query, {int limit = 12}) async {
@@ -8720,4 +8797,10 @@ class ArtistSimple {
   final String name;
   final String imageUrl;
   const ArtistSimple({required this.id, required this.name, required this.imageUrl});
+}
+
+class _MemoEntry {
+  final DateTime at;
+  final List<dynamic> value;
+  const _MemoEntry(this.at, this.value);
 }

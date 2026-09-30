@@ -465,7 +465,7 @@ class _SearchScreenState extends State<SearchScreen>
     // of waiting for the slowest to settle, so each round-trip resolves
     // fast — a shorter debounce no longer means paying full latency on
     // every keystroke.
-    _suggestDebounce = Timer(const Duration(milliseconds: 120), () async {
+    _suggestDebounce = Timer(const Duration(milliseconds: 300), () async {
       // FIX (blank search screen): if the query changed by the time this
       // timer fired (user kept typing), we used to bail out here WITHOUT
       // resetting _liveLoading — which was already set true back in
@@ -535,14 +535,19 @@ class _SearchScreenState extends State<SearchScreen>
       // Data Saver via AurumArtwork, which is the correct place for that
       // tradeoff to live.
       final myLiveGeneration = ++_searchGeneration;
-      ApiService.searchArtists(query).then((artists) {
-        if (!mounted || myLiveGeneration != _searchGeneration) return;
-        setState(() { _artistResults = artists; });
-      }).catchError((_) {});
-      ApiService.searchAlbums(query).then((albums) {
-        if (!mounted || myLiveGeneration != _searchGeneration) return;
-        setState(() { _albumResults = albums; });
-      }).catchError((_) {});
+      // DATA FIX: artist/album rows are heavy — skip for 1-2 char queries.
+      // Submit path still fetches them, and ApiService memoises both so a
+      // repeated/submitted query costs zero extra network.
+      if (query.length >= 3) {
+        ApiService.searchArtists(query).then((artists) {
+          if (!mounted || myLiveGeneration != _searchGeneration) return;
+          setState(() { _artistResults = artists; });
+        }).catchError((_) {});
+        ApiService.searchAlbums(query).then((albums) {
+          if (!mounted || myLiveGeneration != _searchGeneration) return;
+          setState(() { _albumResults = albums; });
+        }).catchError((_) {});
+      }
 
     });
   }

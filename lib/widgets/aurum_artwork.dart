@@ -110,8 +110,11 @@ class AurumArtwork extends StatelessWidget {
     if (AudioPrefs.dataSaverActiveNotifier.value) {
       return url;
     }
-    if (url.contains('=w300-h300')) {
-      return url.replaceAll('=w300-h300', '=w600-h600');
+    // List-sized YouTube art (<=300px: search rows are 226px, shelves 300px)
+    // -> 600px for the full player. Larger URLs are left untouched.
+    final m = RegExp(r'=w(\d+)-h(\d+)').firstMatch(url);
+    if (m != null && int.parse(m.group(1)!) <= 300) {
+      return url.replaceFirst(m.group(0)!, '=w600-h600');
     }
     if (url.contains('150x150')) {
       return url.replaceAll('150x150', '500x500');
