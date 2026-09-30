@@ -1752,8 +1752,14 @@ class _SongGridCardState extends State<_SongGridCard> {
   @override
   void initState() {
     super.initState();
-    // ZERO-MB COLD START: no speculative stream prewarm for Home cards.
-    // Tap-to-play resolves on demand.
+    // prewarmYtStream() itself skips non-essential prewarm under Data Saver.
+    if (widget.song.source == SongSource.youtube) {
+      final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
+      _prewarmTimer = Timer(Duration(milliseconds: delayMs), () {
+        if (!mounted) return;
+        ApiService.prewarmYtStream(widget.song);
+      });
+    }
   }
 
   @override
@@ -5431,7 +5437,7 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
   Future<void> _loadCategories({bool force = false}) async {
     try {
       List<MoodGenreSection>? sections;
-      if (!force) {
+      if (!force && AudioPrefs.dataSaverActiveNotifier.value) {
         final cached = await MoodGenreCacheStore.load();
         if (cached != null &&
             cached.isNotEmpty &&
@@ -5441,7 +5447,7 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
       }
       if (sections == null) {
         sections = await ApiService.fetchMoodsAndGenres();
-        if (sections.isNotEmpty) {
+        if (sections.isNotEmpty && AudioPrefs.dataSaverActiveNotifier.value) {
           unawaited(MoodGenreCacheStore.save(sections));
         }
       }

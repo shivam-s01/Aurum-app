@@ -212,7 +212,7 @@ Future<void> main() async {
 
   // Wake the Saavn free-tier backend the instant the app launches — by the
   // time the user reaches Home/Search it's had a head start to warm up.
-  // (wakeSaavn removed from cold start — zero network at launch.)
+  ApiService.wakeSaavn();
 
   // Hive init for local DB (favorites, playlists, recently played,
   // downloads) — GENUINELY MUST stay before runApp(). MultiProvider's

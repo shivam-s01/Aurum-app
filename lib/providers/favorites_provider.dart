@@ -76,7 +76,9 @@ class FavoritesProvider extends ChangeNotifier {
     // YouTube-sourced songs (Saavn already embeds its URL) and never
     // throws, so this is safe fire-and-forget with no effect on init()'s
     // own timing.
-    // ZERO-MB COLD START: favorites prewarm removed (tap resolves on demand).
+    for (final song in _favorites.take(5)) {
+      ApiService.prewarmYtStream(song); // no-op under Data Saver
+    }
   }
 
   Future<void> toggleFavorite(Song song) async {

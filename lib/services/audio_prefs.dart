@@ -983,7 +983,7 @@ class AudioPrefs {
         allow320: allow320,
         // EXTREME saver: smallest tier first, even before bandwidth is measured
         // (cold start). 12kbps only as a last-resort so playback never fails.
-        unknownFallback: const ['48kbps', '96kbps', '160kbps', '320kbps', '12kbps'],
+        unknownFallback: const ['96kbps', '48kbps', '160kbps', '320kbps', '12kbps'],
       );
     }
 
@@ -1000,8 +1000,8 @@ class AudioPrefs {
           allow320: allow320,
           // Exact original premium DataSaver ladder.
           unknownFallback: allow320
-              ? const ['48kbps', '96kbps', '160kbps', '320kbps']
-              : const ['48kbps', '96kbps', '160kbps'],
+              ? const ['96kbps', '48kbps', '160kbps', '320kbps']
+              : const ['96kbps', '48kbps', '160kbps'],
         );
       case 'Medium':
         return const ['160kbps', '96kbps'];

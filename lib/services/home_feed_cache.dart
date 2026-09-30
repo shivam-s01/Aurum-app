@@ -253,7 +253,14 @@ class HomeFeedCache {
   // start NEVER triggers a background network fetch when a cache exists.
   // Only (a) first-ever launch / empty cache, or (b) manual pull-to-refresh
   // fetches from the network.
-  static bool _isRecent(int? savedAtMs) => savedAtMs != null;
+  static bool _isRecent(int? savedAtMs) {
+    if (savedAtMs == null) return false;
+    // Data Saver ON: a saved cache NEVER expires on cold start (zero MB).
+    if (AudioPrefs.dataSaverActiveNotifier.value) return true;
+    // Data Saver OFF: original 6-hour freshness window.
+    final age = DateTime.now().millisecondsSinceEpoch - savedAtMs;
+    return age >= 0 && age < _maxFreshAge.inMilliseconds;
+  }
 
   // GATE for the caller's own background network fetch — not just what's
   // displayed. isFresh()/isArtistsFresh()/isPlaylistsFresh() below mean
@@ -269,6 +276,8 @@ class HomeFeedCache {
   // cold-start fetch ATTEMPT and suppress repeat cold-start attempts for
   // 24h whether or not it produced data. Pull-to-refresh ignores this.
   static Future<bool> coldAttemptedRecently(String key) async {
+    // Data Saver OFF: original behaviour, no attempt suppression.
+    if (!AudioPrefs.dataSaverActiveNotifier.value) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final t = prefs.getInt('cold_attempt_$key') ?? 0;

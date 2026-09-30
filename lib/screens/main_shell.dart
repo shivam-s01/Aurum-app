@@ -254,7 +254,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // most once per 24h (push notification already announces updates).
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       final lastCold = prefs.getInt('last_cold_net_ms') ?? 0;
-      final coldNetDue = nowMs - lastCold > 24 * 60 * 60 * 1000;
+      final coldNetDue = !AudioPrefs.dataSaverActiveNotifier.value ||
+          nowMs - lastCold > 24 * 60 * 60 * 1000;
       if (coldNetDue) {
         await prefs.setInt('last_cold_net_ms', nowMs);
         _handleForegroundSync();

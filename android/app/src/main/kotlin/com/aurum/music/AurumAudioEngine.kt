@@ -1549,6 +1549,58 @@ class AurumAudioEngine(
             .build()
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // OFFLINE-SAFE REPLAY: remembers the last stream URL that played for a
+    // song and, if the disk cache already holds that song COMPLETELY, hands
+    // that URL back so playback is served 100% from disk (0 MB, no resolve,
+    // works with no internet / exhausted data). The old URL may have expired,
+    // but CacheDataSource never touches upstream for fully cached bytes.
+    //  * Data Saver ON : used FIRST (saves resolve + network on replays).
+    //  * Data Saver OFF: used only as a FALLBACK when resolving fails or
+    //    there is no network, so normal behaviour is unchanged otherwise.
+    // ─────────────────────────────────────────────────────────────────
+    private val lastUrlPrefs by lazy {
+        context.getSharedPreferences("aurum_last_stream_urls", android.content.Context.MODE_PRIVATE)
+    }
+
+    private fun rememberStreamUrl(song: NativeSong, url: String) {
+        if (song.isLocal || song.id.isEmpty() || url.startsWith("file://") ||
+            url.startsWith("content://")) return
+        try {
+            val order = (lastUrlPrefs.getString("_order", "") ?: "")
+                .split(",").filter { it.isNotEmpty() && it != song.id }.toMutableList()
+            order.add(song.id)
+            val ed = lastUrlPrefs.edit()
+            ed.putString(song.id, url)
+            while (order.size > 300) ed.remove(order.removeAt(0))
+            ed.putString("_order", order.joinToString(","))
+            ed.apply()
+        } catch (_: Exception) {}
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun isFullyCached(key: String): Boolean {
+        val cache = streamCache ?: return false
+        return try {
+            val len = androidx.media3.datasource.cache.ContentMetadata
+                .getContentLength(cache.getContentMetadata(key))
+            len > 0 && cache.isCached(key, 0, len)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun cachedPlayableUrl(song: NativeSong): String? {
+        if (song.isLocal || song.id.isEmpty()) return null
+        return try {
+            val url = lastUrlPrefs.getString(song.id, null) ?: return null
+            val key = youtubeStableCacheKey(song.id, url) ?: url
+            if (isFullyCached(key)) url else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // Stable disk-cache key for googlevideo streams: videoId + itag (exact
     // format) + clen (exact byte length) + lmt (last-modified). Same key =>
     // same bytes, so a Data Saver (Opus ~50k) stream and a normal stream can
@@ -2017,6 +2069,11 @@ class AurumAudioEngine(
         // Fix: give native's worst case (~6-8s) + Dart's full 16s Worker
         // budget real headroom instead of racing them against a cap that
         // was sized for the old, shorter Dart timeout.
+        // Data Saver ON: a fully cached song replays straight from disk (0 MB).
+        if (YoutubeSaverResolver.active) {
+            cachedPlayableUrl(song)?.let { return it }
+        }
+
         val perAttemptTimeoutMs = if (song.source == "youtube") 26_000L else 12_000L
         repeat(maxAttempts) { attemptIndex ->
             if (sessionId != playSessionId) return null
@@ -2028,10 +2085,15 @@ class AurumAudioEngine(
                 null
             }
             if (sessionId != playSessionId) return null
-            if (!url.isNullOrEmpty()) return url
+            if (!url.isNullOrEmpty()) {
+                rememberStreamUrl(song, url)
+                return url
+            }
             if (attemptIndex < maxAttempts - 1) delay(500)
         }
-        return null
+        // Resolve failed (no data / slow / blocked): play from disk cache if
+        // this song was fully cached earlier.
+        return cachedPlayableUrl(song)
     }
 
     // No-auto-skip resolve policy (Spotify-style): the song the user
@@ -2076,7 +2138,8 @@ class AurumAudioEngine(
                 // pending and this same call site will naturally be
                 // re-entered on the next play/retry trigger once
                 // connectivity actually returns.
-                return null
+                // Fully cached songs still play with no network at all.
+                return cachedPlayableUrl(song)
             }
             val url = try {
                 withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, sessionId) }

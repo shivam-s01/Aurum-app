@@ -21,6 +21,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/audio_prefs.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/payment_service.dart';
 
@@ -77,8 +78,9 @@ class PremiumProvider extends ChangeNotifier {
         Supabase.instance.client.auth.onAuthStateChange.listen((state) {
       // Skip the automatic initial-session / token-refresh events so cold
       // start does not trigger a live network check.
-      if (state.event == AuthChangeEvent.initialSession ||
-          state.event == AuthChangeEvent.tokenRefreshed) {
+      if (AudioPrefs.dataSaverActiveNotifier.value &&
+          (state.event == AuthChangeEvent.initialSession ||
+              state.event == AuthChangeEvent.tokenRefreshed)) {
         return;
       }
       _refresh();
@@ -100,7 +102,8 @@ class PremiumProvider extends ChangeNotifier {
     // the live check).
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final lastLive = prefs.getInt('premium_last_live_check_ms') ?? 0;
-    final liveDue = nowMs - lastLive > 24 * 60 * 60 * 1000;
+    final liveDue = !AudioPrefs.dataSaverActiveNotifier.value ||
+        nowMs - lastLive > 24 * 60 * 60 * 1000;
     if (liveDue) await prefs.setInt('premium_last_live_check_ms', nowMs);
     await _refresh(live: liveDue);
   }

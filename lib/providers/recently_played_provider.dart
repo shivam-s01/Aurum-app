@@ -119,7 +119,9 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     // screen — closes that gap. Only the first few, fire-and-forget,
     // de-duped and cache-checked inside prewarmYtStream() itself, so this
     // has no effect on init()'s own timing or on cold-start cost.
-    // ZERO-MB COLD START: history prewarm removed (tap resolves on demand).
+    for (final song in _history.take(5)) {
+      ApiService.prewarmYtStream(song); // no-op under Data Saver
+    }
   }
 
   // ---------------------------------------------------------------------------

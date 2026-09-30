@@ -42,7 +42,7 @@ object YoutubeSaverResolver {
      * music per 100 MB. Tune: 100 = Opus ~70kbps (~3.2 h / 100 MB, more
      * headroom), 140 = saver effectively off.
      */
-    private const val CEILING_KBPS = 64
+    private const val CEILING_KBPS = 100
 
     /** Mirrors AudioPrefs.dataSaverActiveNotifier; set from AurumAudioEngine.setDataSaverActive(). */
     @Volatile

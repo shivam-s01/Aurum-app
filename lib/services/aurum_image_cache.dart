@@ -1,14 +1,11 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'audio_prefs.dart';
 
-/// AurumImageCache — disk cache for network artwork.
+/// AurumImageCache — size-bounded disk cache for network artwork.
 ///
-/// ZERO-MB COLD START: by default flutter_cache_manager honours the
-/// server's Cache-Control max-age (YouTube/Saavn CDNs often send short
-/// values), so once an entry "expires" the next cold start re-requests it
-/// (conditional GET / full re-download) even though the artwork never
-/// changed. [_LongCacheFileService] forces every response to be treated as
-/// valid for 30 days, so a cached thumbnail is served from disk with NO
-/// network request on every cold start until it is evicted.
+/// Data Saver ON: every downloaded thumbnail is treated as valid for 30
+/// days (ignores the CDN's short max-age), so cold start re-requests
+/// nothing. Data Saver OFF: behaves exactly as before (server max-age).
 class AurumImageCache extends CacheManager {
   static const key = 'aurumImageCache';
   static final AurumImageCache _instance = AurumImageCache._();
@@ -18,18 +15,19 @@ class AurumImageCache extends CacheManager {
       : super(
           Config(
             key,
-            stalePeriod: const Duration(days: 30),
+            stalePeriod: const Duration(days: 14),
             maxNrOfCacheObjects: 4000,
-            fileService: _LongCacheFileService(),
+            fileService: _SaverAwareFileService(),
           ),
         );
 }
 
-class _LongCacheFileService extends HttpFileService {
+class _SaverAwareFileService extends HttpFileService {
   @override
   Future<FileServiceResponse> get(String url,
       {Map<String, String>? headers}) async {
     final res = await super.get(url, headers: headers);
+    if (!AudioPrefs.dataSaverActiveNotifier.value) return res;
     return _LongValidityResponse(res);
   }
 }
