@@ -247,10 +247,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // PlaylistProvider.playlists etc. before that finishes would just
       // see an empty list and skip pushing anything local-only up.
       // Fire-and-forget, same as the resume-path sync.
-      _handleForegroundSync();
-
       // Update check
       final prefs = await SharedPreferences.getInstance();
+
+      // ZERO-MB COLD START: cold-launch cloud sync + update check run at
+      // most once per 24h (push notification already announces updates).
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final lastCold = prefs.getInt('last_cold_net_ms') ?? 0;
+      final coldNetDue = nowMs - lastCold > 24 * 60 * 60 * 1000;
+      if (coldNetDue) {
+        await prefs.setInt('last_cold_net_ms', nowMs);
+        _handleForegroundSync();
+      }
 
       // FIX ("purane users ko update popup nahi mil raha"): 'check_updates'
       // is disk-persisted and never had any UI to toggle it — it could
@@ -271,7 +279,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       }
 
       final checkUpdates = prefs.getBool('check_updates') ?? true;
-      if (checkUpdates && mounted) {
+      if (checkUpdates && coldNetDue && mounted) {
         await UpdateService.checkForUpdate(context);
       }
 

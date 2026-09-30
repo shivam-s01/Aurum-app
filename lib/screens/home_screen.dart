@@ -629,9 +629,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // HomeScreen (inside SplashScreen's `child`) is constructed.
     final lib = context.read<LibraryProvider>();
     if (!lib.hasLoaded) lib.load();
-    HomeFeedCache.isArtistsFresh().then((fresh) {
+    HomeFeedCache.isArtistsFresh().then((fresh) async {
       if (!mounted) return;
-      if (!fresh) _loadArtists();
+      if (fresh) return;
+      if (await HomeFeedCache.coldAttemptedRecently('artists')) return;
+      await HomeFeedCache.markColdAttempt('artists');
+      if (!mounted) return;
+      _loadArtists();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
 
@@ -1748,13 +1752,8 @@ class _SongGridCardState extends State<_SongGridCard> {
   @override
   void initState() {
     super.initState();
-    if (widget.song.source == SongSource.youtube) {
-      final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
-      _prewarmTimer = Timer(Duration(milliseconds: delayMs), () {
-        if (!mounted) return;
-        ApiService.prewarmYtStream(widget.song);
-      });
-    }
+    // ZERO-MB COLD START: no speculative stream prewarm for Home cards.
+    // Tap-to-play resolves on demand.
   }
 
   @override
@@ -3818,8 +3817,17 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
       // out, same "instant paint, silent refresh" contract as every other
       // Home row — never re-shows a loading state over already-visible
       // content.
-      if (!await HomeFeedCache.isQuickPicksFresh()) _load(silent: true);
+      if (!await HomeFeedCache.isQuickPicksFresh() &&
+          !await HomeFeedCache.coldAttemptedRecently('quickpicks')) {
+        await HomeFeedCache.markColdAttempt('quickpicks');
+        _load(silent: true);
+      }
     } else {
+      if (await HomeFeedCache.coldAttemptedRecently('quickpicks')) {
+        if (mounted) setState(() => _songs = const []);
+        return;
+      }
+      await HomeFeedCache.markColdAttempt('quickpicks');
       _load();
     }
   }
@@ -4301,9 +4309,13 @@ class _HomeShelvesAndSimilarSectionState
     final shelvesCacheFresh = await HomeFeedCache.isHomeShelvesFresh();
     final artistCacheFresh = await HomeFeedCache.isSimilarArtistRowsFresh();
     final songCacheFresh = await HomeFeedCache.isSimilarSongRowsFresh();
-    final shelvesFresh = cachedShelves.isNotEmpty && shelvesCacheFresh;
-    final similarFresh = cachedSimilar.isNotEmpty && artistCacheFresh;
-    final similarSongsFresh = cachedSimilarSongs.isNotEmpty && songCacheFresh;
+    final attempted = await HomeFeedCache.coldAttemptedRecently('shelves');
+    final shelvesFresh =
+        (cachedShelves.isNotEmpty && shelvesCacheFresh) || attempted;
+    final similarFresh =
+        (cachedSimilar.isNotEmpty && artistCacheFresh) || attempted;
+    final similarSongsFresh =
+        (cachedSimilarSongs.isNotEmpty && songCacheFresh) || attempted;
     // skipShelves/skipSimilar/skipSimilarSongs tell _load() not to
     // re-fetch whichever ones are already fresh on disk — the actual
     // MB/latency saving. When a flag is false (no cache yet, or aged
@@ -4312,6 +4324,8 @@ class _HomeShelvesAndSimilarSectionState
     // computes its OWN skip flags from widget.stage (RefreshStage) instead
     // of always forcing all three — see the STAGED REFRESH comment there.
     if (shelvesFresh && similarFresh && similarSongsFresh) return;
+    await HomeFeedCache.markColdAttempt('shelves');
+    if (!mounted) return;
     _load(
       skipShelves: shelvesFresh,
       skipSimilar: similarFresh,
@@ -5410,13 +5424,27 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
       _selectedMood = _kRealMoodAllId;
       _categoryShelves = null;
       _categoryFailed = false;
-      _loadCategories();
+      _loadCategories(force: true);
     }
   }
 
-  Future<void> _loadCategories() async {
+  Future<void> _loadCategories({bool force = false}) async {
     try {
-      final sections = await ApiService.fetchMoodsAndGenres();
+      List<MoodGenreSection>? sections;
+      if (!force) {
+        final cached = await MoodGenreCacheStore.load();
+        if (cached != null &&
+            cached.isNotEmpty &&
+            await MoodGenreCacheStore.isFresh()) {
+          sections = cached; // zero network
+        }
+      }
+      if (sections == null) {
+        sections = await ApiService.fetchMoodsAndGenres();
+        if (sections.isNotEmpty) {
+          unawaited(MoodGenreCacheStore.save(sections));
+        }
+      }
       if (!mounted) return;
       // Flatten every section's tiles into one chip row — this row is
       // a quick-access shortcut, not the full categorized grid (that's

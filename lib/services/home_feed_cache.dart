@@ -249,14 +249,11 @@ class HomeFeedCache {
   // refresh still always fetches fresh) — fewer feed round-trips + thumbnails.
   static const Duration _maxFreshAgeDataSaver = Duration(hours: 24);
 
-  static bool _isRecent(int? savedAtMs) {
-    if (savedAtMs == null) return false;
-    final age = DateTime.now().millisecondsSinceEpoch - savedAtMs;
-    final maxAge = AudioPrefs.dataSaverActiveNotifier.value
-        ? _maxFreshAgeDataSaver
-        : _maxFreshAge;
-    return age >= 0 && age < maxAge.inMilliseconds;
-  }
+  // ZERO-MB COLD START: a saved cache is ALWAYS considered fresh, so cold
+  // start NEVER triggers a background network fetch when a cache exists.
+  // Only (a) first-ever launch / empty cache, or (b) manual pull-to-refresh
+  // fetches from the network.
+  static bool _isRecent(int? savedAtMs) => savedAtMs != null;
 
   // GATE for the caller's own background network fetch — not just what's
   // displayed. isFresh()/isArtistsFresh()/isPlaylistsFresh() below mean
@@ -266,6 +263,30 @@ class HomeFeedCache {
   // genuine first-ever launch, a cleared/corrupted cache, OR simply
   // whenever the existing cache has gone stale — never on every single
   // cold start regardless of age.
+  // ZERO-MB COLD START: empty results are never saved, so a cache that is
+  // "empty" (failed/empty fetch, or user with no history) would otherwise
+  // look stale and re-fetch on EVERY cold start. These helpers record a
+  // cold-start fetch ATTEMPT and suppress repeat cold-start attempts for
+  // 24h whether or not it produced data. Pull-to-refresh ignores this.
+  static Future<bool> coldAttemptedRecently(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final t = prefs.getInt('cold_attempt_$key') ?? 0;
+      final age = DateTime.now().millisecondsSinceEpoch - t;
+      return age >= 0 && age < const Duration(hours: 24).inMilliseconds;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> markColdAttempt(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+          'cold_attempt_$key', DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
   static Future<bool> isFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();

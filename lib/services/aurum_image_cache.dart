@@ -1,23 +1,14 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
-/// AurumImageCache — a size-bounded disk cache for network artwork,
-/// matching Echo Nightly's own Coil ImageLoader config exactly:
-/// 100MB disk cache (see MainApplication.kt's newImageLoader()).
+/// AurumImageCache — disk cache for network artwork.
 ///
-/// Without this, cached_network_image falls back to
-/// flutter_cache_manager's DefaultCacheManager, which caps entries by
-/// AGE ONLY (30 days) with no size ceiling at all — on a heavy-browsing
-/// session (scrolling Home/Search daily, lots of distinct thumbnails)
-/// that can grow disk usage indefinitely between installs. Capping by
-/// byte size, not just age, is the same fix Echo already ships.
-///
-/// maxNrOfCacheObjects is a secondary safety net — flutter_cache_manager
-/// evicts by object COUNT, not raw bytes (there's no true byte-budget
-/// API like Coil's), so this is tuned assuming an average artwork
-/// thumbnail of ~15-25KB post-decode-cache (AurumArtwork already caps
-/// decode width via cacheWidth/_cacheSize) — 4000 objects keeps total
-/// disk usage in the same ballpark as Echo's 100MB even though the
-/// underlying eviction policy counts files, not bytes.
+/// ZERO-MB COLD START: by default flutter_cache_manager honours the
+/// server's Cache-Control max-age (YouTube/Saavn CDNs often send short
+/// values), so once an entry "expires" the next cold start re-requests it
+/// (conditional GET / full re-download) even though the artwork never
+/// changed. [_LongCacheFileService] forces every response to be treated as
+/// valid for 30 days, so a cached thumbnail is served from disk with NO
+/// network request on every cold start until it is evicted.
 class AurumImageCache extends CacheManager {
   static const key = 'aurumImageCache';
   static final AurumImageCache _instance = AurumImageCache._();
@@ -27,8 +18,41 @@ class AurumImageCache extends CacheManager {
       : super(
           Config(
             key,
-            stalePeriod: const Duration(days: 14),
+            stalePeriod: const Duration(days: 30),
             maxNrOfCacheObjects: 4000,
+            fileService: _LongCacheFileService(),
           ),
         );
+}
+
+class _LongCacheFileService extends HttpFileService {
+  @override
+  Future<FileServiceResponse> get(String url,
+      {Map<String, String>? headers}) async {
+    final res = await super.get(url, headers: headers);
+    return _LongValidityResponse(res);
+  }
+}
+
+class _LongValidityResponse implements FileServiceResponse {
+  _LongValidityResponse(this._inner);
+  final FileServiceResponse _inner;
+
+  @override
+  Stream<List<int>> get content => _inner.content;
+
+  @override
+  int? get contentLength => _inner.contentLength;
+
+  @override
+  int get statusCode => _inner.statusCode;
+
+  @override
+  DateTime get validTill => DateTime.now().add(const Duration(days: 30));
+
+  @override
+  String? get eTag => _inner.eTag;
+
+  @override
+  String get fileExtension => _inner.fileExtension;
 }

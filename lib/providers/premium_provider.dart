@@ -74,7 +74,15 @@ class PremiumProvider extends ChangeNotifier {
     // ownership check inside PaymentService.hasValidLocalGrant() refuses
     // to honour a grant that belongs to another user id.
     _authSub =
-        Supabase.instance.client.auth.onAuthStateChange.listen((_) => _refresh());
+        Supabase.instance.client.auth.onAuthStateChange.listen((state) {
+      // Skip the automatic initial-session / token-refresh events so cold
+      // start does not trigger a live network check.
+      if (state.event == AuthChangeEvent.initialSession ||
+          state.event == AuthChangeEvent.tokenRefreshed) {
+        return;
+      }
+      _refresh();
+    });
 
     // Spotify-style "just works on any device": if the app opened with no
     // signal (or the very first check timed out), re-check the moment
@@ -86,7 +94,15 @@ class PremiumProvider extends ChangeNotifier {
       }
     });
 
-    await _refresh();
+    // ZERO-MB COLD START: the live Supabase getUser() round-trip runs at
+    // most once per 24h on cold start; otherwise the locally cached
+    // session is used (auth-change / reconnect / manual refresh still do
+    // the live check).
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final lastLive = prefs.getInt('premium_last_live_check_ms') ?? 0;
+    final liveDue = nowMs - lastLive > 24 * 60 * 60 * 1000;
+    if (liveDue) await prefs.setInt('premium_last_live_check_ms', nowMs);
+    await _refresh(live: liveDue);
   }
 
   @override
@@ -116,7 +132,7 @@ class PremiumProvider extends ChangeNotifier {
   // simply stops applying its result instead of clobbering a newer one.
   int _refreshSession = 0;
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool live = true}) async {
     final mySession = ++_refreshSession;
     _isChecking = true;
     notifyListeners();
@@ -141,6 +157,9 @@ class PremiumProvider extends ChangeNotifier {
       // the UI indefinitely.
       User? user;
       try {
+        if (!live) {
+          throw StateError('cold-start: use cached session');
+        }
         final resp = await Supabase.instance.client.auth
             .getUser()
             .timeout(_slowNetworkTimeout, onTimeout: () {

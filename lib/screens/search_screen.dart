@@ -321,7 +321,6 @@ class _SearchScreenState extends State<SearchScreen>
     _focusNode.addListener(_onFocusChange);
     // Ping Saavn backend the moment search opens — absorbs Render free-tier
     // cold-start delay before the user finishes typing their query.
-    ApiService.wakeSaavn();
     _applyActiveState();
     _loadMoodGenres();
   }
@@ -362,6 +361,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   void _onFocusChange() {
     if (!mounted) return;
+    if (_focusNode.hasFocus) ApiService.wakeSaavn();
     final shouldShowHistory =
         _focusNode.hasFocus && _controller.text.trim().isEmpty && _history.isNotEmpty;
     // Only rebuild when the value actually changes — repeated identical

@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_service.dart';
 
 /// Handles "a new Aurum update is available" push notifications — the
@@ -45,7 +46,11 @@ class UpdatePushService {
 
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission(alert: true, badge: true, sound: true);
-      await messaging.subscribeToTopic(_updatesTopic);
+      final sp = await SharedPreferences.getInstance();
+      if (sp.getBool('fcm_topic_subscribed_v1') != true) {
+        await messaging.subscribeToTopic(_updatesTopic);
+        await sp.setBool('fcm_topic_subscribed_v1', true);
+      }
 
       // Foreground: FCM does not show a system notification on its own
       // while the app is open, so this is the only place a push actually

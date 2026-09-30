@@ -417,11 +417,8 @@ class MoodGenreCacheStore {
   static Future<bool> isFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedAt = prefs.getInt(_timeKey);
-      if (savedAt == null) return false;
-      final age = DateTime.now()
-          .difference(DateTime.fromMillisecondsSinceEpoch(savedAt));
-      return age < _freshWindow;
+      // ZERO-MB COLD START: any saved cache counts as fresh.
+      return prefs.getInt(_timeKey) != null;
     } catch (_) {
       return false;
     }
@@ -708,49 +705,22 @@ class ApiService {
     _selectionPersistDebounce?.cancel();
   }
 
+  static int _lastWakeMs = 0;
+
+  /// ZERO-MB COLD START: this is NO LONGER called at app launch. It is only
+  /// called when the user actually focuses the Search box (see
+  /// search_screen.dart), with a 30-minute cooldown. The old ~1 MB YouTube
+  /// watch-page warm-up (youtube_explode) was removed completely.
   static void wakeSaavn() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastWakeMs < 30 * 60 * 1000) return;
+    _lastWakeMs = now;
 
     _client
         .get(Uri.parse('$_saavnPrimary/result/?query=hello&limit=1'))
         .timeout(const Duration(seconds: 30))
-        .then((_) => _log('[wakeSaavn] onrender warm ✓'))
+        .then((_) => _log('[wakeSaavn] onrender warm'))
         .catchError((e) => _log('[wakeSaavn] onrender ping failed: $e'));
-
-    _client
-        .get(Uri.parse('$_saavnSecondary/result/?query=hello&limit=1'))
-        .timeout(const Duration(seconds: 15))
-        .then((_) => _log('[wakeSaavn] Vercel warm ✓'))
-        .catchError((e) => _log('[wakeSaavn] Vercel ping failed: $e'));
-
-    _client
-        .get(Uri.parse('$_saavn/result/?query=hello&limit=1'))
-        .timeout(const Duration(seconds: 15))
-        .then((_) => _log('[wakeSaavn] CF worker warm ✓'))
-        .catchError((e) => _log('[wakeSaavn] CF worker ping failed: $e'));
-
-    if (!_explodeWarmedUp) {
-      _explodeWarmedUp = true;
-      Future.microtask(() async {
-        try {
-          // DATA SAVER: this warm-up downloads a full YouTube watch page
-          // (~1 MB) on EVERY app start. AudioPrefs isn't loaded yet this
-          // early, so read the persisted flags directly and skip it.
-          final sp = await SharedPreferences.getInstance();
-          if (sp.getBool('data_saver') == true ||
-              sp.getString('stream_quality') == 'DataSaver') {
-            _explodeWarmedUp = false;
-            return;
-          }
-
-          await _yt.videos.get('JGwWNGJdvx8')
-              .timeout(const Duration(seconds: 8));
-          _log('[warmup] youtube_explode_dart warmed up ✓');
-        } catch (_) {
-
-          _explodeWarmedUp = false;
-        }
-      });
-    }
   }
 
   static final List<_PoolEntry> _pool = [
