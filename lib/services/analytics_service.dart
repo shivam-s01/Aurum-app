@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/song.dart';
 import 'audio_prefs.dart';
+import 'stats_service.dart';
 import 'user_region.dart';
 
 class AnalyticsService {
@@ -31,6 +32,7 @@ class AnalyticsService {
     } catch (e) {
       if (kDebugMode) debugPrint('[Aurum] AnalyticsService init failed: $e');
     }
+    _log('app_open');
   }
 
   /// Called from AudioPrefs.setIncognito — incognito = no tracking at all.
@@ -43,8 +45,10 @@ class AnalyticsService {
   String _cut(String s) => s.length > 100 ? s.substring(0, 100) : s;
 
   void _log(String name, [Map<String, Object>? params]) {
+    if (AudioPrefs.incognito) return;
+    StatsService.instance.send(name, params);
     final fa = _fa;
-    if (fa == null || AudioPrefs.incognito) return;
+    if (fa == null) return;
     fa.logEvent(name: name, parameters: params).catchError((_) {});
   }
 
