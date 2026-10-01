@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "649047137517",
+    "project_id": "aurum-30d66",
+    "storage_bucket": "aurum-30d66.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649047137517:android:3d1a4015bdec3fbf7ac0e4",
+        "android_client_info": {
+          "package_name": "com.aurum.music"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZ7CvkwrAstvpispKmnVkm-IH-g79sk3M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
