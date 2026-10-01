@@ -34,6 +34,7 @@
 //      into a release APK.
 // ═══════════════════════════════════════════════════════════════════════
 
+import 'services/analytics_service.dart';
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -358,6 +359,9 @@ Future<void> main() async {
   // path) and, like every other post-runApp() block here, never blocks
   // the cold-start path — it fails soft on its own if Firebase isn't
   // configured for this build (see FCM_SETUP.md).
+  try {
+    await AnalyticsService.instance.init();
+  } catch (_) {}
   try {
     await UpdatePushService.instance.init();
   } catch (_) {}

@@ -1,3 +1,4 @@
+import 'analytics_service.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -556,6 +557,7 @@ class AudioPrefs {
     incognito = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kIncognito, v);
+    AnalyticsService.instance.setCollection(!v);
   }
 
   static Future<void> setBackAnimations(bool v) async {

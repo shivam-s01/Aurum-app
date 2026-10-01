@@ -6,6 +6,7 @@
 //   this instead of touching Supabase/Google directly.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -55,6 +56,7 @@ class AuthProvider extends ChangeNotifier {
       _lastError = error;
     }
     _engineBridge.autoSleepGuardSetSignedIn(isSignedIn);
+    if (error == null) AnalyticsService.instance.logLogin();
     notifyListeners();
     return error == null;
   }

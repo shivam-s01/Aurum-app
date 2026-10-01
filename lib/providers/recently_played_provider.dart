@@ -21,6 +21,7 @@
 //   All new methods are additive. Nothing removed.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
@@ -151,6 +152,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     // Incognito Mode: don't record history, don't feed the recommendation
     // engine. This is the single gate that makes the Privacy toggle real.
     if (AudioPrefs.incognito) return;
+    AnalyticsService.instance.logSongPlay(song);
 
     // FIX: previously this returned early for local songs, so playing
     // anything from "Local Files" never showed up in History/Recently

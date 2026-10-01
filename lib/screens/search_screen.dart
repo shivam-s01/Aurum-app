@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -669,6 +670,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   void _search(String q) {
+    AnalyticsService.instance.logSearch(q);
     final query = q.trim();
     if (query.isEmpty) return;
     _debounce?.cancel();

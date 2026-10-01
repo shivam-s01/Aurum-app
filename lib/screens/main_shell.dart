@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'dart:convert';
@@ -70,7 +71,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
 
     final tab = _barIndexToTab[barIndex];
-    if (tab != null) setState(() => _tab = tab);
+    if (tab != null) {
+      setState(() => _tab = tab);
+      AnalyticsService.instance
+          .logScreen(const ['Home', 'Search', 'Library'][tab]);
+    }
   }
 
   // Reverse mapping so the nav bar highlights the correct icon for

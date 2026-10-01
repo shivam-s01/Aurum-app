@@ -17,6 +17,7 @@
 //   3. Otherwise -> false, regardless of sign-in state
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -106,6 +107,7 @@ class PremiumProvider extends ChangeNotifier {
         nowMs - lastLive > 24 * 60 * 60 * 1000;
     if (liveDue) await prefs.setInt('premium_last_live_check_ms', nowMs);
     await _refresh(live: liveDue);
+    AnalyticsService.instance.setPremium(_isPremium);
   }
 
   @override
@@ -251,6 +253,8 @@ class PremiumProvider extends ChangeNotifier {
   void markPremiumGranted(String planId) {
     _isPremium = true;
     _activePlanId = planId;
+    AnalyticsService.instance.logPremium(planId);
+    AnalyticsService.instance.setPremium(true);
     notifyListeners();
     // Persist + reconcile with server in the background.
     _refresh();
