@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../utils/route_drag_dismiss.dart';
 import '../utils/artwork_palette_cache.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
@@ -168,6 +169,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // _DragTransform below) listens and rebuilds; the rest of the screen's
   // widget subtree is built exactly once per drag gesture, not once per
   // frame of it.
+  // Swipe-down route ke apne controller se (Spotify player jaisa).
+  late final RouteDragDismiss _routeDrag;
+  static const double _routeDismissDistance = 120.0;
+  static const double _routeDismissVelocity = 900.0;
   final ValueNotifier<double> _dragYNotifier = ValueNotifier(0.0);
   double get _dragY => _dragYNotifier.value;
   set _dragY(double v) => _dragYNotifier.value = v;
@@ -268,6 +273,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   @override
   void initState() {
     super.initState();
+    _routeDrag = RouteDragDismiss(context);
     WidgetsBinding.instance.addObserver(this);
 
     // Entry slide/fade now handled entirely by the route's own
@@ -425,6 +431,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
     _immersiveCtrl.dispose();
+    _routeDrag.cancel();
     _springBackCtrl.dispose();
     _dragYNotifier.dispose();
     super.dispose();
@@ -538,6 +545,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       _dragIsUpward = false;
       _upwardDragDistance = 0;
       _dragY = 0;
+      _routeDrag.cancel();
       if (_isDragging) setState(() => _isDragging = false);
     }
   }
@@ -1415,30 +1423,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
               onVerticalDragUpdate: (d) {
                 if (_panelOpen) return;
-                if (d.delta.dy > 0 && !_dragIsUpward) {
-                  // Downward: drag-to-dismiss follows the finger. Writing
-                  // straight to the notifier — PERF FIX: this used to be
-                  // setState(() => _dragY += ...), which reran this
-                  // entire State's build() (background, controls,
-                  // seekbar, everything) on every touch-move callback.
-                  // Now only _DragTransform below (which wraps the
-                  // otherwise-stable Scaffold child) listens and rebuilds.
-                  _dragY += d.delta.dy;
+                // Downward: route ka apna controller finger ke saath 1:1
+                // chalta hai (Spotify player jaisa) — koi shrink/second
+                // transform nahi, isliye neeche se patla nahi hota.
+                if (_routeDrag.isActive ||
+                    (d.delta.dy > 0 && !_dragIsUpward)) {
+                  if (!_routeDrag.isActive && !_routeDrag.start()) return;
+                  _routeDrag.update(d.delta.dy);
                 } else if (d.delta.dy < 0 || _dragIsUpward) {
-                  // Upward: STRICT FIX — this used to nudge _dragY negative
-                  // (clamped to -60) and Transform.translate applied that
-                  // immediately, so the instant you started swiping up to
-                  // open Up Next, the *entire full player screen* visibly
-                  // slid upward underneath your finger — worse and more
-                  // jarring the faster you swiped. The Up Next panel opens
-                  // as its own bottom sheet with its own slide-in transition
-                  // (see _openPanel/showModalBottomSheet below); the full
-                  // player underneath has no reason to move at all during
-                  // that gesture. We track the raw distance separately
-                  // (_upwardDragDistance) purely so onVerticalDragEnd's
-                  // threshold check below keeps working for slow deliberate
-                  // swipes, not just fast flicks — without ever touching
-                  // the screen's position.
+                  // Upward: player hilta nahi, sirf distance track hoti
+                  // hai taaki Up Next panel khul sake.
                   _dragIsUpward = true;
                   _upwardDragDistance += d.delta.dy; // negative while moving up
                 }
@@ -1447,20 +1441,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 setState(() => _isDragging = false);
                 final velocity = d.primaryVelocity ?? 0;
 
-                if (!_dragIsUpward && (_dragY > 110 || velocity > 750)) {
-                  // FIX (see _completeDismissDrag() doc comment above) —
-                  // this used to hard-reset _dragY to 0 (snap back to the
-                  // top with no animation) and immediately pop, which
-                  // fought against the drag the user had just done.
-                  // Continuing the drag's own motion the rest of the way
-                  // off-screen reads as one smooth swipe-through instead.
-                  _completeDismissDrag();
+                if (_routeDrag.isActive) {
+                  _routeDrag.end(
+                    velocityPxPerSec: velocity,
+                    dismissDistance: _routeDismissDistance,
+                    dismissVelocity: _routeDismissVelocity,
+                  );
                 } else if (_dragIsUpward &&
                     (_upwardDragDistance < -20 || velocity < -400)) {
-                  _dragY = 0;
                   _openPanel();
-                } else {
-                  _springBackDrag(velocity);
                 }
                 _dragIsUpward = false;
               },
@@ -1476,9 +1465,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 if (_isDragging && mounted) setState(() => _isDragging = false);
                 _dragIsUpward = false;
                 _upwardDragDistance = 0;
-                // No velocity available on a cancel — falls back to the
-                // distance-only duration inside _springBackDrag.
-                _springBackDrag();
+                // Fully-open pe wapas spring back.
+                _routeDrag.cancel();
               },
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
@@ -1976,6 +1964,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 // is built exactly once per gesture (when the widget is first created),
 // not once per touch-move callback.
 // ─────────────────────────────────────────────────────────────────────────────
+/// Swipe-down ab route ke apne SlideTransition se hota hai (Spotify player
+/// jaisa, 1:1 finger ke saath), isliye yahan koi translate/scale/opacity nahi.
+/// Sirf ClipRect (blur overscan bahar na dikhe) + RepaintBoundary (static
+/// content ek hi layer pe cache, slide ke dauraan repaint nahi hota).
 class _DragTransform extends StatelessWidget {
   final ValueListenable<double> dragYListenable;
   final Widget child;
@@ -1984,152 +1976,7 @@ class _DragTransform extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // FIX (awkward jerk on swipe-to-dismiss, part 2 — pairs with
-    // _completeDismissDrag() above) — this used to hard-clamp the visual
-    // translate to 280px and opacity to a floor of 0.45, regardless of
-    // how far dragY actually went. That was fine for a LIVE drag (finger
-    // still down, following it 1:1 felt right even past 280px of raw
-    // delta), but it meant the screen could never actually finish
-    // leaving the frame — so even the old instant "_dragY = 0 then pop"
-    // path popped while the screen was still ~280px up and ~45% opaque,
-    // and this new smooth completion animation would have hit the same
-    // ceiling and looked like it stalled a quarter-of-the-way through
-    // instead of finishing the swipe. The translate clamp is now the
-    // actual screen height (so the completion animation can carry it
-    // all the way to fully off-screen) and opacity now reaches 0 at that
-    // same point, instead of bottoming out at 0.45.
-    //
-    // PERF FIX (smoothness during the drag itself): this used to stack
-    // Transform.translate → Transform.scale → Opacity as three separate
-    // widgets, each of which asks the engine for its own compositing
-    // layer. Three layers being resized/repositioned/faded every single
-    // touch-move frame is exactly the kind of thing that reads as
-    // stutter on lower-end devices even though nothing here is logically
-    // expensive. Folding translate+scale into one Matrix4 collapses that
-    // to a single transform layer, and RepaintBoundary below pins the
-    // (static, unchanging) child to its own layer once so the transform
-    // layer is compositing a cached bitmap instead of re-walking the
-    // whole Scaffold subtree's paint on every frame.
-    final screenH = MediaQuery.of(context).size.height;
-    return ValueListenableBuilder<double>(
-      valueListenable: dragYListenable,
-      builder: (context, dragY, child) {
-        // FIX ("Solid mode jaisa hi Blur mode ka background bhi — poore
-        // drag ke dauraan blur bana rahe jab tak dismiss COMPLETE na ho
-        // jaaye, sirf Home ke saath ghost/blend hone wala hissa clean
-        // ho"): opacity used to start dropping from the very first pixel
-        // of drag (1.0 - dragY/screenH), so by ~30% of the swipe the
-        // player was already ~70% opaque — with Home's route painting
-        // live underneath (opaque:false, see pushFullPlayer's own FIX
-        // comment for why that's needed), that meant a blurred, static
-        // artwork photo was visibly blending with unrelated, live-moving
-        // Home content the whole way down. Delaying the opacity falloff
-        // to the last 25% of the drag means the blur stays fully present
-        // and fully opaque — exactly as requested, present the entire
-        // way down, same as Solid mode's flat color — for the first 75%
-        // of the swipe, with nothing showing through it. Only in that
-        // final 25%, once the card is nearly off-screen anyway, does it
-        // fade — by then there's barely anything left on screen for it
-        // to blend with, so it reads as a clean finish rather than a
-        // ghost layer. This mirrors exactly how Solid mode already
-        // behaved; Blur mode now gets the same guarantee.
-        final dismissProgress = (dragY / screenH).clamp(0.0, 1.0);
-        final dragOpacity =
-            1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0);
-        final dragScale =
-            (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
-        final ty = dragY.clamp(0.0, screenH);
-        // FIX ("swipe down/up karte waqt right side pe gap ban jaata hai,
-        // dheere dheere zyada hota jaata hai" — root cause): Matrix4's
-        // ..scale(dragScale, dragScale) here scales around the ORIGIN
-        // (0,0) — the screen's top-left corner — not around its center.
-        // Since dragScale shrinks a little below 1.0 during the swipe
-        // (the "card getting smaller" feedback), scaling from the
-        // top-left means the left and top edges stay pinned exactly in
-        // place while the right and bottom edges pull inward toward that
-        // corner — visible as a growing gap specifically on the right
-        // (and, to a smaller degree, the bottom), never the left/top,
-        // exactly matching the reported asymmetric gap. A uniform "shrink
-        // toward the middle" effect needs the scale to happen around the
-        // screen's center instead: translating by minus half the
-        // screen's size, scaling, then translating back undoes the
-        // origin bias so every edge moves inward by the same amount.
-        final screenW = MediaQuery.of(context).size.width;
-        final matrix = Matrix4.identity()
-          ..translate(0.0, ty)
-          ..translate(screenW / 2, screenH / 2)
-          ..scale(dragScale, dragScale)
-          ..translate(-screenW / 2, -screenH / 2);
-        return Stack(
-          children: [
-            // FIX ("swipe down mein light mode mein background screen
-            // white/flat ho jaata hai, sirf light mode mein" — confirmed
-            // NOT a bug in the player itself: every layer inside
-            // FullPlayerScreen was already correctly theme-aware and
-            // hardcoded-dark where needed. The actual cause is structural:
-            // pushFullPlayer uses `opaque: false` (see its own FIX comment
-            // for why — needed so Home keeps rendering live frames during
-            // the drag instead of a frozen one). That means as this
-            // Opacity below fades the player out while dragging, Home's
-            // own Scaffold — whose backgroundColor is AurumTheme.bgOf(
-            // context), i.e. the real light-mode cream (0xFFF8F6F0) —
-            // becomes genuinely visible behind it. In dark mode that same
-            // exposed Home background is near-black, so it invisibly
-            // blends with the player's own dark tones and reads as
-            // intentional; in light mode the cream reads as a flat,
-            // unstyled "white layer" by contrast, exactly as reported.
-            // Fixing this in Home itself isn't right — Home's background
-            // IS supposed to be light-cream in light mode; the flatness
-            // only shows up specifically while it's exposed mid-drag
-            // behind a fading player. So the fix lives here instead: a
-            // dark scrim sitting OUTSIDE the player's own Opacity (so it
-            // never fades with it) and OUTSIDE this Stack's translate/
-            // scale (positioned before the transformed child, filling the
-            // full route) — it dims whatever of Home is showing through,
-            // in exactly the same "premium dismiss" way Spotify/YT Music
-            // scrim their background during a card swipe-away, in every
-            // theme, not just light. Opacity ramps with the same
-            // dismissProgress driving the player's own fade, so it's
-            // invisible at rest (0 at drag start) and fully gone again
-            // the instant the drag ends (spring-back or completed pop).
-            IgnorePointer(
-              child: Opacity(
-                opacity: (dismissProgress * 0.55).clamp(0.0, 0.55),
-                child: const ColoredBox(color: Colors.black),
-              ),
-            ),
-            Opacity(
-              opacity: dragOpacity,
-              // FIX ("background mein upar blur dikh raha hai screenshot mein
-              // — blur sirf full player ke apne area tak hi rahe, kabhi bahar/
-              // upar na jaaye"): the blurred-artwork layer inside _BgLayer
-              // (_BlurredArtworkCore) renders at Transform.scale(1.55) — a
-              // deliberate overscan so the blur's own soft edges never show a
-              // hard boundary. That overscan was never clipped anywhere in
-              // this widget tree, so once this outer Transform also
-              // translates the whole Scaffold during a dismiss drag, the
-              // scaled-up blur content that extends past the player's own
-              // screen bounds becomes visible above/around the player,
-              // overlapping Home's live route underneath (opaque:false) —
-              // exactly the stray blur strip seen in the report. Wrapping in
-              // ClipRect here guarantees nothing this widget paints, at any
-              // scale or translation, is ever visible outside the player's
-              // own rectangle — the overscan still does its job of avoiding a
-              // hard blur edge internally, it just can never leak past this
-              // boundary.
-              child: ClipRect(
-                child: Transform(
-                  transform: matrix,
-                  alignment: Alignment.center,
-                  child: child,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-      child: RepaintBoundary(child: child),
-    );
+    return ClipRect(child: RepaintBoundary(child: child));
   }
 }
 

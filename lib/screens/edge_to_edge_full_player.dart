@@ -46,6 +46,7 @@ import '../widgets/aurum_artwork.dart' show AurumArtwork;
 import '../services/native_engine_bridge.dart'
     show MediaVolume, AudioOutputDevice, AudioOutputDeviceKind, AudioOutputDevices;
 import '../utils/aurum_haptics.dart';
+import '../utils/route_drag_dismiss.dart';
 import '../utils/aurum_sheet.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/premium_gate.dart';
@@ -61,8 +62,11 @@ class EdgeToEdgeFullPlayer extends StatefulWidget {
 }
 
 class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
-  double _dragY = 0;
-  bool _dragging = false;
+  // Swipe-down ab route ke apne controller se chalta hai (Spotify player
+  // jaisa) — sirf ek hi motion, koi shrink/second transform nahi.
+  late final RouteDragDismiss _routeDrag;
+  static const double _routeDismissDistance = 120.0;
+  static const double _routeDismissVelocity = 900.0;
   // Toggled true for exactly the window the immersive lyrics screen is
   // open (see _BottomIconRow.onLyricsOpenChanged / _openLyricsSheet's
   // fix comment) — hides this screen's own artwork Hero below so it's
@@ -93,7 +97,6 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   );
   String? _paletteUrl;
 
-  static const double _dismissThreshold = 140;
 
   // FIX ("statusbar upar kabhi kabhi show ho jaata hai"): AnnotatedRegion
   // in build() below only wins the status-bar style while nothing else
@@ -123,6 +126,7 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   @override
   void initState() {
     super.initState();
+    _routeDrag = RouteDragDismiss(context);
     SystemChrome.setSystemUIOverlayStyle(_immersiveStyle);
   }
 
@@ -138,6 +142,7 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
 
   @override
   void dispose() {
+    _routeDrag.cancel();
     // Let main.dart's own Consumer2 recompute and reapply the correct
     // app-level style for whatever screen is now on top (it runs on the
     // very next build after this pops, so this doesn't need to guess the
@@ -147,39 +152,25 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   }
 
   void _handleDragUpdate(DragUpdateDetails d) {
-    if (d.delta.dy <= 0 && _dragY == 0) return; // ignore upward drag start
-    setState(() {
-      _dragging = true;
-      _dragY = (_dragY + d.delta.dy).clamp(0.0, 600.0);
-    });
+    if (!_routeDrag.isActive) {
+      if (d.delta.dy <= 0) return; // ignore upward drag start
+      if (!_routeDrag.start()) return;
+    }
+    _routeDrag.update(d.delta.dy);
   }
 
   void _handleDragEnd(DragEndDetails d) {
-    if (_dragY > _dismissThreshold || d.velocity.pixelsPerSecond.dy > 800) {
-      Navigator.of(context).maybePop();
-      return;
-    }
-    setState(() {
-      _dragging = false;
-      _dragY = 0;
-    });
+    if (!_routeDrag.isActive) return;
+    _routeDrag.end(
+      velocityPxPerSec: d.velocity.pixelsPerSecond.dy,
+      dismissDistance: _routeDismissDistance,
+      dismissVelocity: _routeDismissVelocity,
+    );
   }
 
-  // FIX (screen can get stuck mid-drag): if the gesture arena takes the
-  // pointer away mid-drag (e.g. a competing scroll/list inside the sheet
-  // wins resolution) with no onVerticalDragEnd ever firing, _dragging and
-  // _dragY had no way back to a clean state — the player would sit
-  // visually frozen half-dismissed (partially scaled/faded/translated)
-  // until another drag happened to reset it. Same class of bug the Card
-  // layout's FullPlayerScreen already guards against with its own
-  // onVerticalDragCancel handler; this treats it exactly like a
-  // below-threshold release — spring back to fully open.
+  // Gesture arena ne pointer le liya to wapas fully-open pe spring back.
   void _handleDragCancel() {
-    if (!mounted) return;
-    setState(() {
-      _dragging = false;
-      _dragY = 0;
-    });
+    _routeDrag.cancel();
   }
 
   /// Boosts a color's saturation and pulls its brightness toward a target,
@@ -315,26 +306,6 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
 
         _loadPaletteFor(song.artworkUrl);
 
-        final scale = (1 - (_dragY / 1400)).clamp(0.9, 1.0);
-        // FIX ("YouTube jaisa akward lag raha hai" part 2): opacity used
-        // to start dropping from the very first pixel of drag (1 -
-        // dragY/500), so by the time the card had moved barely 60-70px it
-        // was already visibly fading — well before the card was anywhere
-        // near actually leaving the screen. That reads as a translucent,
-        // half-there card for most of the gesture instead of a solid card
-        // that slides cleanly away. YouTube's own full-player dismiss
-        // keeps the card fully opaque for almost the whole drag and only
-        // fades right at the very end, once it's basically already
-        // off-screen — same "hold opacity, then fade at the finish" curve
-        // the Card layout (full_player_screen.dart's _DragTransform)
-        // already uses, scaled here to this screen's own max drag range
-        // (600, from _handleDragUpdate's clamp) rather than the dismiss
-        // threshold — using the threshold directly would make the card
-        // vanish mid-drag any time someone holds past 140px without
-        // releasing, which is worse than the original bug.
-        final dismissProgress = (_dragY / 500).clamp(0.0, 1.0);
-        final opacity = 1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0);
-
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: SystemUiOverlayStyle.light,
           child: Scaffold(
@@ -354,28 +325,7 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
               onVerticalDragUpdate: _handleDragUpdate,
               onVerticalDragEnd: _handleDragEnd,
               onVerticalDragCancel: _handleDragCancel,
-              child: AnimatedContainer(
-                duration: _dragging ? Duration.zero : const Duration(milliseconds: 220),
-                curve: Curves.easeOut,
-                // FIX ("YouTube jaisa drag akward lag raha hai" — root
-                // cause): transformAlignment was Alignment.center, so the
-                // scale-down during drag shrunk the card equally from ALL
-                // four edges — that opens up a visible gap at the TOP too
-                // as you drag down, which reads as the whole card
-                // floating/detaching from the top of the screen instead
-                // of just sliding down and off. YouTube's own full-player
-                // dismiss never opens a top gap — the card stays pinned to
-                // the top edge and only the BOTTOM edge recedes as it
-                // shrinks, so it reads as one continuous downward slide,
-                // not a shape floating in space. topCenter anchors the
-                // scale there instead of the middle, which is the exact
-                // fix: same translate-down + shrink motion, just anchored
-                // at the edge that should never move.
-                transform: Matrix4.translationValues(0, _dragY, 0)..scale(scale, scale),
-                transformAlignment: Alignment.topCenter,
-                child: Opacity(
-                  opacity: opacity,
-                  child: LayoutBuilder(
+              child: LayoutBuilder(
                     builder: (context, constraints) {
                       // Reference design keeps art filling roughly the top
                       // ~58% of the screen, but the panel underneath is now
@@ -619,8 +569,6 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                       );
                     },
                   ),
-                ),
-              ),
             ),
           ),
         );

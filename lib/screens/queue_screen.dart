@@ -163,6 +163,29 @@ class _QueueScreenState extends State<QueueScreen> {
                   padding: const EdgeInsets.only(bottom: 24),
                   sliver: SliverReorderableList(
                     itemCount: queue.length,
+                    // Pakdte hi halka haptic (YouTube Music jaisa).
+                    onReorderStart: (_) => AurumHaptics.selection(),
+                    // FIX: dragged row ka background transparent tha, to
+                    // upar-niche karte waqt neeche wale rows ka text
+                    // uske through dikhta tha. Ab solid + halka lift
+                    // (shadow) — sirf dragged row pe, baaki list pe koi
+                    // extra cost nahi.
+                    proxyDecorator: (child, index, animation) => AnimatedBuilder(
+                      animation: animation,
+                      child: child,
+                      builder: (context, child) {
+                        final t = Curves.easeOut.transform(animation.value);
+                        return Material(
+                          type: MaterialType.canvas,
+                          color: Color.lerp(const Color(0xFF121212),
+                              const Color(0xFF242424), t),
+                          elevation: 8 * t,
+                          shadowColor: Colors.black,
+                          borderRadius: BorderRadius.circular(10),
+                          child: child,
+                        );
+                      },
+                    ),
                     onReorder: (from, to) {
                       AurumHaptics.medium();
                       final adjustedTo = to > from ? to - 1 : to;

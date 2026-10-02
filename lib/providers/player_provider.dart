@@ -2367,39 +2367,31 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> removeFromQueue(int index) async {
+    // FIX (Up Next ka × / drag-reorder race): native engine apne andar hi
+    // pushState() karta hai, aur wo state event `await` wapas aane se
+    // PEHLE aa sakta hai — _reconcileQueue us waqt change already apply
+    // kar deta hai. Phir yahan dobara apply karne se agla (galat) song
+    // bhi hat jaata tha. Isliye pehle song ka id yaad rakhte hain aur
+    // await ke baad check karte hain ki reconcile ne already hata diya ya nahi.
+    final removedId =
+        (index >= 0 && index < _queue.length) ? _queue[index].id : null;
     await _engine.removeFromQueue(index);
-    // BUG: removing an item never adjusted _currentIndex. Removing a song
-    // that sits BEFORE the currently-playing index shifts every song after
-    // it left by one, but _currentIndex stayed the same — silently
-    // pointing at the WRONG song from then on. currentSong itself (a
-    // separate field) still displayed correctly in that exact moment, but
-    // _currentIndex was desynced from _queue, so anything that later reads
-    // _queue[_currentIndex] directly (skipNext()'s optimistic
-    // "queue[currentIndex+1]" guess, _onSongChanged, etc.) would then
-    // operate on/report the wrong song. Removing the currently-playing
-    // song itself is left to the native engine's own follow-up state
-    // event to resolve (it knows what plays next); we only correct the
-    // index math for removals that don't touch the current song.
-    if (index >= 0 && index < _queue.length) {
+    final alreadyApplied = removedId != null &&
+        !(index >= 0 && index < _queue.length && _queue[index].id == removedId);
+
+    if (!alreadyApplied && index >= 0 && index < _queue.length) {
       _queue.removeAt(index);
+      // Current se pehle wala song hata to _currentIndex ek left shift.
       if (index < _currentIndex) {
         _currentIndex -= 1;
       }
-      // BUG ("Up Next mein song choose karne pe koi aur play ho jata
-      // hai" — 2026-09-15): skipToIndex() debounces its actual native
-      // call via _scheduleSkipFlush, which remembers only a raw queue
-      // POSITION (_skipDebounceTargetIndex) — not the song's identity.
-      // If a remove (this swipe-to-delete, or the onPlayNext/
-      // onMoveToTop actions in full_player_screen.dart, which both call
-      // this) lands inside that ~60ms debounce window, the position the
-      // user actually tapped shifts, but the pending flush still fires
-      // for the STALE numeric index — landing on whatever song now
-      // happens to sit there instead of the one the user chose. Same
-      // adjustment as _currentIndex directly above: a removal before
-      // the pending target shifts it left by one; a removal exactly AT
-      // the pending target means that song no longer exists, so the
-      // pending skip is cancelled outright rather than firing for
-      // whatever now occupies its old slot.
+    }
+
+    // skipToIndex() ka ~60ms debounce sirf numeric position yaad rakhta hai
+    // — remove uske andar land kare to pending target ko bhi shift karo
+    // (ya cancel, agar wahi song hat gaya). Ye reconcile se kabhi nahi
+    // hota, isliye hamesha chalta hai.
+    if (index >= 0) {
       final pending = _skipDebounceTargetIndex;
       if (pending != null) {
         if (index == pending) {
@@ -2415,41 +2407,44 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> moveQueueItem(int from, int to) async {
+    // Same race as removeFromQueue: native state event reconcile ho chuka
+    // ho sakta hai await return se pehle — to dobara move karne se order
+    // bigad jaata tha (drag karke chhodne pe song galat jagah jaata tha).
+    final movedId =
+        (from >= 0 && from < _queue.length) ? _queue[from].id : null;
     await _engine.moveQueueItem(from, to);
-    if (from >= 0 && from < _queue.length) {
-      final item = _queue.removeAt(from);
-      final clampedTo = to.clamp(0, _queue.length);
-      _queue.insert(clampedTo, item);
 
-      // BUG: same class of issue as removeFromQueue — reordering the
-      // queue never adjusted _currentIndex to track the song that was
-      // actually playing. Dragging a song from below the current index to
-      // above it (or vice versa) shifted the current song to a different
-      // slot without _currentIndex following it, so every index-based
-      // lookup after a reorder silently pointed at whatever song ended up
-      // in the OLD index instead of the one actually playing.
-      if (from == _currentIndex) {
-        _currentIndex = clampedTo;
-      } else if (from < _currentIndex && clampedTo >= _currentIndex) {
-        _currentIndex -= 1;
-      } else if (from > _currentIndex && clampedTo <= _currentIndex) {
-        _currentIndex += 1;
+    if (from >= 0 && from < _queue.length || movedId != null) {
+      final target = to.clamp(0, _queue.isEmpty ? 0 : _queue.length - 1);
+      final alreadyApplied = movedId != null &&
+          from != target &&
+          target < _queue.length &&
+          _queue[target].id == movedId;
+
+      if (!alreadyApplied && from >= 0 && from < _queue.length) {
+        final item = _queue.removeAt(from);
+        final clampedTo = to.clamp(0, _queue.length);
+        _queue.insert(clampedTo, item);
+
+        // _currentIndex ko actual playing song ke saath rakho.
+        if (from == _currentIndex) {
+          _currentIndex = clampedTo;
+        } else if (from < _currentIndex && clampedTo >= _currentIndex) {
+          _currentIndex -= 1;
+        } else if (from > _currentIndex && clampedTo <= _currentIndex) {
+          _currentIndex += 1;
+        }
       }
 
-      // BUG ("Up Next mein song choose karne pe koi aur play ho jata
-      // hai" — 2026-09-15): same debounce-target desync as
-      // removeFromQueue above — a drag-reorder (or the onMoveToTop
-      // action) landing inside skipToIndex()'s ~60ms debounce window
-      // shifts the pending numeric target to point at a different song
-      // than the one actually tapped. Same index math as _currentIndex
-      // just above, applied to the pending target instead.
+      // Pending skip-debounce target bhi saath shift hota hai (reconcile
+      // ise kabhi nahi chhuta, isliye hamesha chalta hai).
       final pending = _skipDebounceTargetIndex;
       if (pending != null) {
         if (from == pending) {
-          _skipDebounceTargetIndex = clampedTo;
-        } else if (from < pending && clampedTo >= pending) {
+          _skipDebounceTargetIndex = target;
+        } else if (from < pending && target >= pending) {
           _skipDebounceTargetIndex = pending - 1;
-        } else if (from > pending && clampedTo <= pending) {
+        } else if (from > pending && target <= pending) {
           _skipDebounceTargetIndex = pending + 1;
         }
       }
