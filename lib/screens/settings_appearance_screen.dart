@@ -32,7 +32,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _dynamicPlayerColor = true;
   String _playerButtonColors = 'Primary';
   String _playerSliderStyle = 'Waveform';
-  String _fullPlayerStyle = 'Classic';
+  String _fullPlayerStyle = 'Edge to Edge';
   // SPEED FIX (Spotify-level lightweight): these three local fallback
   // defaults must match their AudioPrefs notifier counterparts exactly
   // (showBlurredBgNotifier, navBarBlurSigmaNotifier,
@@ -118,7 +118,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
       _playerSliderStyle = p.getString('player_slider_style') ?? 'Waveform';
-      _fullPlayerStyle = p.getString('full_player_style') ?? 'Classic';
+      _fullPlayerStyle = p.getString('full_player_style') ?? 'Edge to Edge';
       // SPEED FIX (Spotify-level lightweight): fallback defaults here
       // matched to the new AudioPrefs notifier defaults (false/0.0/0.0)
       // — see the matching comment on the field declarations above for
@@ -289,10 +289,17 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             onChanged: (v) { setState(() => _playerSliderStyle = v); _save('player_slider_style', v); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
           ),
           _dropdownTile(context,
-            title: 'Full Player Style',
-            subtitle: 'Classic: the original Astra-style full player. Edge to Edge: full-bleed sheet that opens edge-to-edge. Spotify: Spotify-style layout with a dedicated full-screen synced lyrics view.',
+            title: l10n.saFullPlayerStyle,
+            subtitle: l10n.saFullPlayerStyleSubtitle,
             value: _fullPlayerStyle,
+            // Stored values stay 'Classic' / 'Edge to Edge' / 'Spotify' so
+            // existing users keep their choice; only the labels change.
             options: const ['Classic', 'Edge to Edge', 'Spotify'],
+            labels: const {
+              'Classic': 'Astra Model 1',
+              'Edge to Edge': 'Astra Model 2',
+              'Spotify': 'Astra Model 3',
+            },
             onChanged: (v) { setState(() => _fullPlayerStyle = v!); _save('full_player_style', v!); context.read<ThemeProvider>().setFullPlayerStyle(v!); },
           ),
           _inlineSwitch(context,
@@ -310,8 +317,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // (needs Impeller). The glass body is always neutral — never
           // the song artwork colour.
           _inlineSwitch(context,
-            title: 'Enable Liquid Glass',
-            subtitle: 'Liquid glass effect for the nav bar and mini player.',
+            title: l10n.saLiquidGlass,
+            subtitle: l10n.saLiquidGlassSubtitle,
             value: _liquidGlass,
             onChanged: (v) {
               setState(() => _liquidGlass = v);
@@ -1566,6 +1573,7 @@ Widget _dropdownTile(
   required String value,
   required List<String> options,
   required ValueChanged<String?> onChanged,
+  Map<String, String>? labels,
 }) {
   return Container(
     margin: const EdgeInsets.only(bottom: 8),
@@ -1584,7 +1592,7 @@ Widget _dropdownTile(
         dropdownColor: AurumTheme.bgCardOf(context),
         style: TextStyle(color: AurumTheme.accentOf(context), fontSize: 13, fontWeight: FontWeight.w600),
         icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.accentOf(context), size: 18),
-        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+        items: options.map((o) => DropdownMenuItem(value: o, child: Text(labels?[o] ?? o))).toList(),
         onChanged: onChanged,
       ),
     ),

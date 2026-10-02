@@ -10,8 +10,9 @@ class AppConstants {
   static const String linkedin  = 'https://linkedin.com/in/shivam-s01';
   static const String github    = 'https://github.com/shivam-s01/Aurum-app';
 
-  // Terms overlay on the main landing page (uses #terms hash)
-  static const String termsOfUse = 'https://aurumusic.netlify.app/#terms';
+  // Legal pages (hosted on the Astra website)
+  static const String privacyPolicy = 'https://astra.mmusic.workers.dev/privacy';
+  static const String termsOfUse    = 'https://astra.mmusic.workers.dev/terms';
 
   // API
   static const String apiBase = 'https://aurum-worker.shivamsharma962122.workers.dev';

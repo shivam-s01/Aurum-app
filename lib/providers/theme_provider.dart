@@ -58,7 +58,7 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   AurumColorPreset _colorPreset = AurumColorPreset.none;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Waveform';
-  String         _fullPlayerStyle = 'Classic';
+  String         _fullPlayerStyle = 'Edge to Edge';
 
   AurumThemeMode get mode      => _mode;
   String         get fontStyle => _fontStyle;
@@ -97,9 +97,10 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 'Slim' | 'Thick' | 'Rounded' (default) — seek bar track/thumb size.
   String get playerSliderStyle => _playerSliderStyle;
 
-  /// 'Classic' (default, Astra-style full player) | 'Edge to Edge'
-  /// (full-bleed edge-to-edge sheet style) — which full player screen
-  /// opens when the user taps the mini player.
+  /// 'Edge to Edge' (default, shown as "Astra Model 2") | 'Classic'
+  /// ("Astra Model 1") | 'Spotify' ("Astra Model 3", lyrics-focused) —
+  /// which full player screen opens when the user taps the mini player.
+  /// Stored keys are unchanged so older installs keep their choice.
   String get fullPlayerStyle => _fullPlayerStyle;
 
   // Latest system Material You schemes, pushed in from DynamicColorBuilder

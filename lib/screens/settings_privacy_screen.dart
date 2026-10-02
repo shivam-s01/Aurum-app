@@ -293,7 +293,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         _sectionLabel(context, 'DANGER ZONE'),
         AurumSettingsTile.danger(context,
           icon: Icons.person_remove_rounded,
-          title: 'Delete Account',
+          title: 'Delete Account Data',
           subtitle: 'Permanently erase your favorites, playlists, follows and listening history',
           onTap: () { if (!_deletingAccount) _showDeleteAccountSheet(context); },
           isDanger: true,
@@ -607,7 +607,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
             children: [
               const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 22),
               const SizedBox(width: 10),
-              Text('Delete account data',
+              Text('Delete Account Data',
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 18, fontWeight: FontWeight.w700,

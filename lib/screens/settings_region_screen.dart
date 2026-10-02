@@ -41,6 +41,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../config/region_catalog.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../theme/aurum_theme.dart';
@@ -329,7 +330,7 @@ class _SettingsRegionScreenState extends State<SettingsRegionScreen> {
               color: AurumTheme.textPrimaryOf(context), size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('Region & Music Preferences',
+        title: Text(AppLocalizations.of(context)!.settingsRegion,
             style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 18,

@@ -127,8 +127,8 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     _SettingsRow(
                       icon: Icons.public_rounded,
-                      title: 'Region & Music Preferences',
-                      subtitle: 'Country, genres, and followed artists',
+                      title: l10n.settingsRegion,
+                      subtitle: l10n.settingsRegionSubtitle,
                       onTap: () {
                         AurumHaptics.light();
                         AurumDepthRoute.to(context, const SettingsRegionScreen());

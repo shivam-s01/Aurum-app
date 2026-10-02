@@ -444,7 +444,7 @@
   "saCustomAccentColorsDesc": "Sign in with Google to unlock more accent colors.",
   "saColorTheme": "COLOR THEME",
   "saColorThemeNone": "None",
-  "saColorThemeNoneDesc": "Use the default Aurum look",
+  "saColorThemeNoneDesc": "Use the default Astra look",
   "saColorThemeDone": "Done",
   "saAppFont": "App Font",
   "saRoundedMonoSignIn": "Premium fonts = Sign in",
@@ -1199,5 +1199,11 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingsRegion": "Region & Music Preferences",
+  "settingsRegionSubtitle": "Country, genres, and followed artists",
+  "saFullPlayerStyle": "Full Player Style",
+  "saFullPlayerStyleSubtitle": "Astra Model 1: the original full player. Astra Model 2: edge-to-edge full-bleed player (default). Astra Model 3: lyrics-focused layout with a dedicated full-screen synced lyrics view.",
+  "saLiquidGlass": "Enable Liquid Glass",
+  "saLiquidGlassSubtitle": "Liquid glass effect for the nav bar and mini player."
 }

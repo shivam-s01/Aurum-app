@@ -12,7 +12,6 @@ import '../widgets/feedback_dialog.dart';
 import '../widgets/aurum_settings_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
-import '../utils/aurum_sheet.dart';
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -39,131 +38,17 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     });
   }
 
-  Future<void> _launch(String url) async {
+  Future<void> _launch(String url, {bool inApp = false}) async {
     final uri = Uri.parse(url);
+    // In-app browser tab (Chrome Custom Tabs) for our own legal pages —
+    // stays inside the app; falls back to the external browser if no
+    // custom-tabs provider exists.
+    if (inApp) {
+      try {
+        if (await launchUrl(uri, mode: LaunchMode.inAppBrowserView)) return;
+      } catch (_) {}
+    }
     if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  void _showPrivacyPolicy() {
-    final l10n = AppLocalizations.of(context)!;
-    showAurumModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.88,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, ctrl) => Container(
-          decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(children: [
-            // Handle bar
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 4),
-              width: 36, height: 4,
-              decoration: BoxDecoration(
-                color: AurumTheme.dividerOf(context),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-              child: Row(children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: AurumTheme.accentOf(context).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.privacy_tip_rounded, color: AurumTheme.accentOf(context), size: 18),
-                ),
-                const SizedBox(width: 12),
-                Text(l10n.abPrivacyPolicyTitle,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 18, fontWeight: FontWeight.w700,
-                  )),
-                const Spacer(),
-                IconButton(
-                  icon: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context)),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ]),
-            ),
-            Divider(color: AurumTheme.dividerOf(context), height: 1),
-            // Content
-            Expanded(
-              child: ListView(
-                controller: ctrl,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-                children: [
-                  _policySection('Last updated: June 2026'),
-                  _policyHeading('1. Introduction'),
-                  _policyText(
-                    'Astra Music ("we", "our", or "us") is a personal music streaming application developed by Shivam Sharma. '
-                    'This Privacy Policy explains how we handle your information when you use our app. '
-                    'We are committed to protecting your privacy and ensuring transparency about our practices.'
-                  ),
-                  _policyHeading('2. Information We Collect'),
-                  _policyText(
-                    '• Google Account (name, email, profile photo) — only if you choose to sign in.\n'
-                    '• Music preferences, liked songs, and playlists — stored locally on your device and optionally synced via Supabase.\n'
-                    '• Recently played history — stored locally only.\n'
-                    '• App settings (theme, equalizer, etc.) — stored locally only.'
-                  ),
-                  _policyHeading('3. Information We Do NOT Collect'),
-                  _policyText(
-                    'We do not collect, sell, or share any personally identifiable information with third parties. '
-                    'We do not use advertising SDKs, analytics trackers, or crash reporting services. '
-                    'No financial data, location data, contacts, or messages are ever accessed.'
-                  ),
-                  _policyHeading('4. Music Streaming'),
-                  _policyText(
-                    'Astra Music streams audio content via a Cloudflare Worker proxy. '
-                    'Song metadata and audio streams are fetched in real time and are not permanently stored on our servers. '
-                    'We do not own the content streamed through this app.'
-                  ),
-                  _policyHeading('5. Third-Party Services'),
-                  _policyText(
-                    '• Google Sign-In: Subject to Google\'s Privacy Policy.\n'
-                    '• Supabase: Used for optional cloud sync. Subject to Supabase\'s Privacy Policy.\n'
-                    '• Cloudflare Workers: Used as an audio proxy. No user data is logged.'
-                  ),
-                  _policyHeading('6. Data Security'),
-                  _policyText(
-                    'All data stored locally on your device is protected by Android\'s built-in security. '
-                    'We use industry-standard practices to protect any data transmitted over the network. '
-                    'You may delete your data at any time by clearing the app\'s storage or uninstalling it.'
-                  ),
-                  _policyHeading('7. Children\'s Privacy'),
-                  _policyText(
-                    'Astra Music is not directed at children under the age of 13. '
-                    'We do not knowingly collect personal information from children.'
-                  ),
-                  _policyHeading('8. Changes to This Policy'),
-                  _policyText(
-                    'We may update this Privacy Policy from time to time. '
-                    'Any changes will be reflected in the app\'s About section with an updated date.'
-                  ),
-                  _policyHeading('9. Contact'),
-                  _policyText(
-                    'If you have any questions about this Privacy Policy, you can reach us at:\n'
-                    'Instagram: @shivam_shrma.01\n'
-                    'Telegram: @mr_s_s01'
-                  ),
-                ],
-              ),
-            ),
-          ]),
-        ),
-      ),
-    );
   }
 
   void _shareApp() {
@@ -172,7 +57,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
       '🎵 Check out Astra Music — a premium music streaming app!\n\n'
       '✨ Features:\n'
       '• Stream millions of songs for free\n'
-      '• Stunning gold-themed UI\n'
+      '• Stunning, customizable UI\n'
       '• Equalizer, bass boost & gapless playback\n'
       '• Offline downloads & smart playlists\n\n'
       '📲 Download Astra Music v$version:\n'
@@ -263,13 +148,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         icon: Icons.privacy_tip_rounded,
         title: l10n.abPrivacyPolicy,
         subtitle: l10n.abPrivacyPolicySubtitle,
-        onTap: () { AurumHaptics.light(); _showPrivacyPolicy(); },
+        onTap: () { AurumHaptics.light(); _launch(AppConstants.privacyPolicy, inApp: true); },
       ),
       AurumSettingsTile.action(context,
         icon: Icons.description_rounded,
         title: l10n.abTermsOfUse,
         subtitle: l10n.abTermsOfUseSubtitle,
-        onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse); },
+        onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse, inApp: true); },
       ),
 
       _sectionLabel(context, l10n.abCommunity),
@@ -340,27 +225,6 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
       child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
     );
   }
-
-  Widget _policySection(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
-    child: Text(text, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-  );
-
-  Widget _policyHeading(String text) => Padding(
-    padding: const EdgeInsets.only(top: 20, bottom: 6),
-    child: Text(text, style: TextStyle(
-      color: AurumTheme.textPrimaryOf(context),
-      fontSize: 15, fontWeight: FontWeight.w700,
-    )),
-  );
-
-  Widget _policyText(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Text(text, style: TextStyle(
-      color: AurumTheme.textSecondaryOf(context),
-      fontSize: 13, height: 1.6,
-    )),
-  );
 }
 
 AppBar _appBar(BuildContext context, String title) => AppBar(
