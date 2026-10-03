@@ -405,6 +405,7 @@ class _AlbumScreenState extends State<AlbumScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _GlassPill(
+                              width: 44,
                               child: _GlassIconButton(
                                 icon: Icons.arrow_back_rounded,
                                 onTap: () {
@@ -418,8 +419,11 @@ class _AlbumScreenState extends State<AlbumScreen>
                                 final saved =
                                     followedAlbums.isFollowing(widget.albumId);
                                 return _GlassPill(
+                                  width: 132,
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.max,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
                                     children: [
                                       _GlassIconButton(
                                         icon: saved
@@ -721,18 +725,31 @@ class _RelatedAlbumCard extends StatelessWidget {
 /// deforms and springs back, like iOS.
 class _GlassPill extends StatelessWidget {
   final Widget child;
-  const _GlassPill({super.key, required this.child});
+  final double width;
+  const _GlassPill({super.key, required this.child, required this.width});
+
+  // STABILITY FIX ("glass kabhi kabhi shape change kar raha hai"): the lens
+  // used to size itself from whatever its child measured, and the touch
+  // "swell/deform" mode (interactive) let a stray drag or a mid-layout
+  // measurement warp the pill into a leaf shape / clip the 3-dot button.
+  // Now: an exact, fixed 44dp-tall box with a known width (so the lens
+  // never re-measures), and interactive OFF (no deformation at all).
+  static const double height = 44;
 
   @override
   Widget build(BuildContext context) {
-    return AurumGlass(
-      // AurumGlass keeps the backdrop crisp (effective blur is a small
-      // fraction of this, floored at 3) — the look comes from refraction.
-      sigma: 6,
-      borderRadius: BorderRadius.circular(22),
-      isDark: true,
-      interactive: true,
-      child: child,
+    return SizedBox(
+      width: width,
+      height: height,
+      child: AurumGlass(
+        // AurumGlass keeps the backdrop crisp (effective blur is a small
+        // fraction of this, floored at 3) — the look comes from refraction.
+        sigma: 6,
+        borderRadius: BorderRadius.circular(height / 2),
+        isDark: true,
+        interactive: false,
+        child: SizedBox(width: width, height: height, child: child),
+      ),
     );
   }
 }

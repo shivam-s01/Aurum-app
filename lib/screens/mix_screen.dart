@@ -20,7 +20,6 @@
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'library_screen.dart' show DownloadsScreen;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -34,6 +33,7 @@ import '../providers/download_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_glass.dart';
 import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_song_options_sheet.dart' show showAurumPlaylistOptions;
@@ -531,6 +531,7 @@ class _MixScreenState extends State<MixScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _GlassPill(
+                            width: 44,
                             child: _GlassIconButton(
                               icon: Icons.arrow_back_rounded,
                               onTap: () {
@@ -544,8 +545,11 @@ class _MixScreenState extends State<MixScreen>
                               final saved =
                                   followedAlbums.isFollowing(widget.mixId);
                               return _GlassPill(
+                                width: 132,
                                 child: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisSize: MainAxisSize.max,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
                                   children: [
                                     _GlassIconButton(
                                       icon: saved
@@ -815,50 +819,50 @@ class _MixScreenState extends State<MixScreen>
   }
 }
 
-/// Frosted-glass pill container for the floating header toolbar (back
-/// button, and the heart/search/overflow group) — YT Music-style chrome
-/// that floats directly over the artwork instead of a flat AppBar. Uses
-/// a light, mostly-white tint (not black) so the blurred artwork colors
-/// underneath actually read through — a true "frosted" look rather than
-/// a dark chip sitting on top of the image.
-///
-/// PERF: BackdropFilter is the one genuinely non-free thing here (GPU
-/// samples the layer behind it every frame it's on screen), so this is
-/// used sparingly — two small pills, not one blur spanning the header —
-/// and the sigma is kept modest (12) rather than the header background's
-/// heavier blur, since a small pill doesn't need a strong blur to read
-/// as "glass" and a lighter sigma is cheaper to composite on low-end GPUs.
+/// Floating header pill — real Liquid Glass (the same shader-refraction
+/// surface the mini player and nav bar use via [AurumGlass]), not a flat
+/// BackdropFilter blur. Always the dark variant: it floats over the
+/// artwork where icons are white. Interactive: press swells, drag
+/// deforms and springs back, like iOS.
 class _GlassPill extends StatelessWidget {
   final Widget child;
-  const _GlassPill({required this.child});
+  final double width;
+  const _GlassPill({super.key, required this.child, required this.width});
+
+  // STABILITY FIX ("glass kabhi kabhi shape change kar raha hai"): the lens
+  // used to size itself from whatever its child measured, and the touch
+  // "swell/deform" mode (interactive) let a stray drag or a mid-layout
+  // measurement warp the pill into a leaf shape / clip the 3-dot button.
+  // Now: an exact, fixed 44dp-tall box with a known width (so the lens
+  // never re-measures), and interactive OFF (no deformation at all).
+  static const double height = 44;
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.22),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: child,
-        ),
+    return SizedBox(
+      width: width,
+      height: height,
+      child: AurumGlass(
+        // AurumGlass keeps the backdrop crisp (effective blur is a small
+        // fraction of this, floored at 3) — the look comes from refraction.
+        sigma: 6,
+        borderRadius: BorderRadius.circular(height / 2),
+        isDark: true,
+        interactive: false,
+        child: SizedBox(width: width, height: height, child: child),
       ),
     );
   }
 }
 
-/// Single tap target inside a _GlassPill — plain IconButton-sized hit
-/// area, no per-instance AnimationController (unlike AurumPressable) to
-/// keep the header, which can hold up to 4 of these, cheap to build.
+/// Single tap target inside an [_GlassPill].
 class _GlassIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final Color iconColor;
 
   const _GlassIconButton({
+    super.key,
     required this.icon,
     required this.onTap,
     this.iconColor = Colors.white,
@@ -878,14 +882,14 @@ class _GlassIconButton extends StatelessWidget {
   }
 }
 
-/// Round control flanking the Play pill (shuffle, download). Soft
-/// translucent circle that reads on both the dark and light page tints.
+/// Round control flanking the Play pill (shuffle, download).
 class _RoundButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final double iconSize;
 
   const _RoundButton({
+    super.key,
     required this.icon,
     required this.onTap,
     this.iconSize = 22,

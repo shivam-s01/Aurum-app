@@ -14,6 +14,7 @@ import '../providers/followed_artists_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_glass.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
@@ -618,23 +619,40 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 child: Row(
                   children: [
                     const SizedBox(width: 12),
-                    Container(
+                    SizedBox(
                       width: 40,
                       height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(0.32 * (1 - t)),
-                      ),
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        splashRadius: 20,
-                        icon: Icon(Icons.arrow_back_rounded,
-                            color: iconColor, size: 22),
-                        onPressed: () {
-                          AurumHaptics.selection();
-                          Navigator.pop(context);
-                        },
-                      ),
+                      child: t < 0.6
+                          ? AurumGlass(
+                              sigma: 6,
+                              borderRadius: BorderRadius.circular(20),
+                              isDark: true,
+                              interactive: false,
+                              child: SizedBox(
+                                width: 40,
+                                height: 40,
+                                child: IconButton(
+                                  padding: EdgeInsets.zero,
+                                  splashRadius: 20,
+                                  icon: Icon(Icons.arrow_back_rounded,
+                                      color: iconColor, size: 22),
+                                  onPressed: () {
+                                    AurumHaptics.selection();
+                                    Navigator.pop(context);
+                                  },
+                                ),
+                              ),
+                            )
+                          : IconButton(
+                              padding: EdgeInsets.zero,
+                              splashRadius: 20,
+                              icon: Icon(Icons.arrow_back_rounded,
+                                  color: iconColor, size: 22),
+                              onPressed: () {
+                                AurumHaptics.selection();
+                                Navigator.pop(context);
+                              },
+                            ),
                     ),
                     Expanded(
                       child: IgnorePointer(
@@ -925,21 +943,27 @@ class _ArtistGlassButton extends StatelessWidget {
               AurumHaptics.selection();
               onTap!();
             },
-      child: Container(
+      child: SizedBox(
         width: 48,
         height: 48,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: primary.withOpacity(disabled ? 0.06 : 0.13),
-        ),
-        child: Icon(
-          icon,
-          size: 22,
-          color: disabled
-              ? AurumTheme.textMutedOf(context).withOpacity(0.4)
-              : active
-                  ? AurumTheme.accentOf(context)
-                  : primary,
+        child: AurumGlass(
+          sigma: 6,
+          borderRadius: BorderRadius.circular(24),
+          isDark: Theme.of(context).brightness == Brightness.dark,
+          interactive: false,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Icon(
+              icon,
+              size: 22,
+              color: disabled
+                  ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+                  : active
+                      ? AurumTheme.accentOf(context)
+                      : primary,
+            ),
+          ),
         ),
       ),
     );
