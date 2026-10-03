@@ -9,7 +9,6 @@
 // =============================================================================
 
 import 'dart:async';
-import 'dart:ui';
 import '../utils/aurum_transitions.dart';
 import 'library_screen.dart' show DownloadsScreen;
 import 'package:aurum_music/widgets/aurum_loader.dart';
@@ -24,6 +23,7 @@ import '../providers/download_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_glass.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_song_options_sheet.dart' show showAurumPlaylistOptions;
 import 'search_screen.dart';
@@ -714,28 +714,25 @@ class _RelatedAlbumCard extends StatelessWidget {
   }
 }
 
-/// Frosted-glass pill for the floating header toolbar (back button, and the
-/// heart / search / overflow group). Light, mostly-white tint so the blurred
-/// artwork colors read through; sigma kept modest (12) because BackdropFilter
-/// is the one non-free thing here.
+/// Floating header pill — real Liquid Glass (the same shader-refraction
+/// surface the mini player and nav bar use via [AurumGlass]), not a flat
+/// BackdropFilter blur. Always the dark variant: it floats over the
+/// artwork where icons are white. Interactive: press swells, drag
+/// deforms and springs back, like iOS.
 class _GlassPill extends StatelessWidget {
   final Widget child;
   const _GlassPill({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.22),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: child,
-        ),
-      ),
+    return AurumGlass(
+      // AurumGlass keeps the backdrop crisp (effective blur is a small
+      // fraction of this, floored at 3) — the look comes from refraction.
+      sigma: 6,
+      borderRadius: BorderRadius.circular(22),
+      isDark: true,
+      interactive: true,
+      child: child,
     );
   }
 }
