@@ -105,7 +105,7 @@ class AurumIslandService : Service() {
         private const val PLAY_POP_MS = 240L
 
         private const val EXPAND_MS = 380L
-        private const val COLLAPSE_MS = 280L
+        private const val COLLAPSE_MS = 340L
         private const val CARD_RADIUS_DP = 34f
         private const val ART_RADIUS_DP = 20f
         private const val THUMB_RADIUS_DP = 16f
@@ -235,7 +235,7 @@ class AurumIslandService : Service() {
     private var entranceDone = true
 
     private val expandInterpolator = PathInterpolator(0.16f, 1f, 0.3f, 1f)
-    private val collapseInterpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+    private val collapseInterpolator = PathInterpolator(0.32f, 0.72f, 0f, 1f)
 
     // ---- Prefs ------------------------------------------------------------
 
@@ -1541,6 +1541,7 @@ class AurumIslandService : Service() {
         onEnd: () -> Unit,
     ) {
         cardAnimator?.cancel()
+        val closing = to < from
         val m = Morph()
         val bg = view.background?.mutate() as? GradientDrawable
         view.outlineProvider = object : ViewOutlineProvider() {
@@ -1559,7 +1560,13 @@ class AurumIslandService : Service() {
             m.rad = lerp(pillRadius, cardRadius, g)
             view.invalidateOutline()
             if (bg != null) {
-                val k = (g / 0.55f).coerceIn(0f, 1f)
+                // Opening: pill-black -> art tint over the first 55% (unchanged).
+                // Closing: keep the art tint the whole way down and only reach
+                // pill-black in the last ~12% of the shrink, when the card is
+                // already pill-sized. Before, the card turned black while it was
+                // still big -> the visible "black tint" while closing.
+                val k = if (closing) (g / 0.12f).coerceIn(0f, 1f)
+                        else (g / 0.55f).coerceIn(0f, 1f)
                 setCardColors(bg, ColorUtils.blendARGB(Color.BLACK, currentExpandedTint, k))
             }
         }
@@ -1742,8 +1749,8 @@ class AurumIslandService : Service() {
             p.alpha = 0f
             p.animate()
                 .alpha(1f)
-                .setStartDelay((COLLAPSE_MS * 0.55f).toLong())
-                .setDuration(150L)
+                .setStartDelay((COLLAPSE_MS * 0.6f).toLong())
+                .setDuration((COLLAPSE_MS * 0.4f).toLong())
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }

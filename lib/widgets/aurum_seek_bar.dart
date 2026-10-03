@@ -264,11 +264,30 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
   // no setState, no rebuild of the Column / time labels / parent tree.
   final ValueNotifier<int> _frame = ValueNotifier<int>(0);
 
-  // Wave shape constants — tuned to the "barely there" variant.
+  // Wave shape constants. Same model as Material 3 Expressive's
+  // LinearWavyProgressIndicator: a fixed wavelength and a wave that travels
+  // at a constant `waveSpeed` (dp/sec) independent of playback position.
   static const double _wavelength = 24; // px per wave cycle
-  static const double _waveSpeed = 34; // px per second — lively flow
+  static const double _waveSpeed = 18; // px per second — calm, slow flow
 
-  double _scrollX = 0;
+  // FIX ("wave laggy — start se end tak smooth nahi"): the wave phase used
+  // to be glued to player.position (a coarse 500ms-stepped value) and
+  // re-corrected toward it every frame, so the wave visibly hitched every
+  // time a new position landed. The phase is now FREE-RUNNING — it only
+  // ever advances by (real frame dt * speed), never jumps, never looks at
+  // the position. Pause/resume just stops/continues the same phase.
+  double _phase = 0; // px, wrapped to [0, _wavelength)
+
+  // FIX (thumb/wave-tip stepping): player.position only changes every
+  // 500ms, so a thumb drawn straight from player.progress moves in
+  // visible little steps. The ticker below interpolates between reports
+  // (position + time since that report arrived) and eases toward it, so
+  // the played-wave tip and the dot glide every frame.
+  double _visMs = 0; // visual playback position, ms
+  double _visFrac = 0; // _visMs / duration, 0..1
+  int _lastReportedMs = -1;
+  double _reportedAtMs = 0;
+  final Stopwatch _clock = Stopwatch()..start();
 
   @override
   void initState() {
@@ -281,11 +300,23 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
     // pure wasted work (battery/heat) for a visually static line.
     if (widget.player.isPlaying && !widget.dragging) _ticker.start();
     _thumbFraction = widget.dragging ? 1.0 : 0.0;
+    _visMs = widget.player.position.inMilliseconds.toDouble();
+    _visFrac = widget.player.progress;
+    _lastReportedMs = widget.player.position.inMilliseconds;
   }
 
   @override
   void didUpdateWidget(_WaveformSeekBar old) {
     super.didUpdateWidget(old);
+    if (old.dragging && !widget.dragging) {
+      // Drag just ended: player.seek() already set the position
+      // optimistically, so land exactly where the finger left the thumb on
+      // the very first frame (no one-frame flash of the pre-drag spot).
+      _visMs = widget.player.position.inMilliseconds.toDouble();
+      _visFrac = widget.player.progress;
+      _lastReportedMs = widget.player.position.inMilliseconds;
+      _reportedAtMs = _clock.elapsedMicroseconds / 1000.0;
+    }
     _syncTickerToPlaybackState();
   }
 
@@ -300,7 +331,7 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
       // Resuming from a stopped ticker: reset the elapsed baseline so the
       // next frame's dt isn't measured against a stale timestamp from
       // before the pause (which would otherwise produce one oversized
-      // jump in _ampAnim/_scrollX on resume).
+      // jump in _ampAnim/_phase on resume).
       _lastElapsed = Duration.zero;
       _ticker.start();
     } else if (!shouldRun && _ticker.isTicking) {
@@ -312,61 +343,69 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
   }
 
   void _onTick(Duration elapsed) {
-    final dtMs = (elapsed - _lastElapsed).inMilliseconds;
+    final dtUs = (elapsed - _lastElapsed).inMicroseconds;
     _lastElapsed = elapsed;
-    if (dtMs <= 0) return;
-    final dt = (dtMs / 1000.0).clamp(0.0, 0.05);
+    if (dtUs <= 0) return;
+    // Clamp only protects against a huge hitch (app resumed from
+    // background); normal frames pass through untouched.
+    final dt = (dtUs / 1e6).clamp(0.0, 0.05);
 
-    final playing = widget.player.isPlaying && !widget.dragging;
+    final player = widget.player;
+    final playing = player.isPlaying && !widget.dragging;
 
-    // _scrollX advances every frame by real elapsed time (dt), same as any
-    // smooth 60fps animation — it doesn't wait for a new position value to
-    // move at all. The real position is only used to correct drift (seek,
-    // resume, or the coarse position-ticker jumping further than one
-    // frame's worth of travel), and even then it's blended in gently
-    // rather than snapped, so a correction never reads as a visible jump.
-    final targetScrollX = (widget.player.position.inMilliseconds / 1000.0) * _waveSpeed;
-    if (playing) {
-      _scrollX += dt * _waveSpeed;
-      final drift = targetScrollX - _scrollX;
-      final driftAbs = drift.abs();
-      // Small gaps (normal position-ticker catch-up) blend in gently so
-      // the correction is invisible. Large gaps — a new song starting, or
-      // a seek landing far from where we were — snap immediately;
-      // gradually blending a multi-second gap would show the wave visibly
-      // crawling toward the correct spot for a second or more, which
-      // reads as broken, not smooth.
-      if (driftAbs > _waveSpeed * 3.0) {
-        _scrollX = targetScrollX;
-      } else if (driftAbs > _waveSpeed * 0.12) {
-        _scrollX += drift * (dt * 4).clamp(0.0, 1.0);
-      }
-    } else {
-      // Paused (or dragging): follow the real/seek position exactly so
-      // the wave doesn't keep drifting on its own while audio is static.
-      _scrollX = targetScrollX;
+    // 1) Wave phase — free-running, continuous, position-independent.
+    if (playing || _ampAnim > 0.001) {
+      _phase = (_phase + dt * _waveSpeed) % _wavelength;
     }
 
-    final target = playing ? 1.0 : 0.0;
-    final nextAmp = _ampAnim + (target - _ampAnim) * (dt * 6).clamp(0.0, 1.0);
+    // 2) Visual playback position — glides between 500ms position reports.
+    if (!widget.dragging) {
+      final durMs = player.duration.inMilliseconds;
+      final nowMs = _clock.elapsedMicroseconds / 1000.0;
+      final repMs = player.position.inMilliseconds;
+      if (repMs != _lastReportedMs) {
+        _lastReportedMs = repMs;
+        _reportedAtMs = nowMs;
+      }
+      if (durMs > 0) {
+        var posTarget = repMs.toDouble();
+        if (playing) posTarget += (nowMs - _reportedAtMs).clamp(0.0, 600.0);
+        posTarget = posTarget.clamp(0.0, durMs.toDouble());
+        final err = posTarget - _visMs;
+        if (err.abs() > 1500) {
+          // Seek or new song: land exactly, no crawl.
+          _visMs = posTarget;
+        } else {
+          // Frame-rate independent ease toward the interpolated target.
+          _visMs += err * (1 - math.exp(-dt * 12));
+        }
+        _visFrac = (_visMs / durMs).clamp(0.0, 1.0);
+      } else {
+        _visMs = 0;
+        _visFrac = 0;
+      }
+    }
 
-    // Thumb fraction: fast, slightly snappier ease (250ms-ish feel) so the
-    // dot→capsule morph reads as a deliberate, responsive gesture reaction —
-    // matches WavySliderExpressive's 250ms tween on thumbInteractionFraction.
+    // 3) Amplitude / thumb easing — frame-rate independent exponentials.
+    final ampTarget = playing ? 1.0 : 0.0;
+    final nextAmp = _ampAnim + (ampTarget - _ampAnim) * (1 - math.exp(-dt * 6));
+
+    // Thumb fraction: fast, snappy ease so the dot→capsule morph reads as a
+    // deliberate reaction to touch (matches WavySliderExpressive's tween).
     final thumbTarget = widget.dragging ? 1.0 : 0.0;
     final nextThumb =
-        _thumbFraction + (thumbTarget - _thumbFraction) * (dt * 10).clamp(0.0, 1.0);
+        _thumbFraction + (thumbTarget - _thumbFraction) * (1 - math.exp(-dt * 12));
 
-    final ampSettled = (nextAmp - _ampAnim).abs() <= 0.001 && !playing;
-    final thumbSettled = (nextThumb - thumbTarget).abs() <= 0.001;
+    final ampSettled = (nextAmp - ampTarget).abs() <= 0.002 && !playing;
+    final thumbSettled = (nextThumb - thumbTarget).abs() <= 0.002;
 
-    if (!ampSettled || !thumbSettled || playing) {
+    if (playing || !ampSettled || !thumbSettled) {
       _ampAnim = nextAmp;
       _thumbFraction = nextThumb;
       _frame.value++;
     } else if (_ticker.isTicking) {
-      // Both eases reached their resting state — stop burning frames.
-      _ampAnim = nextAmp;
+      // Everything reached its resting state — stop burning frames.
+      _ampAnim = ampTarget;
       _thumbFraction = thumbTarget;
       _frame.value++;
       _ticker.stop();
@@ -390,6 +429,12 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
     _syncTickerToPlaybackState();
     final progress =
         widget.dragging ? (widget.dragValue ?? widget.player.progress) : widget.player.progress;
+    if (!_ticker.isTicking && !widget.dragging) {
+      // Idle (paused/settled): the bar simply shows the real position.
+      _visFrac = widget.player.progress;
+      _visMs = widget.player.position.inMilliseconds.toDouble();
+      _lastReportedMs = widget.player.position.inMilliseconds;
+    }
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.hPad - 4),
       child: Column(children: [
@@ -447,7 +492,7 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
                       // Read at PAINT time (not build time), so every
                       // ticker frame draws the newest wave state without
                       // rebuilding any widget.
-                      live: () => (_scrollX, _ampAnim, _thumbFraction),
+                      live: () => (_phase, _ampAnim, _thumbFraction, _visFrac),
                       progress: progress,
                       activeColor: widget.activeColor,
                       inactiveColor: widget.inactiveColor,
@@ -491,7 +536,7 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
 const double _thumbAmpScale = 0.6;
 
 class _WaveformPainter extends CustomPainter {
-  final (double, double, double) Function() live; // scrollX, ampAnim, thumbFrac
+  final (double, double, double, double) Function() live; // phase, ampAnim, thumbFrac, visProgress
   final double progress;
   final Color activeColor;
   final Color inactiveColor;
@@ -510,9 +555,13 @@ class _WaveformPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final (scrollX, ampAnim, thumbInteractionFraction) = live();
+    final (scrollX, ampAnim, thumbInteractionFraction, visProgress) = live();
     final centerY = size.height / 2;
-    final progressX = size.width * progress;
+    // While dragging the finger owns the position; otherwise use the
+    // per-frame interpolated one so the tip/thumb glide instead of
+    // stepping every 500ms.
+    final shownProgress = dragging ? progress : visProgress;
+    final progressX = (size.width * shownProgress).clamp(0.0, size.width);
     // Livelier amplitude (was height * 0.10 ≈ 3.2px on a 32px bar, which
     // read as "barely moving"): now ≈ 4px at full play — visible flow,
     // still calm and premium.
@@ -556,21 +605,39 @@ class _WaveformPainter extends CustomPainter {
 
     final activePath = Path();
     bool started = false;
-    for (double x = 0; x <= waveEndX; x += 2) {
+    // Sample every 2px, then ALWAYS finish exactly on waveEndX. The old
+    // loop stopped up to 2px short, so the wave tip moved in 2px steps
+    // while the thumb moved smoothly — a visible stutter at the head.
+    double yAt(double x) {
       final amp = maxAmp * ampAnim * edgeFadeAt(x) * (1.0 - f);
-      final y = centerY + math.sin(k * (x - scrollX)) * amp;
+      return centerY + math.sin(k * (x - scrollX)) * amp;
+    }
+
+    double lastX = 0;
+    for (double x = 0; x < waveEndX; x += 2) {
+      final y = yAt(x);
       if (!started) {
         activePath.moveTo(x, y);
         started = true;
       } else {
         activePath.lineTo(x, y);
       }
+      lastX = x;
+    }
+    if (waveEndX > 0 || started) {
+      final yEnd = yAt(waveEndX);
+      if (!started) {
+        activePath.moveTo(waveEndX, yEnd);
+        started = true;
+      } else if (waveEndX > lastX) {
+        activePath.lineTo(waveEndX, yEnd);
+      }
     }
 
     final activePaint = Paint()
       ..color = activeColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0
+      ..strokeWidth = 4.0
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     if (started) canvas.drawPath(activePath, activePaint);
@@ -584,16 +651,16 @@ class _WaveformPainter extends CustomPainter {
       final trackPaint = Paint()
         ..color = inactiveColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0
+        ..strokeWidth = 4.0
         ..strokeCap = StrokeCap.round;
       canvas.drawLine(
         Offset(trackStartX, centerY),
-        Offset(size.width - 5, centerY),
+        Offset(size.width - 6, centerY),
         trackPaint,
       );
       canvas.drawCircle(
         Offset(size.width - 2, centerY),
-        1.8,
+        2.0,
         Paint()..color = inactiveColor,
       );
     }

@@ -52,6 +52,77 @@ class _QueueScreenState extends State<QueueScreen> {
 
   final PullDownDismissController _pull = PullDownDismissController();
 
+  // FIX (drag chhodne ke baad song snap-back + upar-niche jump): pehle
+  // onReorder seedha player.moveQueueItem() chalata tha, jo pehle native
+  // engine ka await karta hai aur uske BAAD hi list ka order badalta tha.
+  // Tab tak drop animation khatam ho chuki hoti thi aur list purane order
+  // me dikhti thi — phir native echo aate hi song achanak naye order me
+  // kood jaata tha. Ab local optimistic order drop ke SAME frame me set
+  // hota hai (list ko ek hi final order dikhta hai), provider call
+  // fire-and-forget chalta hai, aur jab tak provider ka order match na
+  // kare tab tak beech ke stale syncs ignore hote hain.
+  List<Song>? _localQueue;
+  int? _localCurrent;
+  List<String>? _pendingIds;
+  DateTime? _pendingAt;
+  static const _pendingTimeout = Duration(seconds: 3);
+
+  /// Returns the order to render. Provider's order unless a local reorder
+  /// is still waiting for the provider to catch up.
+  List<Song> _resolveQueue(List<Song> providerQueue, int providerCurrent) {
+    final pending = _pendingIds;
+    if (pending != null && _localQueue != null) {
+      final timedOut = _pendingAt == null ||
+          DateTime.now().difference(_pendingAt!) > _pendingTimeout;
+      final sameLength = providerQueue.length == pending.length;
+      var matches = sameLength;
+      if (matches) {
+        for (var i = 0; i < pending.length; i++) {
+          if (providerQueue[i].id != pending[i]) {
+            matches = false;
+            break;
+          }
+        }
+      }
+      if (matches || !sameLength || timedOut) {
+        _pendingIds = null;
+        _pendingAt = null;
+        _localQueue = null;
+        _localCurrent = null;
+      } else {
+        return _localQueue!;
+      }
+    }
+    _localCurrent = null;
+    return providerQueue;
+  }
+
+  void _onReorder(PlayerProvider player, int from, int to) {
+    AurumHaptics.medium();
+    final adjustedTo = to > from ? to - 1 : to;
+    if (from == adjustedTo) return;
+    final base = List<Song>.of(_localQueue ?? player.queue);
+    if (from < 0 || from >= base.length) return;
+    var cur = _localCurrent ?? player.currentIndex;
+    final item = base.removeAt(from);
+    final clampedTo = adjustedTo.clamp(0, base.length);
+    base.insert(clampedTo, item);
+    if (from == cur) {
+      cur = clampedTo;
+    } else if (from < cur && clampedTo >= cur) {
+      cur -= 1;
+    } else if (from > cur && clampedTo <= cur) {
+      cur += 1;
+    }
+    setState(() {
+      _localQueue = base;
+      _localCurrent = cur;
+      _pendingIds = base.map((s) => s.id).toList();
+      _pendingAt = DateTime.now();
+    });
+    player.moveQueueItem(from, adjustedTo);
+  }
+
   @override
   void dispose() {
     _scrollCtrl.dispose();
@@ -95,8 +166,18 @@ class _QueueScreenState extends State<QueueScreen> {
           },
           builder: (context, _, __) {
             final player = context.read<PlayerProvider>();
-            final queue = player.queue;
+            final queue = _resolveQueue(player.queue, player.currentIndex);
+            final currentIndex = _localCurrent ?? player.currentIndex;
             final currentSong = player.currentSong;
+            // Stable per-song keys (id + occurrence) — index in the key made
+            // every moved row remount after a reorder and broke the drop
+            // animation.
+            final seenIds = <String, int>{};
+            final rowKeys = List<Key>.generate(queue.length, (i) {
+              final id = queue[i].id;
+              final n = (seenIds[id] = (seenIds[id] ?? 0) + 1);
+              return ValueKey('qrow_${id}_$n');
+            });
 
             if (queue.isEmpty || currentSong == null) {
               return Column(
@@ -186,16 +267,12 @@ class _QueueScreenState extends State<QueueScreen> {
                         );
                       },
                     ),
-                    onReorder: (from, to) {
-                      AurumHaptics.medium();
-                      final adjustedTo = to > from ? to - 1 : to;
-                      player.moveQueueItem(from, adjustedTo);
-                    },
+                    onReorder: (from, to) => _onReorder(player, from, to),
                     itemBuilder: (context, i) {
                       final song = queue[i];
-                      final isCurrent = i == player.currentIndex;
+                      final isCurrent = i == currentIndex;
                       return _QueueRow(
-                        key: ValueKey('${song.id}_$i'),
+                        key: rowKeys[i],
                         index: i,
                         song: song,
                         isCurrent: isCurrent,
@@ -541,7 +618,6 @@ class _QueueRow extends StatelessWidget {
 
     return RepaintBoundary(
       child: Container(
-      key: ValueKey('${song.id}_row_$index'),
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: isCurrent ? accent.withAlpha(41) : Colors.transparent,

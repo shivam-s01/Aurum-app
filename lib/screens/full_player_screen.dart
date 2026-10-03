@@ -5002,6 +5002,20 @@ class _QueuePageState extends State<_QueuePage> {
           if (i != current) upNext.add(i);
         }
 
+        // FIX (drag ke baad song upar-niche bump / "naya item" jaisa jump):
+        // tile key pehle '${id}_$queueIdx' tha — index key ke andar hone se
+        // reorder ke baad HAR moved tile ki key badal jaati thi, to Flutter
+        // use naya widget samajhke remount kar deta tha aur reorder ki drop
+        // animation toot jaati thi. Ab key sirf song ki apni identity se
+        // bani hai (id + us id ka kitna-waan occurrence), jo reorder me
+        // same rehti hai — tile bas slide karta hai, remount nahi hota.
+        final seenIds = <String, int>{};
+        final tileKeys = List<Key>.generate(queue.length, (i) {
+          final id = queue[i].id;
+          final n = (seenIds[id] = (seenIds[id] ?? 0) + 1);
+          return ValueKey('upnext_${id}_$n');
+        });
+
         // FIX ("Up Next mein songs upar-niche stuck jaisa lagta tha,
         // reorder drag ke time list ka apna bounce/rubber-band feel
         // usse fight karta tha"): BouncingScrollPhysics (iOS-style
@@ -5187,7 +5201,7 @@ class _QueuePageState extends State<_QueuePage> {
                   // long-press, and swipe elsewhere on the row are
                   // unaffected, and the handle is the sole way to drag.
                   return KeyedSubtree(
-                    key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+                    key: tileKeys[queueIdx],
                     child: _QueueTile(
                       song: queue[queueIdx],
                       isCurrent: false,
