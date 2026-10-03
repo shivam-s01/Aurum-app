@@ -10,6 +10,8 @@ import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 import 'aurum_song_options_sheet.dart';
+import 'aurum_wide_thumb.dart';
+import 'aurum_equalizer_bars.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -39,6 +41,11 @@ class SongTile extends StatefulWidget {
   // conflict, because there's only ever one long-press recognizer.
   final VoidCallback? onLongPressOverride;
 
+  // YT Music-style row (Mix screen): wide 16:9 thumbnail, title + artist,
+  // a single 3-dot button and a hairline divider — no heart, no duration.
+  // Off by default so every other screen keeps its existing row.
+  final bool ytStyle;
+
   const SongTile({
     super.key,
     required this.song,
@@ -48,6 +55,7 @@ class SongTile extends StatefulWidget {
     this.displayIndex,
     this.curatedQueue = false,
     this.onLongPressOverride,
+    this.ytStyle = false,
   });
 
   @override
@@ -184,6 +192,9 @@ class _SongTileState extends State<SongTile> {
     // itself, which matters most exactly where the CPU/GPU is weakest —
     // long lists on lower-end devices.
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (widget.ytStyle) {
+      return _buildYtStyle(context, isCurrentSong, isActuallyPlaying, isDark);
+    }
     return RepaintBoundary(
       child: InkWell(
       onTap: () => _handleTap(context),
@@ -297,8 +308,119 @@ class _SongTileState extends State<SongTile> {
     );
   }
 
+  Widget _buildYtStyle(
+    BuildContext context,
+    bool isCurrentSong,
+    bool isPlaying,
+    bool isDark,
+  ) {
+    final accent = AurumTheme.accentOf(context);
+    final dividerColor =
+        (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08);
+    return RepaintBoundary(
+      child: InkWell(
+        onTap: () => _handleTap(context),
+        onLongPress: widget.onLongPressOverride ?? () => _showOptions(context),
+        splashColor:
+            (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+        highlightColor:
+            (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 9, 4, 9),
+              child: Row(
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AurumWideThumb(
+                        url: widget.song.artworkUrl,
+                        width: 80,
+                        height: 45,
+                        borderRadius: 6,
+                      ),
+                      if (isCurrentSong)
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Center(
+                              child: AurumEqualizerBars(
+                                playing: isPlaying,
+                                color: Colors.white,
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isCurrentSong
+                                ? accent
+                                : AurumTheme.textPrimaryOf(context),
+                            fontSize: 16,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          widget.song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AurumTheme.textSecondaryOf(context),
+                            fontSize: 13.5,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showOptions(context),
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Icon(
+                        Icons.more_vert_rounded,
+                        size: 22,
+                        color: AurumTheme.textSecondaryOf(context),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 114, right: 16),
+              child: Divider(height: 1, thickness: 0.6, color: dividerColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showOptions(BuildContext context) {
-    // Shared SimpMusic-style sheet (lib/widgets/aurum_song_options_sheet.dart)
-    showAurumSongOptions(context, widget.song);
+    // Shared SimpMusic-style sheet (lib/widgets/aurum_song_options_sheet.dart).
+    // Mix-screen rows (ytStyle) get the clean compact YT Music-style menu.
+    showAurumSongOptions(context, widget.song, compact: widget.ytStyle);
   }
 }

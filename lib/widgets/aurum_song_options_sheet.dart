@@ -23,6 +23,7 @@ import '../utils/aurum_sheet.dart';
 import '../utils/aurum_transitions.dart';
 import 'aurum_artwork.dart';
 import 'aurum_snack.dart';
+import 'aurum_wide_thumb.dart';
 import 'premium_gate.dart';
 
 /// Single, shared song "3-dot" menu for the whole app.
@@ -42,6 +43,11 @@ Future<void> showAurumSongOptions(
   /// Show player-only rows (Sleep Timer, Audio Effects). Turned on from the
   /// full player; off in lists where they'd just be noise.
   bool showPlayerTools = false,
+
+  /// Clean YT Music-style track menu (wide thumbnail header, only the
+  /// everyday actions — no sleep timer / playback speed). Used by the Mix
+  /// screen's track rows.
+  bool compact = false,
 }) {
   AurumHaptics.light();
   return showAurumModalBottomSheet<void>(
@@ -54,6 +60,57 @@ Future<void> showAurumSongOptions(
       song: song,
       rootContext: context,
       showPlayerTools: showPlayerTools,
+      compact: compact,
+    ),
+  );
+}
+
+/// Playlist/mix-level 3-dot menu — exactly two actions (Add to queue,
+/// Share), same flat sheet chrome as the track menu.
+Future<void> showAurumPlaylistOptions(
+  BuildContext context, {
+  required List<Song> songs,
+}) {
+  AurumHaptics.light();
+  return showAurumModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    barrierColor: Colors.black54,
+    builder: (sheetCtx) => _SheetShell(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Row(
+            icon: Icons.playlist_add_rounded,
+            label: 'Add to queue',
+            enabled: songs.isNotEmpty,
+            onTap: () {
+              Navigator.of(sheetCtx).pop();
+              final player = context.read<PlayerProvider>();
+              unawaited(player.addSongsToQueue(songs).then((added) {
+                if (!context.mounted) return;
+                AurumSnack.show(
+                  context,
+                  added > 0
+                      ? 'Added $added song${added == 1 ? '' : 's'} to queue'
+                      : 'Already in queue',
+                );
+              }));
+            },
+          ),
+          _Row(
+            icon: Icons.share_rounded,
+            label: 'Share',
+            enabled: songs.isNotEmpty,
+            onTap: () {
+              Navigator.of(sheetCtx).pop();
+              shareSong(context, songs.first);
+            },
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -62,12 +119,14 @@ class AurumSongOptionsSheet extends StatefulWidget {
   final Song song;
   final BuildContext rootContext;
   final bool showPlayerTools;
+  final bool compact;
 
   const AurumSongOptionsSheet({
     super.key,
     required this.song,
     required this.rootContext,
     this.showPlayerTools = false,
+    this.compact = false,
   });
 
   @override
@@ -297,6 +356,106 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
         ? l10n.fpSleepRemaining(
             '${(SleepTimerService.instance.remaining.inSeconds / 60).ceil()}m')
         : l10n.fpSleepTimer;
+
+    if (widget.compact) {
+      return _SheetShell(
+        header: _Header(
+          title: song.title,
+          subtitle: song.artist,
+          artworkUrl: song.artworkUrl,
+          wide: true,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _Row(
+              icon: Icons.sensors_rounded,
+              label: 'Start radio',
+              onTap: _startRadio,
+            ),
+            _Row(
+              icon: Icons.play_circle_outline_rounded,
+              label: l10n.fpPlayNext,
+              onTap: () {
+                _close();
+                unawaited(player.playNext(song));
+                _toast('Playing "${song.title}" next');
+              },
+            ),
+            _Row(
+              icon: Icons.playlist_add_rounded,
+              label: l10n.fpAddToQueue,
+              onTap: () {
+                _close();
+                unawaited(player.addToQueue(song));
+                _toast(l10n.fpAddedToQueue);
+              },
+            ),
+            _Row(
+              icon: Icons.library_add_outlined,
+              label: l10n.fpSaveToPlaylist,
+              onTap: () {
+                _close();
+                showAddToPlaylistSheet(widget.rootContext, song);
+              },
+            ),
+            _Row(
+              icon: isDownloaded
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.download_for_offline_outlined,
+              label: isDownloaded
+                  ? l10n.fpDownloaded
+                  : isDownloading
+                      ? '${l10n.fpDownloading} ${(progress * 100).toStringAsFixed(0)}%'
+                      : l10n.fpDownload,
+              onTap: _download,
+            ),
+            _Row(
+              icon: isLiked
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              label: isLiked ? l10n.fpLiked : l10n.fpLikeAction,
+              onTap: () {
+                PremiumGate.guard(
+                  context,
+                  feature: l10n.fpLikeSongsFeature,
+                  description: l10n.fpLikeSignInBuildLibrary,
+                  requiresLoginOnly: true,
+                  onAllowed: () {
+                    fav.toggleFavorite(song);
+                    final nowLiked = fav.isFavorite(song.id);
+                    _close();
+                    _toast(nowLiked
+                        ? l10n.fpAddedToLiked
+                        : l10n.fpRemovedFromLiked);
+                  },
+                );
+              },
+            ),
+            if (song.album.isNotEmpty)
+              _Row(
+                icon: Icons.album_outlined,
+                label: 'Go to album',
+                onTap: _openAlbum,
+              ),
+            if (_artists.isNotEmpty)
+              _Row(
+                icon: Icons.person_outline_rounded,
+                label: _artists.length == 1 ? 'Go to artist' : 'Go to artists',
+                onTap: _openArtist,
+              ),
+            _Row(
+              icon: Icons.share_rounded,
+              label: l10n.fpShare,
+              onTap: () {
+                _close();
+                shareSong(widget.rootContext, song);
+              },
+            ),
+          ],
+        ),
+      );
+    }
 
     return _SheetShell(
       header: _Header(
@@ -555,10 +714,12 @@ class _Header extends StatelessWidget {
   final String title;
   final String subtitle;
   final String artworkUrl;
+  final bool wide;
   const _Header({
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
+    this.wide = false,
   });
 
   @override
@@ -571,8 +732,12 @@ class _Header extends StatelessWidget {
       child: Row(
         children: [
           // Plain thumbnail only — no glow / tint / colour extraction.
-          AurumArtwork(url: artworkUrl, size: 43, borderRadius: 2),
-          const SizedBox(width: 28),
+          if (wide)
+            AurumWideThumb(
+                url: artworkUrl, width: 76, height: 43, borderRadius: 6)
+          else
+            AurumArtwork(url: artworkUrl, size: 43, borderRadius: 2),
+          SizedBox(width: wide ? 16 : 28),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

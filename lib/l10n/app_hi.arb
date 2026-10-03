@@ -775,5 +775,8 @@
   "saFullPlayerStyle": "फुल प्लेयर स्टाइल",
   "saFullPlayerStyleSubtitle": "Astra Model 1: original फुल प्लेयर। Astra Model 2: एज-टू-एज फुल-ब्लीड प्लेयर (डिफ़ॉल्ट)। Astra Model 3: लिरिक्स-फोकस्ड लेआउट, पूरी स्क्रीन सिंक्ड लिरिक्स व्यू के साथ।",
   "saLiquidGlass": "लिक्विड ग्लास चालू करें",
-  "saLiquidGlassSubtitle": "नेव बार और मिनी प्लेयर के लिए लिक्विड ग्लास इफ़ेक्ट।"
+  "saLiquidGlassSubtitle": "नेव बार और मिनी प्लेयर के लिए लिक्विड ग्लास इफ़ेक्ट।",
+  "asLatestRelease": "नवीनतम रिलीज़",
+  "asTypeSingle": "सिंगल",
+  "asTypeAlbum": "एल्बम"
 }

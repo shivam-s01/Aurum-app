@@ -1205,5 +1205,8 @@
   "saFullPlayerStyle": "Full Player Style",
   "saFullPlayerStyleSubtitle": "Astra Model 1: the original full player. Astra Model 2: edge-to-edge full-bleed player (default). Astra Model 3: lyrics-focused layout with a dedicated full-screen synced lyrics view.",
   "saLiquidGlass": "Enable Liquid Glass",
-  "saLiquidGlassSubtitle": "Liquid glass effect for the nav bar and mini player."
+  "saLiquidGlassSubtitle": "Liquid glass effect for the nav bar and mini player.",
+  "asLatestRelease": "Latest Release",
+  "asTypeSingle": "Single",
+  "asTypeAlbum": "Album"
 }

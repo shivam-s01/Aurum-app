@@ -5,10 +5,11 @@
 //   playlists (Trending Now, Party Anthems, 90s Bollywood, etc), Spotify-
 //   style — big header art, Play + Save row, then the song list.
 //
-//   Premium header: full-bleed, sharp artwork with a one-shot
-//   palette-derived glow (same visual language as the Full Player screen —
-//   see full_player_screen.dart's _extractColor — but static, no animation
-//   controllers, since this screen doesn't need to live-update per frame).
+//   YT Music-style layout (2026-10-03 redesign): full-bleed sharp artwork
+//   that fades into the palette-tinted page background, centered title
+//   block, shuffle · Play · download row, description, track count, then
+//   compact rows (wide thumbnail + title/artist + 3-dot). The whole header
+//   scrolls away 1:1 with the list — no pinned bar, no parallax.
 //
 //   Takes an already-fetched `songs` list instead of an albumId to fetch
 //   by — these are client-side curated queries (see _kCuratedPlaylists /
@@ -21,6 +22,7 @@ import '../utils/aurum_transitions.dart';
 import 'library_screen.dart' show DownloadsScreen;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
@@ -32,19 +34,13 @@ import '../providers/download_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
-import '../widgets/aurum_save_button.dart';
 import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/aurum_song_options_sheet.dart' show showAurumPlaylistOptions;
 import '../widgets/mini_player_slot.dart';
-import '../widgets/cast_button.dart';
-import '../services/native_engine_bridge.dart' show CastState, CastConnectionStatus;
-import '../services/audio_prefs.dart';
-import 'artist_screen.dart';
 import 'search_screen.dart';
-import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
-import '../utils/aurum_sheet.dart';
 import '../utils/aurum_immersive_header.dart';
 import '../utils/artwork_palette_cache.dart';
 
@@ -106,13 +102,6 @@ class MixScreen extends StatefulWidget {
 
 class _MixScreenState extends State<MixScreen>
     with SingleTickerProviderStateMixin {
-  // FIX (regression from an earlier edit — "Undefined name '_shuffle'"
-  // build error): this field existed before the animated-glow work below
-  // was added and got dropped when that class-header block was rewritten
-  // to add SingleTickerProviderStateMixin. Restored here, unchanged from
-  // its original declaration.
-  bool _shuffle = false;
-
   // FIX ("artwork palette kuch sec delay ke baad snap hoti hai — sab
   // jagah instant, ekdam smooth chahiye"): this used to always start on
   // the hardcoded fallback and wait for _extractGlow()'s await to land
@@ -310,41 +299,20 @@ class _MixScreenState extends State<MixScreen>
         url.startsWith('file://')) {
       return;
     }
-    // Warms BOTH header layers at once — the small sharp centered cover
-    // (matches AurumArtwork's own maxWidth for size:500, see aurum_
-    // artwork.dart's _cacheSize) and the blurred full-bleed ambient
-    // backdrop (matches its capped low-res decode width for
-    // isBlurredBackground/non-finite size). FIX ("ambient wash aur sharp
-    // cover ek saath aane chahiye, ek pehle ek baad mein nahi"): without
-    // this, only the sharp cover's request used to get kicked off early,
-    // so on a cold cache the blurred backdrop still only started its
-    // fetch once the header widget itself built — same "pop in late"
-    // problem this whole precache exists to avoid, just on the other
-    // layer now. Firing both here means both are already in flight
-    // (often finished) before either widget asks for its image.
+    // Warms the exact request the full-bleed header artwork makes (same
+    // upgraded URL, same decode width AurumArtwork uses for a sharp
+    // size:double.infinity image, same cache manager) so it is already in
+    // flight — often finished — before the header widget builds.
     precacheImage(
       CachedNetworkImageProvider(
-        url,
-        maxWidth: 1400,
-        cacheManager: AurumImageCache(),
-      ),
-      context,
-    ).catchError((_) {});
-    precacheImage(
-      // Matches AurumArtwork's own _cacheSize for isBlurredBackground:true
-      // with size:double.infinity (220 — see aurum_artwork.dart), so this
-      // hits the exact same cache key the header's ambient layer will ask
-      // for, instead of warming a differently-sized decode that misses.
-      CachedNetworkImageProvider(
-        url,
-        maxWidth: 220,
+        AurumArtwork.upgradeForFullPlayer(url),
+        maxWidth: 1200,
         cacheManager: AurumImageCache(),
       ),
       context,
     ).catchError((_) {
-      // Same as every other precache in this app — a failed warm-up just
-      // means AurumArtwork's own build-time fetch handles it normally
-      // (including its own error/placeholder path), never a crash.
+      // A failed warm-up just means AurumArtwork's own build-time fetch
+      // handles it normally (including its placeholder path).
     });
   }
 
@@ -401,198 +369,114 @@ class _MixScreenState extends State<MixScreen>
     });
   }
 
-  /// Derives up to 3 distinct artist names across the mix's songs — same
-  /// logic AlbumScreen uses to build its "GO TO" artist chips. Reads
-  /// _songs (not widget.songs) so artists from refresh-appended songs
-  /// are represented too, not just the original batch.
-  List<String> get _creditedArtists {
-    final seen = <String>{};
-    final out = <String>[];
-    for (final s in _songs) {
-      final name = s.artist.trim();
-      if (name.isEmpty) continue;
-      for (final part in name.split(RegExp(r',|&|/'))) {
-        final p = part.trim();
-        if (p.isEmpty) continue;
-        if (seen.add(p)) out.add(p);
-        if (out.length >= 3) return out;
-      }
-    }
-    return out;
-  }
-
-  /// "24 songs • 1 hr 32 min" style summary line, skipping songs with
-  /// unknown duration rather than guessing — matches how AlbumScreen
-  /// already treats missing durations elsewhere.
+  /// "100 tracks" — matches the reference's plain count line.
   String _summaryLine(List<Song> songs) {
     final count = songs.length;
-    final totalSeconds = songs.fold<int>(
-        0, (sum, s) => sum + (s.duration ?? 0));
-    final songLabel = count == 1 ? 'song' : 'songs';
-    if (totalSeconds <= 0) return '$count $songLabel';
-    final hrs = totalSeconds ~/ 3600;
-    final mins = (totalSeconds % 3600) ~/ 60;
-    final timeLabel = hrs > 0 ? '$hrs hr $mins min' : '$mins min';
-    return '$count $songLabel • $timeLabel';
+    return '$count ${count == 1 ? 'track' : 'tracks'}';
   }
+
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final player = context.read<PlayerProvider>();
-    // Reads _songs (not widget.songs directly) so a pull-to-refresh
-    // append (see _onRefresh) shows up immediately — for every caller
-    // that doesn't set enableRefresh, _songs is simply widget.songs
-    // unchanged for the lifetime of this screen, so behavior is
-    // identical to before.
+    // Reads _songs (not widget.songs directly) so refresh/top-up appends
+    // show up immediately.
     final songs = _songs;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = immersiveScaffoldBg(context, _glow);
+    final screenW = MediaQuery.of(context).size.width;
+    final topInset = MediaQuery.of(context).padding.top;
+    // Reference proportions: sharp artwork ~1.04x screen width tall, title
+    // block sitting on its faded bottom edge.
+    final headerH = screenW * 1.04;
+    final titleColor = isDark ? Colors.white : AurumTheme.textPrimaryOf(context);
+    final subColor = isDark
+        ? Colors.white.withOpacity(0.72)
+        : AurumTheme.textSecondaryOf(context);
+    final description = (widget.description ?? '').trim();
 
     Widget body = Container(
-      color: immersiveScaffoldBg(context, _glow),
+      color: bg,
       child: CustomScrollView(
-        // PERF FIX (same class as home_screen.dart / artist_screen.dart /
-        // library_screen.dart's matching fix): default Sliver cacheExtent
-        // (250px) is too small once a full mix song list is loaded below
-        // the header — fast flings tear down and rebuild sections just
-        // outside that tiny buffer. Matching the same 1200 used elsewhere.
+        // PERF: bigger cache so fast flings through a 100-song list don't
+        // tear down and rebuild rows just outside the default buffer.
         cacheExtent: 1200,
         slivers: [
-          SliverAppBar(
-            // FIX ("artwork aur sab ek sath upar scroll ho, status bar
-            // tak" — 2026-09-07): pinned:true reserved a permanent
-            // kToolbarHeight-tall strip at the very top that the header
-            // collapsed INTO and then got stuck behind — artwork, title,
-            // and the floating back/heart/search pills all vanished
-            // underneath that leftover strip instead of scrolling fully
-            // off past the status bar. That leftover strip is exactly
-            // the "ulta" band. pinned:false lets the whole header —
-            // artwork, scrim, title block, floating pills, all of it,
-            // since every one of them lives inside this same
-            // flexibleSpace — scroll away completely as one unit, same
-            // as the reference screenshots where the back arrow moves
-            // up WITH the artwork rather than parking in a fixed bar.
-            pinned: false,
-            backgroundColor: immersiveScaffoldBg(context, _glow),
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
-            // No leading/actions here — those are drawn as a floating
-            // glass overlay below (YT Music-style: back / heart / search
-            // / overflow float over the artwork and never collapse into
-            // a flat pinned bar), so the SliverAppBar itself stays
-            // chrome-free the whole time it's expanded.
-            automaticallyImplyLeading: false,
-            expandedHeight: 340,
-            flexibleSpace: FlexibleSpaceBar(
-              // PERF: collapseMode.pin (default) already avoids the parallax
-              // recompute pin does on every scroll tick — kept implicit here,
-              // no per-frame Transform beyond what FlexibleSpaceBar itself
-              // does, since this header has no animation controllers of its
-              // own (matches the file's original low-overhead intent).
-              background: Stack(
+          // ── Header (scrolls away 1:1 with the list) ─────────────────────
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: headerH,
+              child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Layer 0 — ambient ombré backdrop: the SAME artwork,
-                  // heavily blurred and dimmed, filling the entire header
-                  // edge to edge (Bloomee/YT-Music-style "glow wash"
-                  // rather than a flat color). This is what makes the
-                  // header feel alive at rest instead of a dead flat
-                  // glow while the sharp cover above it loads — the two
-                  // layers arrive together (see _precacheHeaderArtwork,
-                  // which now warms both), so there's no more "3 sec
-                  // later a big sharp square pops in over nothing."
-                  if (widget.artworkUrl.isNotEmpty)
-                    Opacity(
-                      opacity: 0.55,
-                      child: AurumArtwork(
-                        url: widget.artworkUrl,
-                        size: double.infinity,
-                        borderRadius: 0,
-                        isBlurredBackground: true,
-                        fadeIn: false,
-                      ),
-                    )
-                  else
-                    Container(color: _glow),
-
-                  // Layer 1 — small, centered, sharp cover with its own
-                  // rounded corners + soft colored glow shadow — reads as
-                  // a deliberate premium album card floating over the
-                  // ambient wash, not a full-bleed photo. Hero'd so the
-                  // shared-element transition from the home screen's
-                  // card still feels continuous.
-                  Align(
-                    alignment: const Alignment(0, -0.08),
+                  // Layer 0 — sharp full-bleed artwork.
+                  Positioned.fill(
                     child: Hero(
                       tag: 'mix_art_${widget.mixId}',
-                      flightShuttleBuilder:
-                          (context, animation, direction, from, to) {
-                        return Material(
-                          color: Colors.transparent,
-                          child: ScaleTransition(scale: animation, child: to.widget),
-                        );
-                      },
-                      child: Container(
-                        width: 168,
-                        height: 168,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _glow.withOpacity(0.55),
-                              blurRadius: 40,
-                              offset: const Offset(0, 16),
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.35),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: widget.artworkUrl.isNotEmpty
-                              ? AurumArtwork(
-                                  url: widget.artworkUrl,
-                                  size: 500,
-                                  borderRadius: 18,
-                                )
-                              : Container(
-                                  color: _glow,
-                                  child: Center(
-                                    child: Icon(
-                                      Icons.music_note_rounded,
-                                      size: 48,
-                                      color: Colors.white.withOpacity(0.7),
-                                    ),
-                                  ),
+                      child: widget.artworkUrl.isNotEmpty
+                          ? AurumArtwork(
+                              url: AurumArtwork.upgradeForFullPlayer(
+                                  widget.artworkUrl),
+                              size: double.infinity,
+                              borderRadius: 0,
+                            )
+                          : Container(
+                              color: _glow,
+                              child: Center(
+                                child: Icon(
+                                  Icons.music_note_rounded,
+                                  size: 64,
+                                  color: Colors.white.withOpacity(0.7),
                                 ),
+                              ),
+                            ),
+                    ),
+                  ),
+
+                  // Layer 1 — top scrim so status bar + floating pills
+                  // stay readable on bright covers.
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: topInset + 90,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.40),
+                            Colors.black.withOpacity(0.0),
+                          ],
                         ),
                       ),
                     ),
                   ),
 
-                  // Layer 2 — short scrim washing the artwork's own
-                  // extracted color through the photo. Kept short (not a
-                  // long fade trying to carry the color alone) because
-                  // the page background below (see immersiveScaffoldBg)
-                  // already carries the same tone the rest of the way
-                  // down — same split SimpMusic uses between its header
-                  // scrim and its whole-page palette background.
-                  DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
+                  // Layer 2 — bottom fade into the page background (same
+                  // color the Scaffold paints, so there is no seam).
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            bg.withOpacity(0.0),
+                            bg.withOpacity(0.0),
+                            bg.withOpacity(0.55),
+                            bg.withOpacity(0.92),
+                            bg,
+                          ],
+                          stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
 
-                  // REMOVED ("artwork ek sath upar scroll ho" fix,
-                  // 2026-09-07): AurumGlassCollapseBar existed purely to
-                  // frost the collapsed pinned strip that's gone now —
-                  // with pinned:false there's no leftover strip for it
-                  // to sit behind, so it would just be an invisible,
-                  // pointless BackdropFilter still paying its per-frame
-                  // GPU cost. Header now scrolls away as one whole unit.
-
-                  // Title + source + type line, centered under the small
-                  // floating cover — Bloomee/Apple-Music-style stacked
-                  // block sitting on the ambient wash rather than
-                  // crammed onto the photo itself.
+                  // Title block — centered, on the faded bottom edge.
                   Positioned(
                     left: 24,
                     right: 24,
@@ -603,14 +487,11 @@ class _MixScreenState extends State<MixScreen>
                         Text(
                           widget.mixName,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 25,
-                            fontWeight: FontWeight.w800,
+                          style: TextStyle(
+                            color: titleColor,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
                             height: 1.15,
-                            shadows: [
-                              Shadow(color: Colors.black54, blurRadius: 10),
-                            ],
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -620,12 +501,9 @@ class _MixScreenState extends State<MixScreen>
                           'Astra Music',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.92),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            shadows: const [
-                              Shadow(color: Colors.black45, blurRadius: 6),
-                            ],
+                            color: subColor,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -633,24 +511,17 @@ class _MixScreenState extends State<MixScreen>
                           'Playlist • ${DateTime.now().year}',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.75),
-                            fontSize: 12.5,
+                            color: subColor.withOpacity(0.8),
+                            fontSize: 14,
                             fontWeight: FontWeight.w500,
-                            shadows: const [
-                              Shadow(color: Colors.black45, blurRadius: 6),
-                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                  // Floating glass toolbar — back button (left) and
-                  // heart / search / overflow (right), each a frosted
-                  // glass pill sitting directly over the artwork. Kept
-                  // as one cheap BackdropFilter per pill (small blur
-                  // radius) rather than one big blurred bar, so nothing
-                  // extra gets blurred/repainted as the sliver collapses.
+                  // Floating glass toolbar — back (left) and
+                  // heart / search / overflow (right).
                   SafeArea(
                     bottom: false,
                     child: Padding(
@@ -683,13 +554,21 @@ class _MixScreenState extends State<MixScreen>
                                       iconColor: saved
                                           ? AurumTheme.accentOf(context)
                                           : Colors.white,
-                                      onTap: () => followedAlbums.toggleFollow(
-                                        albumId: widget.mixId,
-                                        name: widget.mixName,
-                                        artworkUrl: widget.artworkUrl,
-                                        isMix: true,
-                                        songs: songs,
-                                      ),
+                                      onTap: () {
+                                        AurumHaptics.selection();
+                                        followedAlbums.toggleFollow(
+                                          albumId: widget.mixId,
+                                          name: widget.mixName,
+                                          artworkUrl: widget.artworkUrl,
+                                          isMix: true,
+                                          songs: songs,
+                                        );
+                                        _snack(
+                                            context,
+                                            saved
+                                                ? 'Removed from Library'
+                                                : 'Added to Library');
+                                      },
                                     ),
                                     _GlassIconButton(
                                       icon: Icons.search_rounded,
@@ -701,7 +580,9 @@ class _MixScreenState extends State<MixScreen>
                                     ),
                                     _GlassIconButton(
                                       icon: Icons.more_vert_rounded,
-                                      onTap: () => _showMixOptions(context),
+                                      onTap: () => showAurumPlaylistOptions(
+                                          context,
+                                          songs: _songs),
                                     ),
                                   ],
                                 ),
@@ -717,192 +598,145 @@ class _MixScreenState extends State<MixScreen>
             ),
           ),
 
-          // Action row — YT-Music-style 5-control row matching the
-          // reference exactly: queue(list) · shuffle · Play (dominant
-          // filled pill, center) · save/add-to-library · cast. Every
-          // icon here is a real, already-wired action elsewhere in the
-          // app (queue via player.addSongsToQueue — same call
-          // _GridOption's "Add to Queue" uses below; save via
-          // FollowedAlbumsProvider.toggleFollow — same call the header's
-          // save button and _GridOption's "Add to Library" use; cast via
-          // the shared CastIconButton used on the full player) — nothing
-          // new or fake, just surfaced here too so the row reads exactly
-          // like the reference screenshot's control strip.
+          // ── Action row: shuffle · Play · download ───────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 30, 20, 22),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _RoundGlassButton(
-                    icon: Icons.queue_music_rounded,
+                  _RoundButton(
+                    icon: Icons.shuffle_rounded,
                     onTap: songs.isEmpty
                         ? null
-                        : () async {
-                            AurumHaptics.light();
-                            final added = await player.addSongsToQueue(songs);
-                            _snack(context, added > 0
-                                ? 'Added $added song${added == 1 ? '' : 's'} to queue'
-                                : 'Already in queue');
+                        : () {
+                            AurumHaptics.medium();
+                            final queue = List<Song>.from(songs)..shuffle();
+                            player.playSong(queue.first,
+                                queue: queue, index: 0, curatedQueue: true);
                           },
                   ),
-                  _RoundGlassButton(
-                    icon: Icons.shuffle_rounded,
-                    active: _shuffle,
-                    onTap: () => setState(() => _shuffle = !_shuffle),
-                  ),
+                  const SizedBox(width: 12),
                   AurumPressable(
                     scaleAmount: 0.95,
                     onTap: songs.isEmpty
                         ? null
                         : () {
                             AurumHaptics.medium();
-                            final queue = _shuffle
-                                ? (List<Song>.from(songs)..shuffle())
-                                : songs;
-                            player.playSong(queue.first,
-                                queue: queue, index: 0, curatedQueue: true);
+                            player.playSong(songs.first,
+                                queue: songs, index: 0, curatedQueue: true);
                           },
                     child: Container(
-                      // SPACING FIX — bumped 44→50 to match reference's
-                      // bigger, more dominant center Play pill.
-                      height: 50,
-                      constraints: const BoxConstraints(minWidth: 110),
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      height: 46,
+                      constraints: const BoxConstraints(minWidth: 112),
+                      padding: const EdgeInsets.symmetric(horizontal: 22),
                       decoration: BoxDecoration(
-                        color: songs.isEmpty
-                            ? Colors.white.withOpacity(0.4)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(27),
-                        // LIGHT-MODE FIX: a flat white pill sits with
-                        // barely any edge definition against light
-                        // mode's warm off-white body background (the
-                        // header photo is always dark here, but this
-                        // row lives in the scrollable body below it) —
-                        // a soft shadow keeps the pill reading as a
-                        // raised, tappable control in both themes
-                        // instead of visually melting into the page.
-                        boxShadow: songs.isEmpty
-                            ? null
-                            : [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.18),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
+                        color: (isDark ? Colors.white : const Color(0xFF111111))
+                            .withOpacity(songs.isEmpty ? 0.4 : 1.0),
+                        borderRadius: BorderRadius.circular(23),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.play_arrow_rounded,
-                              color: Colors.black, size: 22),
-                          SizedBox(width: 6),
+                              color:
+                                  isDark ? Colors.black : Colors.white,
+                              size: 24),
+                          const SizedBox(width: 6),
                           Text(
                             'Play',
                             style: TextStyle(
-                              color: Colors.black,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.black : Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  Consumer<FollowedAlbumsProvider>(
-                    builder: (context, followedAlbums, _) {
-                      final saved = followedAlbums.isFollowing(widget.mixId);
-                      return _RoundGlassButton(
-                        icon: saved
-                            ? Icons.bookmark_rounded
-                            : Icons.add_rounded,
-                        active: saved,
-                        onTap: () {
-                          followedAlbums.toggleFollow(
-                            albumId: widget.mixId,
-                            name: widget.mixName,
-                            artworkUrl: widget.artworkUrl,
-                            isMix: true,
-                            songs: songs,
-                          );
-                          _snack(context, saved
-                              ? 'Removed from Library'
-                              : 'Added to Library');
-                        },
+                  const SizedBox(width: 12),
+                  Consumer<DownloadProvider>(
+                    builder: (context, downloads, _) {
+                      final allDone = songs.isNotEmpty &&
+                          songs.every((s) => downloads.isDownloaded(s.id));
+                      return _RoundButton(
+                        icon: allDone
+                            ? Icons.download_done_rounded
+                            : Icons.download_for_offline_outlined,
+                        iconSize: 26,
+                        onTap: songs.isEmpty
+                            ? null
+                            : () => _downloadMix(context, downloads),
                       );
                     },
                   ),
-                  const _CastSlot(),
                 ],
               ),
             ),
           ),
 
-          if ((widget.description ?? '').trim().isNotEmpty)
+          if (description.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
                 child: Text(
-                  widget.description!.trim(),
+                  description,
                   style: TextStyle(
                     color: AurumTheme.textSecondaryOf(context),
-                    fontSize: 13.5,
+                    fontSize: 14.5,
                     height: 1.4,
                   ),
                 ),
               ),
             ),
 
-          SliverToBoxAdapter(
-            child: Padding(
-              // SPACING FIX (see control row comment below) — top bumped
-              // 16→22 so this line doesn't sit crammed right under the
-              // header/description above it.
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 4),
-              child: Text(
-                _summaryLine(songs),
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w700,
+          if (songs.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+                child: Text(
+                  _summaryLine(songs),
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
-          ),
+
           if (songs.isEmpty)
-            SliverFillRemaining(
-              child: Center(
-                child: _awaitingFirstLoad
-                    // Genuinely still waiting on the first real fetch
-                    // (see _awaitingFirstLoad's doc comment) — a spinner
-                    // here, not the "nothing found" message, since we
-                    // don't yet know whether this mix has songs or not.
-                    ? const CircularProgressIndicator()
-                    : Text(l10n.albumNoSongsFound,
-                        style: TextStyle(
-                            color: AurumTheme.textMutedOf(context))),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 56),
+                child: Center(
+                  child: _awaitingFirstLoad
+                      // Still waiting on the first real fetch — spinner, not
+                      // the "nothing found" message.
+                      ? const CircularProgressIndicator()
+                      : Text(l10n.albumNoSongsFound,
+                          style: TextStyle(
+                              color: AurumTheme.textMutedOf(context))),
+                ),
               ),
             )
           else
             SliverList(
               delegate: SliverChildBuilderDelegate(
-                // FEATURE ("1 2 3 4 count number hata do" — same
-                // no-numbering convention already used on the artist
-                // page's song lists): plain tiles, no index column.
                 (context, i) => SongTile(
                   song: songs[i],
                   queue: songs,
                   index: i,
                   curatedQueue: true,
+                  ytStyle: true,
                 ),
                 childCount: songs.length,
               ),
             ),
-          // Subtle end-of-list marker only when refresh is enabled and
-          // there's something to end — mirrors Spotify's quiet "Pull to
-          // refresh for more" style hint instead of just trailing off
-          // into blank space, without implying auto-loading is happening.
+
+          // Quiet end-of-list hint only when pull-to-refresh is enabled.
           if (widget.enableRefresh && songs.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
@@ -924,24 +758,32 @@ class _MixScreenState extends State<MixScreen>
       ),
     );
 
-    // enableRefresh wraps the exact same scroll view in a
-    // RefreshIndicator — CustomScrollView's physics already support the
-    // pull gesture, so this is purely additive and never runs for the
-    // other 3 existing MixScreen callers (default enableRefresh: false
-    // leaves `body` untouched above).
+    // Opt-in pull-to-refresh (append-only, see _onRefresh).
     if (widget.enableRefresh) {
       body = RefreshIndicator(
         onRefresh: _onRefresh,
+        edgeOffset: topInset + 8,
         color: AurumTheme.accentOf(context),
         backgroundColor: AurumTheme.bgElevatedOf(context),
         child: body,
       );
     }
 
-    return Scaffold(
-      backgroundColor: immersiveScaffoldBg(context, _glow),
+    final scaffold = Scaffold(
+      backgroundColor: bg,
       bottomNavigationBar: const MiniPlayerSlot(),
       body: body,
+    );
+
+    // Dark mode: the header artwork runs under the status bar, so keep the
+    // system icons light. Light mode keeps the app's global style (the
+    // icons must stay readable once the header has scrolled away).
+    if (!isDark) return scaffold;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
+      child: scaffold,
     );
   }
 
@@ -952,14 +794,9 @@ class _MixScreenState extends State<MixScreen>
   }
 
   /// Queues every song in the mix for download via DownloadProvider,
-  /// skipping ones already downloaded/in-progress. Mirrors AlbumScreen's
-  /// bulk-download flow. Reads _songs so refresh-appended songs are
-  /// included in "download all" too, not just the original batch.
-  ///
-  /// FIX (same as AlbumScreen's matching fix — "download pr click krne
-  /// pr kuch pta nahi chalta"): opens the real Downloads screen right
-  /// after queuing instead of leaving the user with only a toast and no
-  /// way to see the download actually progressing.
+  /// skipping ones already downloaded/in-progress, then opens the real
+  /// Downloads screen so progress is visible. Reads _songs so appended
+  /// songs are included too.
   Future<void> _downloadMix(
       BuildContext context, DownloadProvider downloads) async {
     final toQueue = _songs
@@ -975,325 +812,6 @@ class _MixScreenState extends State<MixScreen>
     }
     if (!context.mounted) return;
     AurumDepthRoute.to(context, const DownloadsScreen());
-  }
-
-  void _showMixOptions(BuildContext context) {
-    final rootContext = context;
-    showAurumModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => _MixOptionsSheet(
-        mixId: widget.mixId,
-        mixName: widget.mixName,
-        artworkUrl: widget.artworkUrl,
-        songs: _songs,
-        artists: _creditedArtists,
-        rootContext: rootContext,
-        // PREMIUM TINT ("options bhi dead lag rahe hai" — reference:
-        // full_player_screen.dart's _PremiumOptionsSheet, which already
-        // tints its own sheet background from the now-playing song's
-        // extracted color instead of a flat theme surface). This screen
-        // already extracted _glow from the SAME artwork for the header —
-        // passing it through here means the sheet visually continues the
-        // header's color instead of hard-cutting to a flat neutral panel
-        // the instant it opens.
-        glow: _glow,
-      ),
-    );
-  }
-}
-
-/// Premium mix-level options sheet — identical pattern to AlbumScreen's
-/// _AlbumOptionsSheet, adapted for a mix (isMix: true save + no fetch-by-id).
-class _MixOptionsSheet extends StatefulWidget {
-  final String mixId;
-  final String mixName;
-  final String artworkUrl;
-  final List<Song> songs;
-  final List<String> artists;
-  final BuildContext rootContext;
-  final Color glow;
-
-  const _MixOptionsSheet({
-    required this.mixId,
-    required this.mixName,
-    required this.artworkUrl,
-    required this.songs,
-    required this.artists,
-    required this.rootContext,
-    required this.glow,
-  });
-
-  @override
-  State<_MixOptionsSheet> createState() => _MixOptionsSheetState();
-}
-
-class _MixOptionsSheetState extends State<_MixOptionsSheet> {
-  // Shared, deduped toast handler — see aurum_snack.dart.
-  void _snack(String msg) {
-    AurumSnack.show(widget.rootContext, msg);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final player = context.read<PlayerProvider>();
-    final downloads = context.watch<DownloadProvider>();
-    final followedAlbums = context.watch<FollowedAlbumsProvider>();
-    final saved = followedAlbums.isFollowing(widget.mixId);
-    final songs = widget.songs;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Same lerp-toward-dark tint full_player_screen.dart's premium sheet
-    // uses — keeps the color readable/muted at sheet size instead of the
-    // loud raw glow, while still clearly carrying the playlist's own hue
-    // rather than a generic elevated-surface gray.
-    final bgColor = isDark
-        ? Color.lerp(widget.glow, const Color(0xFF0C0C18), 0.55)!
-        : Color.lerp(widget.glow, Colors.white, 0.88)!;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border(
-          top: BorderSide(
-            color: isDark
-                ? Colors.white.withOpacity(0.08)
-                : Colors.black.withOpacity(0.06),
-            width: 0.6,
-          ),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(top: 12, bottom: 4),
-            decoration: BoxDecoration(
-              color: AurumTheme.dividerOf(context),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-
-          // Mix header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: Row(
-              children: [
-                AurumArtwork(
-                    url: widget.artworkUrl, size: 56, borderRadius: 10),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.mixName,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        widget.artists.isNotEmpty
-                            ? widget.artists.join(' • ')
-                            : 'Playlist',
-                        style: TextStyle(
-                          color: AurumTheme.textSecondaryOf(context),
-                          fontSize: 13,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: saved
-                        ? AurumTheme.accentOf(context).withOpacity(0.12)
-                        : AurumTheme.bgSurfaceOf(context),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: AurumSaveButton(
-                      saved: saved,
-                      size: 20,
-                      onTap: () => followedAlbums.toggleFollow(
-                        albumId: widget.mixId,
-                        name: widget.mixName,
-                        artworkUrl: widget.artworkUrl,
-                        isMix: true,
-                        songs: songs,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Divider(color: AurumTheme.dividerOf(context), height: 1),
-
-          // Options grid
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 2.8,
-              children: [
-                _GridOption(
-                  icon: Icons.play_arrow_rounded,
-                  label: 'Play',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    if (songs.isEmpty) return;
-                    Navigator.pop(context);
-                    unawaited(
-                        player.playSong(songs.first, queue: songs, index: 0, curatedQueue: true));
-                  },
-                ),
-                _GridOption(
-                  icon: Icons.shuffle_rounded,
-                  label: 'Shuffle Play',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    if (songs.isEmpty) return;
-                    Navigator.pop(context);
-                    final shuffled = List<Song>.from(songs)..shuffle();
-                    unawaited(player.playSong(shuffled.first,
-                        queue: shuffled, index: 0, curatedQueue: true));
-                  },
-                ),
-                _GridOption(
-                  icon: Icons.queue_music_rounded,
-                  label: 'Add to Queue',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    if (songs.isEmpty) return;
-                    Navigator.pop(context);
-                    unawaited(player.addSongsToQueue(songs).then((added) {
-                      _snack(added > 0
-                          ? 'Added $added song${added == 1 ? '' : 's'} to queue'
-                          : 'Already in queue');
-                    }));
-                  },
-                ),
-                _GridOption(
-                  icon: saved
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_border_rounded,
-                  label: saved ? 'Saved to Library' : 'Add to Library',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    followedAlbums.toggleFollow(
-                      albumId: widget.mixId,
-                      name: widget.mixName,
-                      artworkUrl: widget.artworkUrl,
-                      isMix: true,
-                      songs: songs,
-                    );
-                    _snack(saved ? 'Removed from Library' : 'Added to Library');
-                  },
-                ),
-                _GridOption(
-                  icon: Icons.download_outlined,
-                  label: 'Download All',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    if (songs.isEmpty) return;
-                    final toQueue = songs
-                        .where((s) =>
-                            !downloads.isDownloaded(s.id) &&
-                            !downloads.isDownloading(s.id))
-                        .toList();
-                    if (toQueue.isEmpty) {
-                      _snack('Already downloaded');
-                      return;
-                    }
-                    for (final s in toQueue) {
-                      unawaited(downloads.download(s));
-                    }
-                    // FIX (same as AlbumScreen — "download pr click krne
-                    // pr kuch pta nahi chalta"): close this options sheet
-                    // and open the real Downloads screen on the root
-                    // context so the user sees the download actually
-                    // progressing instead of only a toast.
-                    Navigator.pop(context);
-                    AurumDepthRoute.to(widget.rootContext, const DownloadsScreen());
-                  },
-                ),
-                _GridOption(
-                  icon: Icons.share_rounded,
-                  label: 'Share',
-                  color: AurumTheme.textPrimaryOf(context),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (songs.isNotEmpty) {
-                      shareSong(context, songs.first);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          if (widget.artists.isNotEmpty) ...[
-            Divider(color: AurumTheme.dividerOf(context), height: 16),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('GO TO',
-                    style: TextStyle(
-                        color: AurumTheme.textMutedOf(context),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.4)),
-              ),
-            ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-              child: Row(
-                children: [
-                  for (final name in widget.artists)
-                    _ArtistChip(
-                      name: name,
-                      onTap: () {
-                        Navigator.pop(context);
-                        AurumDepthRoute.to(
-                          widget.rootContext,
-                          ArtistScreen(artistName: name),
-                        );
-                      },
-                    ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 16),
-          SizedBox(height: MediaQuery.of(context).padding.bottom),
-        ],
-      ),
-    );
   }
 }
 
@@ -1360,28 +878,24 @@ class _GlassIconButton extends StatelessWidget {
   }
 }
 
-/// Circular action button flanking the header's filled Play pill
-/// (shuffle, download) — YT Music's row of round buttons either side of
-/// the solid play control. Uses the theme's surface color rather than a
-/// hardcoded white glass tint: this row sits in the scrollable body
-/// below the artwork header (not over the photo itself), so on light
-/// mode a translucent-white fill would nearly vanish against the pale
-/// background — a plain theme-aware surface circle reads correctly in
-/// both dark and light mode.
-class _RoundGlassButton extends StatelessWidget {
+/// Round control flanking the Play pill (shuffle, download). Soft
+/// translucent circle that reads on both the dark and light page tints.
+class _RoundButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
-  final bool active;
+  final double iconSize;
 
-  const _RoundGlassButton({
+  const _RoundButton({
     required this.icon,
     required this.onTap,
-    this.active = false,
+    this.iconSize = 22,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final disabled = onTap == null;
+    final fg = AurumTheme.textPrimaryOf(context);
     return AurumPressable(
       scaleAmount: 0.9,
       onTap: disabled
@@ -1391,213 +905,19 @@ class _RoundGlassButton extends StatelessWidget {
               onTap!();
             },
       child: Container(
-        width: 48,
-        height: 48,
+        width: 46,
+        height: 46,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: active
-              ? AurumTheme.accentOf(context).withOpacity(0.16)
-              : AurumTheme.bgSurfaceOf(context),
+          color: (isDark ? Colors.white : Colors.black)
+              .withOpacity(isDark ? 0.12 : 0.07),
         ),
         child: Icon(
           icon,
-          size: 21,
-          color: disabled
-              ? AurumTheme.textMutedOf(context).withOpacity(0.4)
-              : active
-                  ? AurumTheme.accentOf(context)
-                  : AurumTheme.textPrimaryOf(context),
+          size: iconSize,
+          color: disabled ? fg.withOpacity(0.35) : fg,
         ),
       ),
     );
   }
 }
-
-/// FIX ("action row ke end me ek khaali gol circle dikhta hai — awkward"):
-/// CastIconButton already hides ITSELF (SizedBox.shrink()) whenever no
-/// cast device is reachable — that's correct, matches Spotify/YT Music
-/// only ever showing the icon when it's actually actionable. The bug was
-/// here, not there: this row used to wrap it in its own hardcoded 48×48
-/// circular Container, so hiding the icon left that surrounding circle
-/// behind — an empty filled blob with nothing inside it, exactly the
-/// "awkward" 5th control visible in the reference screenshot.
-///
-/// Fix mirrors CastIconButton's own visibility check (same
-/// AudioPrefs.castIconVisibilityNotifier + CastState.supported/status
-/// gates it reads internally) one level up, so the circle and the icon
-/// hide and show as a single unit — never a background with nothing in
-/// it. Wrapped in a cheap AnimatedSwitcher (scale+fade, 220ms) purely so
-/// the *rare* case of a cast device appearing mid-session slides the
-/// control in smoothly instead of popping — the common case (no device,
-/// every other user, every other launch) is a single SizedBox.shrink(),
-/// zero extra width, zero extra paint.
-class _CastSlot extends StatelessWidget {
-  const _CastSlot();
-
-  @override
-  Widget build(BuildContext context) {
-    final engine = context.watch<PlayerProvider>().engine;
-    return ValueListenableBuilder<String>(
-      valueListenable: AudioPrefs.castIconVisibilityNotifier,
-      builder: (context, visibility, _) {
-        if (visibility == 'hidden') return const SizedBox.shrink();
-        return StreamBuilder<CastState>(
-          stream: engine.castStateStream,
-          initialData: engine.castState,
-          builder: (context, snapshot) {
-            final state = snapshot.data ?? const CastState();
-            final shouldShow = visibility == 'always'
-                ? state.supported
-                : (state.supported &&
-                    state.status != CastConnectionStatus.unavailable);
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              transitionBuilder: (child, anim) => ScaleTransition(
-                scale: anim,
-                child: FadeTransition(opacity: anim, child: child),
-              ),
-              child: shouldShow
-                  ? Container(
-                      key: const ValueKey('cast_visible'),
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AurumTheme.bgSurfaceOf(context),
-                      ),
-                      child: const Center(child: CastIconButton(size: 21)),
-                    )
-                  : const SizedBox.shrink(key: ValueKey('cast_hidden')),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// Local copy of the icon-grid option tile used in the mix options sheet.
-class _GridOption extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _GridOption({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: () {
-        AurumHaptics.selection();
-        onTap();
-      },
-      child: Container(
-        // PREMIUM DEPTH ("options ekdum flat/dead lag rahe hai" — every
-        // button used to be one flat surface color with a hairline
-        // border and no shadow at all, so on a dark sheet the whole grid
-        // read as a single undifferentiated slab rather than distinct
-        // tappable buttons. A soft top-highlight-to-transparent gradient
-        // (glass-catching-light look) plus a real drop shadow gives each
-        // tile its own raised presence — cheap to paint (flat gradient +
-        // one shadow, no blur/image) so this costs nothing at sheet-open
-        // time even with 6+ tiles in the grid.
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isDark
-                ? [Colors.white.withOpacity(0.09), Colors.white.withOpacity(0.03)]
-                : [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.55)],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.12)
-                : Colors.black.withOpacity(0.06),
-            width: 0.8,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.22 : 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 19),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Local copy of the "GO TO" artist chip used in the mix options sheet.
-class _ArtistChip extends StatelessWidget {
-  final String name;
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  const _ArtistChip({
-    required this.name,
-    this.onTap,
-    this.icon = Icons.person_rounded,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap == null
-          ? null
-          : () {
-              AurumHaptics.selection();
-              onTap!();
-            },
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: AurumTheme.bgSurfaceOf(context),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AurumTheme.dividerOf(context)),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: AurumTheme.accentOf(context)),
-          const SizedBox(width: 6),
-          Text(
-            name,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
