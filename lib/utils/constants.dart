@@ -9,6 +9,10 @@ class AppConstants {
   static const String telegram  = 'https://t.me/mr_s_s01';
   static const String linkedin  = 'https://linkedin.com/in/shivam-s01';
   static const String github    = 'https://github.com/shivam-s01/Aurum-app';
+  // Support developer page — handle shown under the logo, and the
+  // "I'll help" target (UPI tip page on the Astra website).
+  static const String handle    = '@shivam_shrma.01';
+  static const String support   = 'https://astra.mmusic.workers.dev';
 
   // Legal pages (hosted on the Astra website)
   static const String privacyPolicy = 'https://astra.mmusic.workers.dev/privacy';

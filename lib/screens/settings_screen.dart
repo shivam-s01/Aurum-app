@@ -11,6 +11,7 @@ import 'settings_appearance_screen.dart';
 import 'settings_storage_screen.dart';
 import 'settings_privacy_screen.dart';
 import 'settings_about_screen.dart';
+import 'support_developer_screen.dart';
 import 'settings_language_screen.dart';
 import 'settings_region_screen.dart';
 import 'profile_screen.dart';
@@ -184,6 +185,25 @@ class SettingsScreen extends StatelessWidget {
                       onTap: () {
                         AurumHaptics.light();
                         AurumDepthRoute.to(context, const SettingsAboutScreen());
+                      },
+                      isLast: true,
+                    ),
+                  ],
+                )),
+                const SizedBox(height: 30),
+
+                // Very bottom of Settings: opens the "Support developer"
+                // page (separate screen — Astra Plus is untouched).
+                const _SectionHeader(icon: Icons.favorite_rounded, label: 'SUPPORT'),
+                AurumStaggerItem(index: 4, child: _SettingsGroup(
+                  children: [
+                    _SettingsRow(
+                      icon: Icons.favorite_rounded,
+                      title: 'Support developer',
+                      subtitle: 'Tip the maker and keep Astra improving',
+                      onTap: () {
+                        AurumHaptics.light();
+                        AurumDepthRoute.to(context, const SupportDeveloperScreen());
                       },
                       isLast: true,
                     ),
