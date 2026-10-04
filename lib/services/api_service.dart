@@ -382,9 +382,21 @@ class MoodGenreSection {
 }
 
 class MoodGenreCacheStore {
-  static const _key = 'mood_genre_sections_cache_v1';
-  static const _timeKey = 'mood_genre_sections_cache_time_v1';
+  static const _key = 'mood_genre_sections_cache_v2';
+  static const _timeKey = 'mood_genre_sections_cache_time_v2';
   static const _freshWindow = Duration(hours: 6);
+
+  // Share of tiles that have artwork (0..1).
+  static double artworkCoverage(List<MoodGenreSection> sections) {
+    var total = 0, withArt = 0;
+    for (final s in sections) {
+      for (final t in s.items) {
+        total++;
+        if (t.artworkUrl != null && t.artworkUrl!.isNotEmpty) withArt++;
+      }
+    }
+    return total == 0 ? 0 : withArt / total;
+  }
 
   static Future<void> save(List<MoodGenreSection> sections) async {
     try {
@@ -392,8 +404,14 @@ class MoodGenreCacheStore {
       final encoded =
           jsonEncode(sections.map((s) => s.toJson()).toList());
       await prefs.setString(_key, encoded);
+      // Tiles are always saved (so the grid still shows offline), but if
+      // artwork mostly failed to load the cache is stamped as already
+      // expired (epoch 0) so the next open retries instead of keeping
+      // image-less tiles "fresh" for 6h. Data Saver still treats any
+      // saved cache as fresh (see isFresh), so it never re-downloads.
+      final complete = artworkCoverage(sections) >= 0.7;
       await prefs.setInt(
-          _timeKey, DateTime.now().millisecondsSinceEpoch);
+          _timeKey, complete ? DateTime.now().millisecondsSinceEpoch : 0);
     } catch (_) {
 
     }
@@ -3206,6 +3224,7 @@ class ApiService {
 
   static Future<List<MoodGenreSection>> fetchMoodsAndGenres({
     Duration timeout = const Duration(seconds: 8),
+    bool withArtwork = true,
   }) async {
     final data = await _ytmMoodsAndGenresRaw(timeout: timeout);
     if (data == null) return const [];
@@ -3281,38 +3300,109 @@ class ApiService {
           items: tiles,
         ));
       }
-      return await _topupMoodGenreArtwork(sections);
+      return withArtwork ? await _topupMoodGenreArtwork(sections) : sections;
     } catch (e) {
       _log('[fetchMoodsAndGenres] parse error: $e');
       return const [];
     }
   }
 
+  // Artwork for ONE mood/genre tile. Previously this reused
+  // _searchAsHomeShelf, whose strict "quality" filters (song-count marker,
+  // low-quality title check, mix-id skip) rejected most results, and ~40
+  // searches fired at once so many timed out -> tiles ended up with no
+  // image and that empty result was then cached for 6h. This version is
+  // relaxed (first real thumbnail wins), retries once, and falls back to
+  // a songs search.
+  static String _firstThumbFromSearch(Map<String, dynamic> decoded) {
+    for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+      final thumbs = (item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+              ?['thumbnails'] as List?) ??
+          const [];
+      if (thumbs.isEmpty) continue;
+      final url = (thumbs.last['url'] ?? '').toString();
+      if (url.isNotEmpty) return _hqArtworkGeneric(url);
+    }
+    return '';
+  }
+
+  static Future<String> _moodTileArtworkFor(String title) async {
+    final attempts = <({String q, String? params})>[
+      (q: '$title playlist', params: _ytmPlaylistsFilterParam),
+      (q: '$title music', params: _ytmPlaylistsFilterParam),
+      (q: '$title songs', params: _ytmSongsFilterParam),
+    ];
+    for (final a in attempts) {
+      try {
+        final decoded = await _ytmSearchRaw(a.q,
+            params: a.params, timeout: const Duration(seconds: 8));
+        if (decoded == null) continue;
+        final art = _firstThumbFromSearch(decoded);
+        if (art.isNotEmpty) return art;
+      } catch (_) {}
+    }
+    return '';
+  }
+
+  // Copies already-known artwork (by title) from [old] onto [fresh].
+  static Future<List<MoodGenreSection>> topupMoodGenreArtworkFrom(
+    List<MoodGenreSection> fresh,
+    List<MoodGenreSection> old,
+  ) async {
+    final known = <String, String>{};
+    for (final s in old) {
+      for (final t in s.items) {
+        final a = t.artworkUrl;
+        if (a != null && a.isNotEmpty) known[t.title] = a;
+      }
+    }
+    if (known.isEmpty) return fresh;
+    return fresh
+        .map((s) => MoodGenreSection(
+              title: s.title,
+              items: s.items
+                  .map((t) => known.containsKey(t.title)
+                      ? t.copyWithArtwork(known[t.title])
+                      : t)
+                  .toList(),
+            ))
+        .toList();
+  }
+
+  static Future<List<MoodGenreSection>> topupMoodGenreArtwork(
+    List<MoodGenreSection> sections,
+  ) =>
+      _topupMoodGenreArtwork(sections);
+
   static Future<List<MoodGenreSection>> _topupMoodGenreArtwork(
     List<MoodGenreSection> sections,
   ) async {
-    final uniqueTitles = <String>{};
+    // Only titles that still have no artwork.
+    final missingTitles = <String>{};
+    final haveArt = <String, String>{};
     for (final section in sections) {
       for (final tile in section.items) {
-        uniqueTitles.add(tile.title);
+        final a = tile.artworkUrl;
+        if (a != null && a.isNotEmpty) {
+          haveArt[tile.title] = a;
+        } else {
+          missingTitles.add(tile.title);
+        }
       }
     }
-    if (uniqueTitles.isEmpty) return sections;
+    missingTitles.removeWhere(haveArt.containsKey);
+    if (missingTitles.isEmpty) return sections;
 
-    final titleList = uniqueTitles.toList();
-    final results = await Future.wait(
-      titleList.map(
-        (title) => _searchAsHomeShelf('$title playlist', title, take: 1)
-            .catchError((_) => null),
-      ),
-    );
-
-    final artworkByTitle = <String, String>{};
-    for (var i = 0; i < titleList.length; i++) {
-      final shelf = results[i];
-      if (shelf == null || shelf.items.isEmpty) continue;
-      final art = shelf.items.first.artworkUrl;
-      if (art.isNotEmpty) artworkByTitle[titleList[i]] = art;
+    // Throttled: small batches so YT Music doesn't drop/timeout requests.
+    final titleList = missingTitles.toList();
+    final artworkByTitle = <String, String>{...haveArt};
+    const batchSize = 5;
+    for (var i = 0; i < titleList.length; i += batchSize) {
+      final batch = titleList.skip(i).take(batchSize).toList();
+      final arts = await Future.wait(batch.map(_moodTileArtworkFor));
+      for (var j = 0; j < batch.length; j++) {
+        if (arts[j].isNotEmpty) artworkByTitle[batch[j]] = arts[j];
+      }
     }
     if (artworkByTitle.isEmpty) return sections;
 
@@ -3320,8 +3410,10 @@ class ApiService {
         .map((section) => MoodGenreSection(
               title: section.title,
               items: section.items
-                  .map((tile) =>
-                      tile.copyWithArtwork(artworkByTitle[tile.title]))
+                  .map((tile) => (tile.artworkUrl != null &&
+                          tile.artworkUrl!.isNotEmpty)
+                      ? tile
+                      : tile.copyWithArtwork(artworkByTitle[tile.title]))
                   .toList(),
             ))
         .toList();

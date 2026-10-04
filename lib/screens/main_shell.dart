@@ -67,6 +67,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 2: 2};
 
   void _handleNavTap(int barIndex) {
+    // Search button/tab tapped while ALREADY on Search: go straight into
+    // the search box (keyboard opens) instead of just closing it.
+    if (_barIndexToTab[barIndex] == 1 && _tab == 1) {
+      SearchScreen.focusRequest.value++;
+      return;
+    }
     primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
 
@@ -1294,7 +1300,7 @@ class _CompactMiniPlayerChip extends StatelessWidget {
               haptic: false,
               onTap: () => pushFullPlayer(context),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.only(left: 6, right: 10),
                 // FIX (recheck): was `mainAxisSize: MainAxisSize.min`.
                 // This chip sits inside an Expanded (in the row above),
                 // which DOES hand this Row a tight/definite width — but
@@ -1334,7 +1340,9 @@ class _CompactMiniPlayerChip extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    // Breathing room between the title and the pause button
+                    // (was 4px — pause sat right against the text).
+                    const SizedBox(width: 16),
                     Selector<PlayerProvider, ({bool isLoading, bool isPlaying})>(
                       selector: (_, p) =>
                           (isLoading: p.isLoading, isPlaying: p.isPlaying),

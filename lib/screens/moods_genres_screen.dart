@@ -75,7 +75,10 @@ class _MoodsGenresScreenState extends State<MoodsGenresScreen> {
     final fresh = await MoodGenreCacheStore.isFresh();
     if (cached != null && cached.isNotEmpty && fresh) return;
 
-    final sections = await ApiService.fetchMoodsAndGenres();
+    var sections = await ApiService.fetchMoodsAndGenres(withArtwork: false);
+    if (sections.isNotEmpty && cached != null && cached.isNotEmpty) {
+      sections = await ApiService.topupMoodGenreArtworkFrom(sections, cached);
+    }
     if (!mounted) return;
     if (sections.isEmpty) {
       // A failed/empty refresh shouldn't wipe an already-showing cached
@@ -90,7 +93,10 @@ class _MoodsGenresScreenState extends State<MoodsGenresScreen> {
       _sections = sections;
       _failed = false;
     });
-    unawaited(MoodGenreCacheStore.save(sections));
+    final full = await ApiService.topupMoodGenreArtwork(sections);
+    if (!mounted) return;
+    setState(() => _sections = full);
+    unawaited(MoodGenreCacheStore.save(full));
   }
 
   void _openCategory(MoodGenreCategory tile, Color tileColor) {

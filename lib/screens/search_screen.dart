@@ -184,6 +184,10 @@ class SearchScreen extends StatefulWidget {
   final bool isActive;
   const SearchScreen({super.key, this.isActive = true});
 
+  /// Bump to make the search field take focus and open the keyboard (used
+  /// by the nav bar's round search button while already on the Search tab).
+  static final ValueNotifier<int> focusRequest = ValueNotifier<int>(0);
+
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
@@ -320,6 +324,7 @@ class _SearchScreenState extends State<SearchScreen>
     super.initState();
     _loadHistory();
     _focusNode.addListener(_onFocusChange);
+    SearchScreen.focusRequest.addListener(_onFocusRequest);
     // Ping Saavn backend the moment search opens — absorbs Render free-tier
     // cold-start delay before the user finishes typing their query.
     ApiService.wakeSaavn();
@@ -334,10 +339,18 @@ class _SearchScreenState extends State<SearchScreen>
     }
     final fresh = await MoodGenreCacheStore.isFresh();
     if (cached != null && cached.isNotEmpty && fresh) return;
-    final sections = await ApiService.fetchMoodsAndGenres();
-    if (!mounted || sections.isEmpty) return;
-    setState(() => _moodSections = sections);
-    unawaited(MoodGenreCacheStore.save(sections));
+    // Show the tiles right away (no artwork yet), then fill artwork in.
+    final base = await ApiService.fetchMoodsAndGenres(withArtwork: false);
+    if (!mounted || base.isEmpty) return;
+    // Keep any artwork we already have from the old cache.
+    final withOld = (cached != null && cached.isNotEmpty)
+        ? await ApiService.topupMoodGenreArtworkFrom(base, cached)
+        : base;
+    setState(() => _moodSections = withOld);
+    final full = await ApiService.topupMoodGenreArtwork(withOld);
+    if (!mounted) return;
+    setState(() => _moodSections = full);
+    unawaited(MoodGenreCacheStore.save(full));
   }
 
   // ROOT FIX (keyboard stuck closed after leaving the Search tab): see
@@ -359,6 +372,22 @@ class _SearchScreenState extends State<SearchScreen>
     } else {
       _focusNode.canRequestFocus = true;
     }
+  }
+
+  // Search button tapped while already on this tab: jump straight into the
+  // field (focus + keyboard + history), exactly like tapping the box itself.
+  void _onFocusRequest() {
+    if (!mounted || !widget.isActive) return;
+    if (!_focusNode.canRequestFocus) _focusNode.canRequestFocus = true;
+    // Next frame, so it lands after the tab-switch's own unfocus/hide.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      if (_controller.text.trim().isEmpty && _history.isNotEmpty && !_showHistory) {
+        setState(() => _showHistory = true);
+      }
+    });
   }
 
   void _onFocusChange() {
@@ -383,6 +412,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   @override
   void dispose() {
+    SearchScreen.focusRequest.removeListener(_onFocusRequest);
     _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();

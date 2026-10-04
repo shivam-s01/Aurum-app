@@ -1534,22 +1534,62 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
   // order the instant the drop happens.
   List<Song> _localQueue = const [];
   int? _localCurrent;
-  bool _awaitingOwnReorderEcho = false;
+
+  // Exact order (song ids) the local list committed to after a drop /
+  // swipe-remove. The old single-use `_awaitingOwnReorderEcho` flag was
+  // consumed by the very first rebuild — which is the setState() of the
+  // drop itself, where the provider still holds the OLD order — so the
+  // list snapped back to the old order for a few frames and then jumped
+  // to the new one again (the "bump after release"). Now EVERY provider
+  // sync is ignored until it actually matches this target (or a timeout
+  // passes), however many rebuilds that takes.
+  List<String>? _pendingTargetIds;
+  DateTime? _pendingTargetSetAt;
+  static const _pendingTargetTimeout = Duration(seconds: 3);
+
+  // True while a row is being dragged: the list is never swapped under
+  // the user's finger by a provider sync (e.g. smart-queue appending).
+  bool _isDragging = false;
+  List<Song>? _latestProviderQueue;
+  int? _latestProviderCurrent;
+
+  // Provider calls (move / remove) run strictly one after another, so
+  // two quick reorders can't interleave inside PlayerProvider.
+  Future<void> _providerOps = Future<void>.value();
+  void _enqueueProviderOp(Future<void> Function() op) {
+    _providerOps = _providerOps.then((_) => op()).catchError((_) {});
+  }
+
+  void _commitPending() {
+    _pendingTargetIds = _localQueue.map((s) => s.id).toList();
+    _pendingTargetSetAt = DateTime.now();
+  }
 
   void _syncFromProvider(List<Song> queue, int? current) {
-    if (_awaitingOwnReorderEcho) {
-      final sameIds = queue.length == _localQueue.length &&
-          List.generate(queue.length, (i) => queue[i].id).join(',') ==
-              _localQueue.map((s) => s.id).join(',');
-      _awaitingOwnReorderEcho = false;
-      if (sameIds) {
-        _localCurrent = current;
-        return;
+    _latestProviderQueue = queue;
+    _latestProviderCurrent = current;
+    if (_isDragging) return;
+    final pending = _pendingTargetIds;
+    if (pending != null) {
+      final setAt = _pendingTargetSetAt;
+      final timedOut = setAt == null ||
+          DateTime.now().difference(setAt) > _pendingTargetTimeout;
+      // Matches when the provider caught up to our target (extra songs
+      // appended at the end by something else are fine).
+      var matches = queue.length >= pending.length;
+      if (matches) {
+        for (var i = 0; i < pending.length; i++) {
+          if (queue[i].id != pending[i]) {
+            matches = false;
+            break;
+          }
+        }
       }
+      if (!matches && !timedOut) return; // stale / in-flight — ignore
+      _pendingTargetIds = null;
+      _pendingTargetSetAt = null;
     }
-    // PlayerProvider.queue returns its internal list BY REFERENCE — see
-    // the identical defensive-copy comment in _QueuePageState for why
-    // this must never be assigned directly.
+    // PlayerProvider.queue is its internal list BY REFERENCE — always copy.
     _localQueue = List<Song>.of(queue);
     _localCurrent = current;
   }
@@ -1584,11 +1624,28 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
   Widget build(BuildContext context) {
     final song = widget.currentSong;
     final panel = widget.panel;
-    return Selector<PlayerProvider, ({List<Song> queue, int? current})>(
-      selector: (_, p) => (queue: p.queue, current: p.currentIndex),
+    // `sig` makes the Selector notice in-place reorders/removals of the
+    // provider's (same-instance) queue list, which plain list identity
+    // comparison would miss.
+    return Selector<PlayerProvider,
+        ({List<Song> queue, int? current, String sig})>(
+      selector: (_, p) => (
+        queue: p.queue,
+        current: p.currentIndex,
+        sig: p.queue.map((e) => e.id).join('|'),
+      ),
       builder: (context, data, _) {
         _syncFromProvider(data.queue, data.current);
         final queue = _localQueue;
+        // Tile keys follow the SONG (id + n-th occurrence), not its
+        // index or object instance, so a reorder only slides tiles and
+        // never remounts them.
+        final seenIds = <String, int>{};
+        final tileKeys = List<Key>.generate(queue.length, (i) {
+          final id = queue[i].id;
+          final n = (seenIds[id] = (seenIds[id] ?? 0) + 1);
+          return ValueKey('e2eq_${id}_$n');
+        });
         return Column(
           children: [
             const SizedBox(height: 10),
@@ -1946,60 +2003,86 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                       // Flutter's own 0→1 lift progress for this row (t),
                       // driven by the same reorder gesture — no extra
                       // AnimationController needed either way.
+                      // Material ancestor: the drag proxy lives in the
+                      // Navigator's Overlay (outside this sheet), where
+                      // bare Text falls back to the debug yellow-underline
+                      // style. Transparent Material fixes that, no look change.
                       proxyDecorator: (child, index, animation) {
-                        return AnimatedBuilder(
-                          animation: animation,
-                          builder: (context, _) {
-                            final t = Curves.easeOut.transform(animation.value);
-                            return Transform.scale(
-                              scale: 1.0 + (0.03 * t),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: t == 0
-                                      ? const []
-                                      : [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.35 * t),
-                                            blurRadius: 16 * t,
-                                            offset: Offset(0, 6 * t),
-                                          ),
-                                        ],
+                        return Material(
+                          type: MaterialType.transparency,
+                          child: AnimatedBuilder(
+                            animation: animation,
+                            builder: (context, _) {
+                              final t =
+                                  Curves.easeOut.transform(animation.value);
+                              return Transform.scale(
+                                scale: 1.0 + (0.03 * t),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: t == 0
+                                        ? const []
+                                        : [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withOpacity(0.35 * t),
+                                              blurRadius: 16 * t,
+                                              offset: Offset(0, 6 * t),
+                                            ),
+                                          ],
+                                  ),
+                                  child: child,
                                 ),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: child,
+                              );
+                            },
+                            child: child,
+                          ),
                         );
+                      },
+                      onReorderStart: (_) {
+                        _isDragging = true;
+                        AurumHaptics.light();
+                      },
+                      onReorderEnd: (_) {
+                        _isDragging = false;
+                        // Cancelled / same-position drop: re-adopt any
+                        // provider change that arrived mid-drag.
+                        final q = _latestProviderQueue;
+                        if (_pendingTargetIds == null && q != null && mounted) {
+                          setState(() => _syncFromProvider(
+                              q, _latestProviderCurrent));
+                        }
                       },
                       onReorder: (oldIndex, newIndex) {
                         if (_reorderLocked) return;
-                        AurumHaptics.light();
                         if (newIndex > oldIndex) newIndex -= 1;
-                        // FIX (see State class doc comment): local
-                        // optimistic reorder first, real provider update
-                        // fire-and-forget second — same pattern and same
-                        // reasoning as full_player_screen.dart's Up Next.
+                        if (oldIndex == newIndex) return;
+                        if (oldIndex < 0 || oldIndex >= _localQueue.length) {
+                          return;
+                        }
+                        AurumHaptics.light();
+                        final player = context.read<PlayerProvider>();
+                        final from = oldIndex;
+                        final to = newIndex;
+                        // Local optimistic order first, in the same frame
+                        // as the drop; provider update runs in the
+                        // background (serialized) and every sync before
+                        // it matches is ignored — see _pendingTargetIds.
                         setState(() {
-                          final item = _localQueue.removeAt(oldIndex);
-                          final clampedTo =
-                              newIndex.clamp(0, _localQueue.length);
+                          final item = _localQueue.removeAt(from);
+                          final clampedTo = to.clamp(0, _localQueue.length);
                           _localQueue.insert(clampedTo, item);
-                          if (oldIndex == _localCurrent) {
+                          final cur = _localCurrent ?? -1;
+                          if (from == cur) {
                             _localCurrent = clampedTo;
-                          } else if (oldIndex < (_localCurrent ?? -1) &&
-                              clampedTo >= (_localCurrent ?? -1)) {
-                            _localCurrent = (_localCurrent ?? 0) - 1;
-                          } else if (oldIndex > (_localCurrent ?? -1) &&
-                              clampedTo <= (_localCurrent ?? -1)) {
-                            _localCurrent = (_localCurrent ?? 0) + 1;
+                          } else if (from < cur && clampedTo >= cur) {
+                            _localCurrent = cur - 1;
+                          } else if (from > cur && clampedTo <= cur) {
+                            _localCurrent = cur + 1;
                           }
+                          _commitPending();
                         });
-                        _awaitingOwnReorderEcho = true;
-                        unawaited(context
-                            .read<PlayerProvider>()
-                            .moveQueueItem(oldIndex, newIndex));
+                        _enqueueProviderOp(() => player.moveQueueItem(from, to));
                       },
                       itemBuilder: (context, i) {
                         final s = queue[i];
@@ -2145,18 +2228,37 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                         // — everything else can be swiped away.
                         if (isCurrent) {
                           return KeyedSubtree(
-                            key: ValueKey(identityHashCode(s)),
+                            key: tileKeys[i],
                             child: row,
                           );
                         }
                         return Dismissible(
-                          key: ValueKey(identityHashCode(s)),
+                          key: tileKeys[i],
                           direction: DismissDirection.horizontal,
                           background: _dismissBackground(alignStart: true),
                           secondaryBackground: _dismissBackground(alignStart: false),
                           onDismissed: (_) {
                             AurumHaptics.medium();
-                            context.read<PlayerProvider>().removeFromQueue(i);
+                            // Index is resolved NOW from the live local
+                            // list (the build-time `i` can be stale after
+                            // the swipe animation), and the row is removed
+                            // locally in the same frame — a dismissed
+                            // Dismissible must leave the tree at once.
+                            var idx = _localQueue.indexWhere((x) => identical(x, s));
+                            if (idx < 0) {
+                              idx = _localQueue.indexWhere((x) => x.id == s.id);
+                            }
+                            if (idx < 0) return;
+                            final player = context.read<PlayerProvider>();
+                            setState(() {
+                              _localQueue.removeAt(idx);
+                              final cur = _localCurrent;
+                              if (cur != null && idx < cur) {
+                                _localCurrent = cur - 1;
+                              }
+                              _commitPending();
+                            });
+                            _enqueueProviderOp(() => player.removeFromQueue(idx));
                           },
                           child: row,
                         );

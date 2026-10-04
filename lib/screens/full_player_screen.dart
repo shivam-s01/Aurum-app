@@ -4967,9 +4967,16 @@ class _QueuePageState extends State<_QueuePage> {
     final mutedText =
         isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(60);
 
-    return Selector<PlayerProvider, ({List<Song> queue, int? current, bool building})>(
-      selector: (_, player) =>
-          (queue: player.queue, current: player.currentIndex, building: player.isBuildingQueue),
+    // `sig` = order signature, so in-place reorders/removals of the
+    // provider's same-instance queue list still trigger a rebuild.
+    return Selector<PlayerProvider,
+        ({List<Song> queue, int? current, bool building, String sig})>(
+      selector: (_, player) => (
+        queue: player.queue,
+        current: player.currentIndex,
+        building: player.isBuildingQueue,
+        sig: player.queue.map((e) => e.id).join('|'),
+      ),
       builder: (context, data, _) {
         _syncFromProvider(data.queue, data.current);
         final queue = _localQueue;
@@ -5114,7 +5121,11 @@ class _QueuePageState extends State<_QueuePage> {
                 // DecoratedBox, no extra controllers — cheap enough to run
                 // every frame of the drag.
                 proxyDecorator: (child, index, animation) {
-                  return AnimatedBuilder(
+                  // Material ancestor: the drag proxy renders in the
+                  // Overlay, outside this page's Material.
+                  return Material(
+                    type: MaterialType.transparency,
+                    child: AnimatedBuilder(
                     animation: animation,
                     builder: (context, _) {
                       final t = Curves.easeOut.transform(animation.value);
@@ -5137,6 +5148,7 @@ class _QueuePageState extends State<_QueuePage> {
                       );
                     },
                     child: child,
+                    ),
                   );
                 },
                 onReorder: (oldListIdx, newListIdx) {

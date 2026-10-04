@@ -5,6 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/favorites_provider.dart';
+import '../l10n/generated/app_localizations.dart';
+import 'aurum_like_button.dart';
+import 'premium_gate.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
@@ -753,14 +757,40 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                 if (compact) ...[
                   _PlayBtn(player: player, compact: true),
                   SizedBox(width: controlGap),
-                  _ControlBtn(
-                    icon: Icons.close_rounded,
-                    onTap: () {
-                      AurumHaptics.selection();
-                      player.stopAndClear();
-                    },
-                    size: controlSize,
-                    color: secondaryOnTint,
+                  // Heart (like) replaces the old × close button. Same sign-in
+                  // gate and favorites toggle the full player's heart uses.
+                  Selector<FavoritesProvider, bool>(
+                    selector: (_, f) => f.isFavorite(song.id),
+                    builder: (context, isLiked, _) => SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: FittedBox(
+                        child: AurumLikeButton(
+                          isLiked: isLiked,
+                          size: 20,
+                          likedColor: AurumTheme.accentOf(context),
+                          unlikedColor: secondaryOnTint,
+                          haptic: false,
+                          onTap: () {
+                            final l10n = AppLocalizations.of(context)!;
+                            PremiumGate.guard(
+                              context,
+                              feature: l10n.fpLikeSongsFeature,
+                              description: l10n.fpLikeSongsSignIn,
+                              requiresLoginOnly: true,
+                              onAllowed: () {
+                                isLiked
+                                    ? AurumHaptics.selection()
+                                    : AurumHaptics.medium();
+                                context
+                                    .read<FavoritesProvider>()
+                                    .toggleFavorite(song);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
                   ),
                 ] else ...[
                   _ControlBtn(
