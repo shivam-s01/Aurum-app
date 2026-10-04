@@ -52,6 +52,8 @@ import 'services/notification_service.dart';
 import 'services/update_push_service.dart';
 import 'services/update_service.dart';
 import 'services/api_service.dart';
+import 'services/home_feed_cache.dart';
+import 'services/recommendation_engine.dart';
 import 'services/auth_service.dart';
 import 'services/audio_prefs.dart';
 import 'services/battery_saver_controller.dart';
@@ -241,6 +243,14 @@ Future<void> main() async {
 
   runApp(AurumApp(engine: _audioEngine = NativeAudioEngine()));
 
+  // FAST FIRST HOME (new users): start the Home shelves fetch NOW, before
+  // anything else after runApp — it runs while the user is still on the
+  // splash/onboarding screens, so by the time Home appears the strip is
+  // already cached (HomeFeedCache) and paints instantly instead of
+  // shimmering. HomeScreen's own fetch shares this in-flight request
+  // (see ApiService.fetchHomeShelvesForDisplay) — no duplicate traffic.
+  unawaited(_prefetchHomeFeed());
+
   // ── COLD-START HANG FIX — everything below used to run BEFORE runApp() ──
   // "app open karte hi bahut lag/hang hota hai" traced to this function
   // chaining 6+ sequential `await` calls ahead of runApp(): Hive init,
@@ -335,9 +345,12 @@ Future<void> main() async {
     DataSaverController.instance.start();
   } catch (_) {}
 
-  try {
-    await Permission.notification.request();
-  } catch (_) {}
+  // NOTIFICATION PERMISSION (UX fix): used to be requested here, on the very
+  // first frame of the very first launch, before the user had seen anything
+  // — the lowest-opt-in moment possible. New users now get the prompt right
+  // AFTER onboarding finishes (see _OnboardingGate onDone); users who
+  // already completed onboarding get it once, ~20s into a later session.
+  unawaited(_askNotificationOnce(afterDelay: const Duration(seconds: 20)));
 
   try {
     await NotificationService.instance.init();
@@ -854,7 +867,11 @@ class _OnboardingGateState extends State<_OnboardingGate> {
     }
     if (_done == false) {
       return OnboardingScreen(
-        onDone: () => setState(() => _done = true),
+        onDone: () {
+          setState(() => _done = true);
+          unawaited(_askNotificationOnce(
+              afterDelay: const Duration(seconds: 2), force: true));
+        },
       );
     }
     return widget.child;
@@ -988,3 +1005,39 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
 }
 
 
+
+
+/// Warms the REAL Home content (YT Music shelves + regional fillers) before
+/// HomeScreen exists. The standalone artist strip is no longer rendered on
+/// Home, so it is deliberately NOT prefetched (it cost ~70 requests that
+/// competed with the shelves for bandwidth). Fully fail-soft: any error just
+/// means HomeScreen fetches normally.
+Future<void> _prefetchHomeFeed() async {
+  try {
+    if (await HomeFeedCache.isHomeShelvesFresh()) return;
+    // Personalized "Similar to X" shelves read the taste profile — it must be
+    // loaded first or returning users would get (and cache) un-personalized
+    // shelves. Idempotent + cheap.
+    await RecommendationEngine.load();
+    final shelves = await ApiService.fetchHomeShelvesForDisplay();
+    if (shelves.isNotEmpty) {
+      await HomeFeedCache.saveHomeShelves(shelves);
+    }
+  } catch (_) {}
+}
+
+/// Shows the system notification prompt at most once per install, and only
+/// after onboarding (so it never fires on the very first frame).
+Future<void> _askNotificationOnce({
+  required Duration afterDelay,
+  bool force = false,
+}) async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    if (p.getBool('notif_prompted_v1') ?? false) return;
+    if (!force && !(p.getBool('onboarding_complete') ?? false)) return;
+    await Future<void>.delayed(afterDelay);
+    await p.setBool('notif_prompted_v1', true);
+    await Permission.notification.request();
+  } catch (_) {}
+}

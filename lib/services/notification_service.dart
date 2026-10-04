@@ -66,9 +66,10 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(updateChannel);
 
-      await _plugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestNotificationsPermission();
+      // NOTE: no requestNotificationsPermission() here on purpose — the
+      // system prompt is shown exactly once, after onboarding, by
+      // main.dart's _askNotificationOnce (a prompt on first frame, before
+      // the user has seen the app, gets denied far more often).
     }
 
     _initialized = true;

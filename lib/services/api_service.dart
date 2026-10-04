@@ -3718,7 +3718,22 @@ class ApiService {
     return perArtist.whereType<HomeShelf>().toList();
   }
 
-  static Future<List<HomeShelf>> fetchHomeShelvesForDisplay({int? refreshSeed}) async {
+  // Shared in-flight request for the COLD (seed 0) home shelves: main()
+  // starts this during splash/onboarding; HomeScreen's own cold load joins
+  // the same request instead of firing a second identical one. Pull-to-
+  // refresh (non-zero seed) always does its own real fetch.
+  static Future<List<HomeShelf>>? _homeShelvesInflight;
+
+  static Future<List<HomeShelf>> fetchHomeShelvesForDisplay({int? refreshSeed}) {
+    if ((refreshSeed ?? 0) != 0) {
+      return _fetchHomeShelvesForDisplayImpl(refreshSeed: refreshSeed);
+    }
+    return _homeShelvesInflight ??= _fetchHomeShelvesForDisplayImpl(
+            refreshSeed: refreshSeed)
+        .whenComplete(() => _homeShelvesInflight = null);
+  }
+
+  static Future<List<HomeShelf>> _fetchHomeShelvesForDisplayImpl({int? refreshSeed}) async {
     // LOW-END / NEW-USER FAST LOAD: pehle har cold start pe ~10 network calls
     // ek saath (real + similar + featured + 6 seeded) — weak phone/net pe
     // heavy aur slow. Ab pehle sirf `real` (+ personalized similar) aata hai;
@@ -6272,9 +6287,12 @@ class ApiService {
     return merged;
   }
 
-  static Future<void> fetchHomeArtistsStreaming(
-    void Function(List<ArtistSimple> artists) onUpdate,
-  ) async {
+  // Shared in-flight request: main() prefetches the artist strip during the
+  // splash/onboarding; HomeScreen's own call joins it instead of firing a
+  // second identical network round-trip.
+  static Future<List<ArtistSimple>>? _homeArtistsInflight;
+
+  static Future<List<ArtistSimple>> _fetchHomeArtistsOnce() async {
     List<YtHomeArtist> ytArtists = const [];
     try {
       ytArtists = await fetchYtMusicHomeArtists(limit: 40);
@@ -6287,7 +6305,15 @@ class ApiService {
       if (key.isEmpty || !seenNames.add(key)) continue;
       merged.add(ArtistSimple(id: 'yt_${a.channelId}', name: a.name, imageUrl: a.imageUrl));
     }
-    onUpdate(_uniqueIds(merged));
+    return _uniqueIds(merged);
+  }
+
+  static Future<void> fetchHomeArtistsStreaming(
+    void Function(List<ArtistSimple> artists) onUpdate,
+  ) async {
+    final f = _homeArtistsInflight ??=
+        _fetchHomeArtistsOnce().whenComplete(() => _homeArtistsInflight = null);
+    onUpdate(await f);
   }
 
   static List<ArtistSimple> _uniqueIds(List<ArtistSimple> list) {

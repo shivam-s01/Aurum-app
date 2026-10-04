@@ -46,7 +46,9 @@ class UpdatePushService {
       await Firebase.initializeApp();
 
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      // Permission prompt intentionally NOT shown here (see main.dart's
+      // _askNotificationOnce — asked once, after onboarding). Token/topic
+      // subscription below works regardless; delivery starts once granted.
       final sp = await SharedPreferences.getInstance();
       if (!AudioPrefs.dataSaverActiveNotifier.value ||
           sp.getBool('fcm_topic_subscribed_v1') != true) {

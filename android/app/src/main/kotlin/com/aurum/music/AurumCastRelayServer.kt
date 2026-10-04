@@ -203,7 +203,11 @@ class AurumCastRelayServer {
      *  "192.168.1.42") — the SAME network the Cast device is on. */
     fun buildRelayUrl(localIp: String, upstreamUrl: String, headers: Map<String, String>): String? {
         if (!ensureStarted()) return null
-        val token = "t${tokenCounter.incrementAndGet()}_${System.currentTimeMillis()}"
+        // SECURITY: unguessable 128-bit token. The old "t<counter>_<millis>"
+        // was predictable, so anyone on the same Wi-Fi could enumerate
+        // /stream/<token> and pull the relayed audio (and its headers).
+        val rnd = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val token = rnd.joinToString("") { "%02x".format(it) }
         registry[token] = RelayTarget(upstreamUrl, headers)
         // Cap registry size defensively — a long queue shouldn't leak
         // unbounded entries across a long cast session.

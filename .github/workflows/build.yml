@@ -110,6 +110,7 @@ jobs:
           # committed for this at all.
           for attempt in 1 2 3; do
             if flutter build apk --release --split-per-abi \
+              --obfuscate --split-debug-info=build/symbols \
               --build-name="$BASE_VERSION" --build-number="$BUILD_NUMBER" \
               --dart-define=GH_RELEASE_TOKEN="$GH_RELEASE_TOKEN"; then
               exit 0

@@ -131,3 +131,13 @@
 -dontwarn java.beans.**
 -dontwarn javax.script.**
 -dontwarn org.mozilla.javascript.**
+
+
+# SECURITY: strip verbose/debug/info/warn logging from release builds so
+# URLs, tokens and internal state never reach logcat. (Log.e is kept.)
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+}

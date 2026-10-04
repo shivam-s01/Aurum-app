@@ -631,7 +631,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!lib.hasLoaded) lib.load();
     HomeFeedCache.isArtistsFresh().then((fresh) async {
       if (!mounted) return;
-      if (fresh) return;
+      if (fresh) {
+        // main()'s prefetch may have saved the cache between the hydrate
+        // read above and this check — re-hydrate so the strip never stays
+        // empty in that narrow window.
+        if (_homeArtists.isEmpty) _hydrateFromCache();
+        return;
+      }
       if (await HomeFeedCache.coldAttemptedRecently('artists')) return;
       await HomeFeedCache.markColdAttempt('artists');
       if (!mounted) return;
@@ -3801,10 +3807,51 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
   // columns before running out.
   static const int _kMaxShown = 24;
 
+  RecentlyPlayedProvider? _recent;
+  String? _seedKey; // top-3 history ids the current picks were built from
+  int _playsSinceLoad = 0;
+  bool _loading = false;
+
+  String _currentSeedKey() => _recent!.history
+      .take(_kSeedCount)
+      .map((s) => s.id)
+      .where((id) => id.isNotEmpty)
+      .join('|');
+
   @override
   void initState() {
     super.initState();
     _hydrateFromCache();
+    // REAL DATA AFTER FIRST PLAYS: new users start with no history, so Quick
+    // Picks stays hidden (and, with Data Saver, the cold-attempt guard keeps
+    // it hidden). Reload as soon as history exists, and quietly again every
+    // few new plays so the row follows what the user is actually listening to.
+    _recent = context.read<RecentlyPlayedProvider>();
+    _seedKey = _currentSeedKey();
+    _recent!.addListener(_onHistoryChanged);
+  }
+
+  @override
+  void dispose() {
+    _recent?.removeListener(_onHistoryChanged);
+    super.dispose();
+  }
+
+  void _onHistoryChanged() {
+    if (!mounted || _recent == null || _loading) return;
+    final key = _currentSeedKey();
+    if (key.isEmpty || key == _seedKey) return;
+    final hadSongs = _songs != null && _songs!.isNotEmpty;
+    final firstKey = _seedKey == null || _seedKey!.isEmpty;
+    _seedKey = key;
+    // History finishing its disk load at launch (empty -> populated) with
+    // cached picks already showing is NOT a new play — don't count/refetch.
+    if (firstKey && hadSongs) return;
+    _playsSinceLoad++;
+    if (hadSongs && _playsSinceLoad < 3) return;
+    _playsSinceLoad = 0;
+    _loading = true;
+    _load(silent: hadSongs).whenComplete(() => _loading = false);
   }
 
   Future<void> _hydrateFromCache() async {
@@ -4279,6 +4326,40 @@ class _HomeShelvesAndSimilarSectionState
   void initState() {
     super.initState();
     _hydrateFromCache();
+    // REAL DATA AFTER FIRST PLAYS: a brand-new user has no listening history
+    // at cold start, so the personalized rows ("Similar to X", song rows)
+    // load empty. The moment history appears (first song played) fetch them
+    // for real — without waiting for the next app launch / pull-to-refresh.
+    _recent = context.read<RecentlyPlayedProvider>();
+    _hadHistory = _recent!.history.isNotEmpty;
+    _recent!.addListener(_onHistoryChanged);
+  }
+
+  RecentlyPlayedProvider? _recent;
+  bool _hadHistory = false;
+  bool _personalLoading = false;
+
+  Future<void> _onHistoryChanged() async {
+    if (_hadHistory || _personalLoading) return;
+    if (_recent == null || _recent!.history.isEmpty) return;
+    _hadHistory = true;
+    // Returning user (history just finished loading from disk): their rows
+    // come from the 6-hour cache — don't refetch on every launch. Empty rows
+    // are never saved/stamped, so a brand-new user always fails this check.
+    if (await HomeFeedCache.isSimilarArtistRowsFresh() &&
+        await HomeFeedCache.isSimilarSongRowsFresh()) {
+      return;
+    }
+    if (!mounted) return;
+    _personalLoading = true;
+    await _load(skipShelves: true);
+    _personalLoading = false;
+  }
+
+  @override
+  void dispose() {
+    _recent?.removeListener(_onHistoryChanged);
+    super.dispose();
   }
 
   // ADDED ("MB kam use ho... koi feature cut na ho" — 2026-09-14, extended
@@ -4413,61 +4494,55 @@ class _HomeShelvesAndSimilarSectionState
     final similarSongsFuture =
         skipSimilarSongs ? null : _loadSimilarSongRows();
 
-    List<HomeShelf>? shelves;
-    bool failed = false;
+    // PROGRESSIVE PAINT: each of the three rows is applied the moment ITS
+    // OWN fetch finishes. Before, setState waited for all three, so the
+    // slowest one (usually the personalized similar rows) held back the
+    // shelves that were already ready — the main reason first Home felt slow.
+    final tasks = <Future<void>>[];
     if (shelvesFuture != null) {
-      try {
-        shelves = await shelvesFuture;
-        failed = shelves.isEmpty;
-      } catch (_) {
-        shelves = const [];
-        failed = true;
-      }
+      tasks.add(() async {
+        List<HomeShelf> shelves;
+        bool failed;
+        try {
+          shelves = await shelvesFuture;
+          failed = shelves.isEmpty;
+        } catch (_) {
+          shelves = const [];
+          failed = true;
+        }
+        if (!mounted) return;
+        setState(() {
+          if (shelves.isNotEmpty || _shelves == null) {
+            _shelves = shelves;
+            _shelvesFailed = failed;
+          }
+        });
+        unawaited(HomeFeedCache.saveHomeShelves(shelves));
+      }());
     }
-    final similar = similarFuture == null ? null : await similarFuture;
-    final similarSongs =
-        similarSongsFuture == null ? null : await similarSongsFuture;
-
-    if (!mounted) return;
-    setState(() {
-      // shelves is null when this fetch was skipped (fresh cache already
-      // hydrated _shelves in _hydrateFromCache) — leave whatever's
-      // already in state alone in that case. Only overwrite when this
-      // refresh actually produced something (or genuinely came back
-      // empty on a first load, same as before).
-      if (shelves != null && (shelves.isNotEmpty || _shelves == null)) {
-        _shelves = shelves;
-        _shelvesFailed = failed;
-      }
-      // similar/similarSongs are null when that fetch was skipped
-      // (fresh cache already hydrated _similarRows/_similarSongRows in
-      // _hydrateFromCache) — leave whatever's already in state alone in
-      // that case rather than treating "skipped" the same as "fetched
-      // and came back empty".
-      if (similar != null && (similar.isNotEmpty || _similarRows == null)) {
-        _similarRows = similar;
-      }
-      if (similarSongs != null &&
-          (similarSongs.isNotEmpty || _similarSongRows == null)) {
-        _similarSongRows = similarSongs;
-      }
-    });
-
-    // Persist real fetched results to disk so the NEXT cold start can
-    // paint instantly instead of re-fetching (see HomeFeedCache.
-    // saveHomeShelves/saveSimilarArtistRows/saveSimilarSongRows' own doc
-    // comments). Only saves when this call actually fetched fresh data —
-    // a skipped fetch has nothing new to save, and all three save
-    // functions already no-op on an empty list.
-    if (shelves != null) {
-      unawaited(HomeFeedCache.saveHomeShelves(shelves));
+    if (similarFuture != null) {
+      tasks.add(() async {
+        final similar = await similarFuture;
+        if (!mounted) return;
+        setState(() {
+          if (similar.isNotEmpty || _similarRows == null) _similarRows = similar;
+        });
+        unawaited(HomeFeedCache.saveSimilarArtistRows(similar));
+      }());
     }
-    if (similar != null) {
-      unawaited(HomeFeedCache.saveSimilarArtistRows(similar));
+    if (similarSongsFuture != null) {
+      tasks.add(() async {
+        final songs = await similarSongsFuture;
+        if (!mounted) return;
+        setState(() {
+          if (songs.isNotEmpty || _similarSongRows == null) {
+            _similarSongRows = songs;
+          }
+        });
+        unawaited(HomeFeedCache.saveSimilarSongRows(songs));
+      }());
     }
-    if (similarSongs != null) {
-      unawaited(HomeFeedCache.saveSimilarSongRows(similarSongs));
-    }
+    await Future.wait(tasks);
   }
 
 
