@@ -218,7 +218,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: Row(
         children: [
           Text(
-            'Library',
+            AppLocalizations.of(context)!.navLibrary,
             style: TextStyle(
               color: AurumTheme.accentOf(context),
               fontSize: 30,
@@ -250,11 +250,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // background now, everything else just sits on the shared pill.
   Widget _buildTabRow(BuildContext context) {
     final tabs = <_LibTab, String>{
-      _LibTab.library: 'Library',
-      _LibTab.playlists: 'Playlists',
-      _LibTab.songs: 'Songs',
-      _LibTab.artists: 'Artists',
-      _LibTab.albums: 'Albums',
+      _LibTab.library: AppLocalizations.of(context)!.navLibrary,
+      _LibTab.playlists: AppLocalizations.of(context)!.libraryPlaylists,
+      _LibTab.songs: AppLocalizations.of(context)!.librarySongs,
+      _LibTab.artists: AppLocalizations.of(context)!.libraryArtists,
+      _LibTab.albums: AppLocalizations.of(context)!.libraryAlbums,
     };
 
     return Padding(
@@ -538,7 +538,7 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
               children: [
                 _SongsFilterChip(
-                  label: 'Liked',
+                  label: AppLocalizations.of(context)!.libraryLiked,
                   selected: _filter == _SongsFilter.liked,
                   onTap: () {
                     AurumHaptics.selection();
@@ -547,7 +547,7 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
                 ),
                 const SizedBox(width: 10),
                 _SongsFilterChip(
-                  label: 'Downloaded',
+                  label: AppLocalizations.of(context)!.libraryDownloaded,
                   selected: _filter == _SongsFilter.downloaded,
                   onTap: () {
                     AurumHaptics.selection();
@@ -556,7 +556,7 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
                 ),
                 const SizedBox(width: 10),
                 _SongsFilterChip(
-                  label: 'All Songs',
+                  label: AppLocalizations.of(context)!.libraryAllSongs,
                   selected: _filter == _SongsFilter.all,
                   onTap: () {
                     AurumHaptics.selection();
@@ -580,11 +580,11 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: _HeroActionCard(
-              title: 'Your Collection',
+              title: AppLocalizations.of(context)!.libraryYourCollection,
               subtitle: ordered.isEmpty
-                  ? 'No songs yet'
-                  : '${ordered.length} Song${ordered.length == 1 ? '' : 's'} • $durationLabel',
-              buttonLabel: 'Play',
+                  ? AppLocalizations.of(context)!.libraryNoSongsYetInPlaylist
+                  : '${AppLocalizations.of(context)!.librarySongsCount(ordered.length)} • $durationLabel',
+              buttonLabel: AppLocalizations.of(context)!.commonPlay,
               icon: Icons.play_arrow_rounded,
               onButtonTap: ordered.isEmpty
                   ? null
@@ -603,12 +603,12 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
             hasScrollBody: false,
             child: _AurumEmptyState(
               icon: Icons.music_note_rounded,
-              title: 'No songs found',
+              title: AppLocalizations.of(context)!.albumNoSongsFound,
               subtitle: _filter == _SongsFilter.liked
-                  ? 'Songs you like will show up here.'
+                  ? AppLocalizations.of(context)!.libraryLikedEmptyDesc
                   : _filter == _SongsFilter.downloaded
-                      ? 'Downloaded songs will show up here.'
-                      : 'Songs from your device will show up here.',
+                      ? AppLocalizations.of(context)!.libraryDownloadedEmptyDesc
+                      : AppLocalizations.of(context)!.libraryLocalEmptyDesc,
             ),
           )
         else
@@ -698,7 +698,7 @@ class _SortRow extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    newestFirst ? 'Newest first' : 'Oldest first',
+                    newestFirst ? AppLocalizations.of(context)!.libraryNewestFirst : AppLocalizations.of(context)!.libraryOldestFirst,
                     style: TextStyle(
                       color: AurumTheme.accentOf(context),
                       fontSize: 13.5,
@@ -952,7 +952,7 @@ class _AurumSongRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      song.artist.isEmpty ? 'Unknown artist' : song.artist,
+                      song.artist.isEmpty ? AppLocalizations.of(context)!.libraryUnknownArtist : song.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1041,7 +1041,7 @@ class _AurumSongRow extends StatelessWidget {
                   color: Colors.redAccent,
                 ),
                 title: Text(
-                  fav.isFavorite(song.id) ? 'Remove from Liked' : 'Add to Liked',
+                  fav.isFavorite(song.id) ? AppLocalizations.of(context)!.libraryRemoveFromLiked : AppLocalizations.of(context)!.libraryAddToLiked,
                   style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
                 ),
                 onTap: () {
@@ -1053,7 +1053,7 @@ class _AurumSongRow extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
-              title: Text('Add to Playlist',
+              title: Text(AppLocalizations.of(context)!.libraryAddToPlaylist,
                   style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
             ),
@@ -1150,7 +1150,7 @@ class _AurumPermissionState extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Permission needed',
+              AppLocalizations.of(context)!.libraryPermissionRequired,
               style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 16,
@@ -1159,7 +1159,7 @@ class _AurumPermissionState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Aurum needs access to your device storage to show local songs.',
+              AppLocalizations.of(context)!.libraryStoragePermissionDesc,
               textAlign: TextAlign.center,
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13, height: 1.4),
             ),
@@ -1170,9 +1170,9 @@ class _AurumPermissionState extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(22),
                 onTap: onGrant,
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 26, vertical: 12),
-                  child: Text('Grant permission',
+                  child: Text(AppLocalizations.of(context)!.libraryGrantPermission,
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 14,
@@ -1299,7 +1299,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              count == 1 ? 'Unfollow this artist?' : 'Unfollow $count artists?',
+              AppLocalizations.of(context)!.libraryUnfollowArtistsConfirm(count),
               style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 17,
@@ -1312,7 +1312,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(sheetContext, false),
-                    child: const Text('Cancel'),
+                    child: Text(AppLocalizations.of(context)!.commonCancel),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1320,7 +1320,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                   child: FilledButton(
                     style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
                     onPressed: () => Navigator.pop(sheetContext, true),
-                    child: const Text('Unfollow'),
+                    child: Text(AppLocalizations.of(context)!.libraryUnfollow),
                   ),
                 ),
               ],
@@ -1409,7 +1409,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Loading artists…',
+              Text(AppLocalizations.of(context)!.libraryLoadingArtists,
                   style: TextStyle(color: AurumTheme.textMutedOf(context))),
               const SizedBox(height: 12),
               const AurumM3Loader(),
@@ -1570,7 +1570,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                       ),
                       const SizedBox(width: 12),
                       Text(
-                        '${_selectedIds.length} selected',
+                        AppLocalizations.of(context)!.librarySelectedCount(_selectedIds.length),
                         style: TextStyle(
                           color: AurumTheme.textPrimaryOf(context),
                           fontSize: 14.5,
@@ -1600,7 +1600,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                             });
                           },
                           child: Text(
-                            allSelected ? 'Deselect all' : 'Select all',
+                            allSelected ? AppLocalizations.of(context)!.libraryDeselectAll : AppLocalizations.of(context)!.librarySelectAll,
                             style: TextStyle(
                               color: AurumTheme.accentOf(context),
                               fontSize: 14,
@@ -1640,7 +1640,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            'Subscribed Only',
+                            AppLocalizations.of(context)!.librarySubscribedOnly,
                             style: TextStyle(
                               color: AurumTheme.accentOf(context),
                               fontSize: 12.5,
@@ -1658,8 +1658,8 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
             hasScrollBody: false,
             child: _AurumEmptyState(
               icon: Icons.person_rounded,
-              title: 'No artists saved yet',
-              subtitle: 'Artists you follow will appear here.',
+              title: AppLocalizations.of(context)!.libraryNoArtistsSavedYet,
+              subtitle: AppLocalizations.of(context)!.libraryArtistsYouFollowAppearHere,
             ),
           )
         else
@@ -1756,7 +1756,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
       if (!mounted) return;
       final songs = artist?.topSongs ?? const <Song>[];
       if (songs.isEmpty) {
-        AurumSnack.show(context, 'No playable songs found for $name');
+        AurumSnack.show(context, AppLocalizations.of(context)!.libraryNoPlayableSongsFor(name));
         return;
       }
       context.read<PlayerProvider>().playSong(
@@ -1767,7 +1767,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
           );
     } catch (e) {
       if (!mounted) return;
-      AurumSnack.show(context, 'Couldn\'t load songs for $name');
+      AurumSnack.show(context, AppLocalizations.of(context)!.libraryCouldntLoadSongsFor(name));
     } finally {
       if (mounted) setState(() => _resolving = false);
     }
@@ -1871,7 +1871,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'TOP ARTIST',
+                        AppLocalizations.of(context)!.libraryTopArtistEyebrow,
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 11.5,
@@ -1881,7 +1881,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        name.isEmpty ? 'Unknown' : name,
+                        name.isEmpty ? AppLocalizations.of(context)!.libraryUnknown : name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -1921,7 +1921,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
                                           size: 18),
                                     const SizedBox(width: 6),
                                     Text(
-                                      _resolving ? 'Loading…' : 'Play all',
+                                      _resolving ? AppLocalizations.of(context)!.libraryLoading : AppLocalizations.of(context)!.commonPlayAll,
                                       style: TextStyle(
                                         color: AurumTheme.accentDarkOf(context),
                                         fontSize: 13.5,
@@ -1993,7 +1993,7 @@ class _TopArtistAndCountRowState extends State<_TopArtistAndCountRow> {
                         ),
                       ),
                       Text(
-                        totalCount == 1 ? 'artist followed' : 'artists followed',
+                        AppLocalizations.of(context)!.libraryArtistsFollowedLabel(totalCount),
                         style: TextStyle(
                           color: AurumTheme.textMutedOf(context),
                           fontSize: 12.5,
@@ -2058,7 +2058,7 @@ class _AurumArtistRowState extends State<_AurumArtistRow> {
       if (!mounted) return;
       final songs = artist?.topSongs ?? const <Song>[];
       if (songs.isEmpty) {
-        AurumSnack.show(context, 'No playable songs found for $name');
+        AurumSnack.show(context, AppLocalizations.of(context)!.libraryNoPlayableSongsFor(name));
         return;
       }
       context.read<PlayerProvider>().playSong(
@@ -2069,7 +2069,7 @@ class _AurumArtistRowState extends State<_AurumArtistRow> {
           );
     } catch (e) {
       if (!mounted) return;
-      AurumSnack.show(context, 'Couldn\'t load songs for $name');
+      AurumSnack.show(context, AppLocalizations.of(context)!.libraryCouldntLoadSongsFor(name));
     } finally {
       if (mounted) setState(() => _resolving = false);
     }
@@ -2137,7 +2137,7 @@ class _AurumArtistRowState extends State<_AurumArtistRow> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name.isEmpty ? 'Unknown' : name,
+                      name.isEmpty ? AppLocalizations.of(context)!.libraryUnknown : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -2148,7 +2148,7 @@ class _AurumArtistRowState extends State<_AurumArtistRow> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Artist',
+                      AppLocalizations.of(context)!.libraryArtistTag,
                       style: TextStyle(
                         color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
@@ -2273,8 +2273,8 @@ class _AurumAlbumsTabState extends State<_AurumAlbumsTab> {
             hasScrollBody: false,
             child: _AurumEmptyState(
               icon: Icons.album_rounded,
-              title: 'No albums saved yet',
-              subtitle: 'Albums you save will appear here.',
+              title: AppLocalizations.of(context)!.libraryNoAlbumsSavedYet,
+              subtitle: AppLocalizations.of(context)!.libraryAlbumsYouSaveAppearHere,
             ),
           )
         else if (_gridView)
@@ -2416,7 +2416,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'FEATURED ALBUM',
+                  AppLocalizations.of(context)!.libraryFeaturedAlbum,
                   style: TextStyle(
                     color: AurumTheme.accentOf(context).withOpacity(0.75),
                     fontSize: 11.5,
@@ -2426,7 +2426,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  name.isEmpty ? 'Unknown album' : name,
+                  name.isEmpty ? AppLocalizations.of(context)!.libraryUnknownAlbum : name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -2445,14 +2445,14 @@ class _FeaturedAlbumHero extends StatelessWidget {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
                         onTap: open,
-                        child: const Padding(
+                        child: Padding(
                           padding: EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
                               SizedBox(width: 8),
-                              Text('Play',
+                              Text(AppLocalizations.of(context)!.commonPlay,
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 14.5,
@@ -2530,7 +2530,7 @@ class _AurumAlbumTile extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              name.isEmpty ? 'Unknown album' : name,
+              name.isEmpty ? AppLocalizations.of(context)!.libraryUnknownAlbum : name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -2586,7 +2586,7 @@ class _AurumAlbumTile extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.bookmark_remove_rounded, color: Colors.redAccent),
-              title: Text('Remove from saved albums',
+              title: Text(AppLocalizations.of(context)!.libraryRemoveFromSavedAlbums,
                   style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -2652,7 +2652,7 @@ class _AurumAlbumRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name.isEmpty ? 'Unknown album' : name,
+                      name.isEmpty ? AppLocalizations.of(context)!.libraryUnknownAlbum : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -2663,7 +2663,7 @@ class _AurumAlbumRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Album',
+                      AppLocalizations.of(context)!.libraryAlbumTag,
                       style: TextStyle(
                         color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
@@ -2718,7 +2718,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
     final recent = recentlyPlayed.history.take(10).toList();
     final hasRecent = recent.isNotEmpty;
     final heroTitle = !hasRecent
-        ? 'Your Library'
+        ? AppLocalizations.of(context)!.libraryYourLibrary
         : (recent.first.album.isNotEmpty ? recent.first.album : recent.first.title);
     final previewPlaylists = playlists.playlists.take(2).toList();
     // Same de-dupe/validity filter the Artists tab itself applies to
@@ -2741,7 +2741,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: _HeroActionCard(
-              eyebrow: hasRecent ? 'Most Played' : null,
+              eyebrow: hasRecent ? AppLocalizations.of(context)!.libraryMostPlayed : null,
               title: heroTitle,
               // FIX (hardcoded "1 song" — pre-existing bug, not touched
               // by intent): this used to read `hasRecent ? '1 song' : ...`
@@ -2752,9 +2752,9 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
               // artist name instead, which the data genuinely has —
               // never displays a fabricated number.
               subtitle: hasRecent
-                  ? (recent.first.artist.isNotEmpty ? recent.first.artist : 'Unknown artist')
-                  : 'Start playing to see your library grow',
-              buttonLabel: 'Play all',
+                  ? (recent.first.artist.isNotEmpty ? recent.first.artist : AppLocalizations.of(context)!.libraryUnknownArtist)
+                  : AppLocalizations.of(context)!.libraryStartPlayingToGrow,
+              buttonLabel: AppLocalizations.of(context)!.commonPlayAll,
               icon: Icons.play_arrow_rounded,
               leading: !hasRecent
                   ? null
@@ -2797,7 +2797,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(
-                'Recently Played',
+                AppLocalizations.of(context)!.libraryRecentlyPlayed,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 18,
@@ -2833,7 +2833,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
             child: Row(
               children: [
                 Text(
-                  'Your Playlists',
+                  AppLocalizations.of(context)!.libraryYourPlaylists,
                   style: TextStyle(
                     color: AurumTheme.textPrimaryOf(context),
                     fontSize: 18,
@@ -2845,7 +2845,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
                   onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
                   behavior: HitTestBehavior.opaque,
                   child: Text(
-                    'See all',
+                    AppLocalizations.of(context)!.commonSeeAll,
                     style: TextStyle(
                       color: AurumTheme.accentOf(context),
                       fontSize: 13,
@@ -2865,8 +2865,8 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
                 onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
                 child: _AurumEmptyState(
                   icon: Icons.playlist_play_rounded,
-                  title: 'No playlists yet',
-                  subtitle: 'Create one from any song\'s menu.',
+                  title: AppLocalizations.of(context)!.libraryNoPlaylistsYet,
+                  subtitle: AppLocalizations.of(context)!.libraryCreateFromSongMenu,
                 ),
               ),
             ),
@@ -2896,7 +2896,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
             child: Row(
               children: [
                 Text(
-                  'Your Artists',
+                  AppLocalizations.of(context)!.libraryYourArtists,
                   style: TextStyle(
                     color: AurumTheme.textPrimaryOf(context),
                     fontSize: 18,
@@ -2908,7 +2908,7 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
                   onTap: widget.onSeeAllArtists,
                   behavior: HitTestBehavior.opaque,
                   child: Text(
-                    'See all',
+                    AppLocalizations.of(context)!.commonSeeAll,
                     style: TextStyle(
                       color: AurumTheme.accentOf(context),
                       fontSize: 13,
@@ -2928,8 +2928,8 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
                 onTap: widget.onSeeAllArtists,
                 child: _AurumEmptyState(
                   icon: Icons.person_rounded,
-                  title: 'No artists saved yet',
-                  subtitle: 'Follow an artist to see them here.',
+                  title: AppLocalizations.of(context)!.libraryNoArtistsSavedYet,
+                  subtitle: AppLocalizations.of(context)!.libraryFollowArtistToSeeHere,
                 ),
               ),
             ),
@@ -2997,7 +2997,7 @@ class _AurumArtistPreviewCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                name.isEmpty ? 'Unknown' : name,
+                name.isEmpty ? AppLocalizations.of(context)!.libraryUnknown : name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
@@ -3051,13 +3051,13 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
   String _sortLabel(_PlaylistSort s) {
     switch (s) {
       case _PlaylistSort.custom:
-        return 'Custom order';
+        return AppLocalizations.of(context)!.librarySortCustom;
       case _PlaylistSort.name:
-        return 'Name';
+        return AppLocalizations.of(context)!.librarySortName;
       case _PlaylistSort.dateAdded:
-        return 'Date added';
+        return AppLocalizations.of(context)!.librarySortDateAdded;
       case _PlaylistSort.mostPlayed:
-        return 'Most played';
+        return AppLocalizations.of(context)!.librarySortMostPlayed;
     }
   }
 
@@ -3146,7 +3146,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                   children: [
                     _TagFilterChip(
                       icon: Icons.filter_alt_rounded,
-                      label: 'All',
+                      label: AppLocalizations.of(context)!.libraryTagAll,
                       selected: _activeTag == null,
                       onTap: () => setState(() => _activeTag = null),
                     ),
@@ -3162,7 +3162,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                     ],
                     _TagFilterChip(
                       icon: Icons.add_rounded,
-                      label: 'Manage Tags',
+                      label: AppLocalizations.of(context)!.libraryManageTags,
                       selected: false,
                       onTap: () => _showManageTagsSheet(context, pp),
                     ),
@@ -3287,22 +3287,22 @@ class _QuickAccessGrid extends StatelessWidget {
         _QuickAccessCard(
           icon: Icons.favorite_rounded,
           iconColor: Colors.redAccent,
-          title: 'Liked songs',
-          subtitle: '$likedCount track${likedCount == 1 ? '' : 's'}',
+          title: AppLocalizations.of(context)!.libraryLikedSongs,
+          subtitle: AppLocalizations.of(context)!.libraryTracksCount(likedCount),
           onTap: () => AurumDepthRoute.to(context, const LikedScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.check_circle_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: 'Offline',
-          subtitle: downloadedCount == 0 ? 'Downloaded' : '$downloadedCount downloaded',
+          title: AppLocalizations.of(context)!.libraryOffline,
+          subtitle: downloadedCount == 0 ? AppLocalizations.of(context)!.libraryDownloaded : AppLocalizations.of(context)!.libraryDownloadedLowerCount(downloadedCount),
           onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.sync_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: 'Cached',
-          subtitle: 'Instant playback',
+          title: AppLocalizations.of(context)!.libraryCached,
+          subtitle: AppLocalizations.of(context)!.libraryInstantPlayback,
           // FIX ("cache jo Library mein diya hu, uska kya kiya jaye, kisi
           // kaam mein use kiya jaye"): this tile did nothing at all
           // (onTap: () {}) — a dead button. The two real on-disk/in-memory
@@ -3322,15 +3322,15 @@ class _QuickAccessGrid extends StatelessWidget {
         _QuickAccessCard(
           icon: Icons.folder_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: 'Local Files',
-          subtitle: 'On device',
+          title: AppLocalizations.of(context)!.libraryLocalFiles,
+          subtitle: AppLocalizations.of(context)!.libraryOnDevice,
           onTap: () => AurumDepthRoute.to(context, const _LocalFilesScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.trending_up_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: 'My top 50',
-          subtitle: 'All time',
+          title: AppLocalizations.of(context)!.libraryMyTop50,
+          subtitle: AppLocalizations.of(context)!.libraryAllTime,
           // FIX ("Top 50 wala actually listening history pr bane, na ki
           // history hi laga do"): this used to just open _HistoryScreen —
           // the same chronological Recently Played list shown by the
@@ -3504,7 +3504,7 @@ class _RecentlyPlayedCard extends StatelessWidget {
               ),
             ),
             Text(
-              song.artist.isEmpty ? 'Unknown artist' : song.artist,
+              song.artist.isEmpty ? AppLocalizations.of(context)!.libraryUnknownArtist : song.artist,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -3572,7 +3572,7 @@ class _AurumPlaylistRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}',
+                      AppLocalizations.of(context)!.librarySongsCount(playlist.songCount),
                       style: TextStyle(
                         color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
@@ -3616,13 +3616,13 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   String _sortLabel(_PlaylistSort s) {
     switch (s) {
       case _PlaylistSort.custom:
-        return 'Custom order';
+        return AppLocalizations.of(context)!.librarySortCustom;
       case _PlaylistSort.name:
-        return 'Name';
+        return AppLocalizations.of(context)!.librarySortName;
       case _PlaylistSort.dateAdded:
-        return 'Date added';
+        return AppLocalizations.of(context)!.librarySortDateAdded;
       case _PlaylistSort.mostPlayed:
-        return 'Most played';
+        return AppLocalizations.of(context)!.librarySortMostPlayed;
     }
   }
 
@@ -3735,7 +3735,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                     children: [
                       _TagFilterChip(
                         icon: Icons.filter_alt_rounded,
-                        label: 'All',
+                        label: AppLocalizations.of(context)!.libraryTagAll,
                         selected: _activeTag == null,
                         onTap: () => setState(() => _activeTag = null),
                       ),
@@ -3751,7 +3751,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                       ],
                       _TagFilterChip(
                         icon: Icons.add_rounded,
-                        label: 'Manage Tags',
+                        label: AppLocalizations.of(context)!.libraryManageTags,
                         selected: false,
                         onTap: () => _showManageTagsSheet(context, pp),
                       ),
@@ -3858,10 +3858,10 @@ class _SortDropdown extends StatelessWidget {
       color: AurumTheme.bgCardOf(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       itemBuilder: (context) => [
-        _menuItem(context, _PlaylistSort.custom, 'Custom order'),
-        _menuItem(context, _PlaylistSort.name, 'Name'),
-        _menuItem(context, _PlaylistSort.dateAdded, 'Date added'),
-        _menuItem(context, _PlaylistSort.mostPlayed, 'Most played'),
+        _menuItem(context, _PlaylistSort.custom, AppLocalizations.of(context)!.librarySortCustom),
+        _menuItem(context, _PlaylistSort.name, AppLocalizations.of(context)!.librarySortName),
+        _menuItem(context, _PlaylistSort.dateAdded, AppLocalizations.of(context)!.librarySortDateAdded),
+        _menuItem(context, _PlaylistSort.mostPlayed, AppLocalizations.of(context)!.librarySortMostPlayed),
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -4167,7 +4167,7 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
                   Row(
                     children: [
                       Text(
-                        '${playlist.songCount} tr${playlist.songCount == 1 ? '' : 'acks'}',
+                        AppLocalizations.of(context)!.libraryTracksCount(playlist.songCount),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -4181,7 +4181,7 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
                             color: AurumTheme.bgSurfaceOf(context),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Text('YouTube synced',
+                          child: Text(AppLocalizations.of(context)!.libraryYoutubeSynced,
                               style: TextStyle(
                                   color: AurumTheme.textMutedOf(context),
                                   fontSize: 10.5,
@@ -4244,12 +4244,12 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
           children: [
             ListTile(
               leading: Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
-              title: Text('Rename', style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+              title: Text(AppLocalizations.of(context)!.commonRename, style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
             ),
             ListTile(
               leading: const Icon(Icons.delete_rounded, color: Colors.redAccent),
-              title: Text('Delete', style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+              title: Text(AppLocalizations.of(context)!.commonDelete, style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () async {
                 Navigator.pop(sheetContext);
                 await context.read<PlaylistProvider>().deletePlaylist(playlist.id);
@@ -4362,7 +4362,7 @@ class _PlaylistGridTileState extends State<_PlaylistGridTile> {
                   fontSize: 14.5,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
-          Text('${playlist.songCount} tracks',
+          Text(AppLocalizations.of(context)!.libraryTracksCount(playlist.songCount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
@@ -4405,14 +4405,14 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Manage Tags',
+            Text(AppLocalizations.of(context)!.libraryManageTags,
                 style: TextStyle(
                     color: AurumTheme.textPrimaryOf(context),
                     fontSize: 18,
                     fontWeight: FontWeight.w800)),
             const SizedBox(height: 16),
             if (tags.isEmpty)
-              Text('No tags yet — add one below.',
+              Text(AppLocalizations.of(context)!.libraryNoTagsYet,
                   style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13.5))
             else
               Wrap(
@@ -4437,7 +4437,7 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
                     controller: _controller,
                     style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
                     decoration: InputDecoration(
-                      hintText: 'New tag name',
+                      hintText: AppLocalizations.of(context)!.libraryNewTagName,
                       hintStyle: TextStyle(color: AurumTheme.textMutedOf(context)),
                       filled: true,
                       fillColor: AurumTheme.bgSurfaceOf(context),
@@ -5458,7 +5458,7 @@ class _PlaylistHeaderState extends State<_PlaylistHeader>
                 ],
                 const SizedBox(height: 6),
                 Text(
-                  '${widget.playlist.songCount} song${widget.playlist.songCount == 1 ? '' : 's'}'
+                  '${AppLocalizations.of(context)!.librarySongsCount(widget.playlist.songCount)}'
                   '${widget.playlist.totalDurationString.isNotEmpty ? ' • ${widget.playlist.totalDurationString}' : ''}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -6591,7 +6591,7 @@ class _TopSongsScreen extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'My Top 50',
+                      AppLocalizations.of(context)!.libraryMyTop50,
                       style: TextStyle(
                         color: AurumTheme.accentOf(context),
                         fontSize: 18,
@@ -6619,13 +6619,13 @@ class _TopSongsScreen extends StatelessWidget {
                               size: 36),
                         ),
                         const SizedBox(height: 20),
-                        Text('No top songs yet',
+                        Text(AppLocalizations.of(context)!.libraryNoTopSongsYet,
                             style: TextStyle(
                                 color: AurumTheme.textPrimaryOf(context),
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
-                        Text('Keep listening -- your most-played songs will show up here',
+                        Text(AppLocalizations.of(context)!.libraryKeepListeningTopSongs,
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 color: AurumTheme.textMutedOf(context),
@@ -6640,7 +6640,7 @@ class _TopSongsScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                     child: Row(children: [
                       Text(
-                        '${topSongs.length} song${topSongs.length == 1 ? '' : 's'} \u00b7 ranked by plays',
+                        AppLocalizations.of(context)!.libraryRankedByPlays(topSongs.length),
                         style: TextStyle(
                             color: AurumTheme.textMutedOf(context),
                             fontSize: 13),
@@ -6672,7 +6672,7 @@ class _TopSongsScreen extends StatelessWidget {
                             Icon(Icons.play_arrow_rounded,
                                 color: AurumTheme.bg, size: 16),
                             const SizedBox(width: 4),
-                            Text('Play All',
+                            Text(AppLocalizations.of(context)!.commonPlayAll,
                                 style: TextStyle(
                                     color: AurumTheme.bg,
                                     fontSize: 12,
@@ -6864,7 +6864,7 @@ class _CacheInfoScreenState extends State<_CacheInfoScreen> {
               color: AurumTheme.textPrimaryOf(context), size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('Cached',
+        title: Text(AppLocalizations.of(context)!.libraryCached,
             style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 18,
@@ -6877,9 +6877,7 @@ class _CacheInfoScreenState extends State<_CacheInfoScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
               children: [
                 Text(
-                  'Aurum caches song streams and artwork on this device so '
-                  'they load instantly the next time you play them, instead '
-                  'of fetching over the network again.',
+                  AppLocalizations.of(context)!.libraryCacheExplainer,
                   style: TextStyle(
                       color: AurumTheme.textSecondaryOf(context),
                       fontSize: 13,
@@ -6888,20 +6886,20 @@ class _CacheInfoScreenState extends State<_CacheInfoScreen> {
                 const SizedBox(height: 20),
                 _statCard(
                   icon: Icons.music_note_rounded,
-                  title: 'Song cache',
-                  subtitle: 'Recently streamed songs kept for fast replay',
+                  title: AppLocalizations.of(context)!.libraryCacheSong,
+                  subtitle: AppLocalizations.of(context)!.libraryCacheSongDesc,
                   value: _fmt(_songCacheBytes),
                 ),
                 _statCard(
                   icon: Icons.image_rounded,
-                  title: 'Artwork cache',
-                  subtitle: 'Album art and thumbnails',
+                  title: AppLocalizations.of(context)!.libraryCacheArtwork,
+                  subtitle: AppLocalizations.of(context)!.libraryCacheArtworkDesc,
                   value: _fmt(_imageCacheBytes),
                 ),
                 _statCard(
                   icon: Icons.sd_storage_rounded,
-                  title: 'Total cache used',
-                  subtitle: 'Across song + artwork caches',
+                  title: AppLocalizations.of(context)!.libraryCacheTotal,
+                  subtitle: AppLocalizations.of(context)!.libraryCacheTotalDesc,
                   value: _fmt(totalBytes),
                 ),
                 const SizedBox(height: 8),
@@ -6916,7 +6914,7 @@ class _CacheInfoScreenState extends State<_CacheInfoScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Center(
-                      child: Text('Manage cache in Storage settings',
+                      child: Text(AppLocalizations.of(context)!.libraryManageCacheInStorage,
                           style: TextStyle(
                               color: AurumTheme.bg,
                               fontSize: 14,
@@ -8423,7 +8421,7 @@ class _DownloadTile extends StatelessWidget {
                   dl.deleteDownload(song.id).then((success) {
                     if (!success && context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Could not delete file — please try again')),
+                        SnackBar(content: Text(AppLocalizations.of(context)!.libraryCouldNotDeleteFile)),
                       );
                     }
                   });
@@ -8825,7 +8823,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              count == 1 ? 'Unfollow this artist?' : 'Unfollow $count artists?',
+              AppLocalizations.of(context)!.libraryUnfollowArtistsConfirm(count),
               style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 17,
@@ -8838,7 +8836,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(sheetContext, false),
-                    child: const Text('Cancel'),
+                    child: Text(AppLocalizations.of(context)!.commonCancel),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -8846,7 +8844,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
                   child: FilledButton(
                     style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
                     onPressed: () => Navigator.pop(sheetContext, true),
-                    child: const Text('Unfollow'),
+                    child: Text(AppLocalizations.of(context)!.libraryUnfollow),
                   ),
                 ),
               ],
@@ -8927,7 +8925,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
                           });
                         },
                         child: Text(
-                          allSelected ? 'Deselect all' : 'Select all',
+                          allSelected ? AppLocalizations.of(context)!.libraryDeselectAll : AppLocalizations.of(context)!.librarySelectAll,
                           style: TextStyle(
                             color: AurumTheme.accentOf(context),
                             fontSize: 14,
@@ -8952,7 +8950,7 @@ class _ArtistsScreenState extends State<_ArtistsScreen> {
               titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
               title: _selectMode
                   ? Text(
-                      '${_selectedIds.length} selected',
+                      AppLocalizations.of(context)!.librarySelectedCount(_selectedIds.length),
                       style: TextStyle(
                         color: AurumTheme.textPrimaryOf(context),
                         fontSize: 20,

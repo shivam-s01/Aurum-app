@@ -1208,5 +1208,280 @@
   "saLiquidGlassSubtitle": "Liquid glass effect for the nav bar and mini player.",
   "asLatestRelease": "Latest Release",
   "asTypeSingle": "Single",
-  "asTypeAlbum": "Album"
+  "asTypeAlbum": "Album",
+  "libraryAllSongs": "All Songs",
+  "@libraryAllSongs": {
+    "description": "Songs tab filter chip — all songs"
+  },
+  "libraryLikedEmptyDesc": "Songs you like will show up here.",
+  "@libraryLikedEmptyDesc": {
+    "description": "Empty state subtitle in Songs tab, Liked filter"
+  },
+  "libraryDownloadedEmptyDesc": "Downloaded songs will show up here.",
+  "@libraryDownloadedEmptyDesc": {
+    "description": "Empty state subtitle in Songs tab, Downloaded filter"
+  },
+  "libraryLocalEmptyDesc": "Songs from your device will show up here.",
+  "@libraryLocalEmptyDesc": {
+    "description": "Empty state subtitle in Songs tab, All filter"
+  },
+  "libraryNewestFirst": "Newest first",
+  "@libraryNewestFirst": {
+    "description": "Sort direction label"
+  },
+  "libraryOldestFirst": "Oldest first",
+  "@libraryOldestFirst": {
+    "description": "Sort direction label"
+  },
+  "libraryUnknownArtist": "Unknown artist",
+  "@libraryUnknownArtist": {
+    "description": "Fallback when song has no artist"
+  },
+  "libraryUnknown": "Unknown",
+  "@libraryUnknown": {
+    "description": "Fallback for unnamed artist"
+  },
+  "libraryUnknownAlbum": "Unknown album",
+  "@libraryUnknownAlbum": {
+    "description": "Fallback for unnamed album"
+  },
+  "libraryAddToLiked": "Add to Liked",
+  "@libraryAddToLiked": {
+    "description": "Song menu action"
+  },
+  "libraryRemoveFromLiked": "Remove from Liked",
+  "@libraryRemoveFromLiked": {
+    "description": "Song menu action"
+  },
+  "libraryStoragePermissionDesc": "Astra needs access to your device storage to show local songs.",
+  "@libraryStoragePermissionDesc": {
+    "description": "Permission prompt body for local songs"
+  },
+  "libraryGrantPermission": "Grant permission",
+  "@libraryGrantPermission": {
+    "description": "Permission prompt button"
+  },
+  "libraryUnfollow": "Unfollow",
+  "@libraryUnfollow": {
+    "description": "Confirm button to unfollow artists"
+  },
+  "libraryLoadingArtists": "Loading artists…",
+  "@libraryLoadingArtists": {
+    "description": "Loading text in Artists tab"
+  },
+  "librarySubscribedOnly": "Subscribed Only",
+  "@librarySubscribedOnly": {
+    "description": "Artists tab filter chip"
+  },
+  "libraryNoPlayableSongsFor": "No playable songs found for {name}",
+  "@libraryNoPlayableSongsFor": {
+    "description": "Snackbar when an artist has no playable songs",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryCouldntLoadSongsFor": "Couldn't load songs for {name}",
+  "@libraryCouldntLoadSongsFor": {
+    "description": "Snackbar when loading an artist's songs fails",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryTopArtistEyebrow": "TOP ARTIST",
+  "@libraryTopArtistEyebrow": {
+    "description": "Eyebrow label on top-artist hero card"
+  },
+  "libraryLoading": "Loading…",
+  "@libraryLoading": {
+    "description": "Generic loading text"
+  },
+  "libraryFeaturedAlbum": "FEATURED ALBUM",
+  "@libraryFeaturedAlbum": {
+    "description": "Eyebrow label on featured-album hero card"
+  },
+  "libraryYourLibrary": "Your Library",
+  "@libraryYourLibrary": {
+    "description": "Hero title in library overview when nothing played yet"
+  },
+  "libraryMostPlayed": "Most Played",
+  "@libraryMostPlayed": {
+    "description": "Eyebrow label on library overview hero"
+  },
+  "libraryStartPlayingToGrow": "Start playing to see your library grow",
+  "@libraryStartPlayingToGrow": {
+    "description": "Hero subtitle in library overview when nothing played yet"
+  },
+  "libraryYourPlaylists": "Your Playlists",
+  "@libraryYourPlaylists": {
+    "description": "Section header in library overview"
+  },
+  "libraryCreateFromSongMenu": "Create one from any song's menu.",
+  "@libraryCreateFromSongMenu": {
+    "description": "Empty playlists hint"
+  },
+  "libraryYourArtists": "Your Artists",
+  "@libraryYourArtists": {
+    "description": "Section header in library overview"
+  },
+  "libraryFollowArtistToSeeHere": "Follow an artist to see them here.",
+  "@libraryFollowArtistToSeeHere": {
+    "description": "Empty artists hint in library overview"
+  },
+  "librarySortCustom": "Custom order",
+  "@librarySortCustom": {
+    "description": "Playlist sort option"
+  },
+  "librarySortName": "Name",
+  "@librarySortName": {
+    "description": "Playlist sort option"
+  },
+  "librarySortDateAdded": "Date added",
+  "@librarySortDateAdded": {
+    "description": "Playlist sort option"
+  },
+  "librarySortMostPlayed": "Most played",
+  "@librarySortMostPlayed": {
+    "description": "Playlist sort option"
+  },
+  "libraryTagAll": "All",
+  "@libraryTagAll": {
+    "description": "Tag filter chip — show all playlists"
+  },
+  "libraryManageTags": "Manage Tags",
+  "@libraryManageTags": {
+    "description": "Button to manage playlist tags"
+  },
+  "libraryOffline": "Offline",
+  "@libraryOffline": {
+    "description": "Quick-access card title"
+  },
+  "libraryDownloadedLowerCount": "{count} downloaded",
+  "@libraryDownloadedLowerCount": {
+    "description": "Quick-access card subtitle, e.g. \"5 downloaded\"",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryCached": "Cached",
+  "@libraryCached": {
+    "description": "Quick-access card title and cache screen title"
+  },
+  "libraryInstantPlayback": "Instant playback",
+  "@libraryInstantPlayback": {
+    "description": "Quick-access card subtitle"
+  },
+  "libraryOnDevice": "On device",
+  "@libraryOnDevice": {
+    "description": "Quick-access card subtitle for Local Files"
+  },
+  "libraryMyTop50": "My Top 50",
+  "@libraryMyTop50": {
+    "description": "Quick-access card title and Top 50 screen title"
+  },
+  "libraryAllTime": "All time",
+  "@libraryAllTime": {
+    "description": "Quick-access card subtitle for Top 50"
+  },
+  "libraryYoutubeSynced": "YouTube synced",
+  "@libraryYoutubeSynced": {
+    "description": "Badge on playlists synced from YouTube"
+  },
+  "commonRename": "Rename",
+  "@commonRename": {
+    "description": "Generic rename action"
+  },
+  "libraryNoTagsYet": "No tags yet — add one below.",
+  "@libraryNoTagsYet": {
+    "description": "Empty state in Manage Tags sheet"
+  },
+  "libraryNewTagName": "New tag name",
+  "@libraryNewTagName": {
+    "description": "Hint text for new tag input"
+  },
+  "libraryNoTopSongsYet": "No top songs yet",
+  "@libraryNoTopSongsYet": {
+    "description": "Empty state title on Top 50 screen"
+  },
+  "libraryKeepListeningTopSongs": "Keep listening — your most-played songs will show up here",
+  "@libraryKeepListeningTopSongs": {
+    "description": "Empty state subtitle on Top 50 screen"
+  },
+  "libraryCacheExplainer": "Astra caches song streams and artwork on this device so they load instantly the next time you play them, instead of fetching over the network again.",
+  "@libraryCacheExplainer": {
+    "description": "Cache screen explanation paragraph"
+  },
+  "libraryCacheSong": "Song cache",
+  "@libraryCacheSong": {
+    "description": "Cache screen row title"
+  },
+  "libraryCacheSongDesc": "Recently streamed songs kept for fast replay",
+  "@libraryCacheSongDesc": {
+    "description": "Cache screen row subtitle"
+  },
+  "libraryCacheArtwork": "Artwork cache",
+  "@libraryCacheArtwork": {
+    "description": "Cache screen row title"
+  },
+  "libraryCacheArtworkDesc": "Album art and thumbnails",
+  "@libraryCacheArtworkDesc": {
+    "description": "Cache screen row subtitle"
+  },
+  "libraryCacheTotal": "Total cache used",
+  "@libraryCacheTotal": {
+    "description": "Cache screen row title"
+  },
+  "libraryCacheTotalDesc": "Across song + artwork caches",
+  "@libraryCacheTotalDesc": {
+    "description": "Cache screen row subtitle"
+  },
+  "libraryManageCacheInStorage": "Manage cache in Storage settings",
+  "@libraryManageCacheInStorage": {
+    "description": "Cache screen button"
+  },
+  "libraryCouldNotDeleteFile": "Could not delete file — please try again",
+  "@libraryCouldNotDeleteFile": {
+    "description": "Snackbar when deleting a downloaded file fails"
+  },
+  "libraryUnfollowArtistsConfirm": "{count, plural, one{Unfollow this artist?} other{Unfollow {count} artists?}}",
+  "@libraryUnfollowArtistsConfirm": {
+    "description": "Unfollow confirmation title",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistsFollowedLabel": "{count, plural, one{artist followed} other{artists followed}}",
+  "@libraryArtistsFollowedLabel": {
+    "description": "Label under the followed-artists count",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryTracksCount": "{count, plural, one{{count} track} other{{count} tracks}}",
+  "@libraryTracksCount": {
+    "description": "Track count label, e.g. \"5 tracks\"",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRankedByPlays": "{count, plural, one{{count} song · ranked by plays} other{{count} songs · ranked by plays}}",
+  "@libraryRankedByPlays": {
+    "description": "Top 50 header, e.g. \"50 songs · ranked by plays\"",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -45,57 +45,98 @@ const List<Locale> kSupportedLocales = [
   Locale('tr'), // Turkish
   Locale('id'), // Indonesian
   Locale('vi'), // Vietnamese
-  Locale('bn'), // Bengali
+  // HIDDEN (no app_bn.arb yet) — uncomment after adding the .arb file
+  // Locale('bn'), // Bengali
   Locale('pt'), // Portuguese
   Locale('nl'), // Dutch
   Locale('pl'), // Polish
   Locale('th'), // Thai
   Locale('sv'), // Swedish
   Locale('el'), // Greek
-  Locale('he'), // Hebrew
+  // HIDDEN (no app_he.arb yet) — uncomment after adding the .arb file
+  // Locale('he'), // Hebrew
   Locale('uk'), // Ukrainian
   Locale('ro'), // Romanian
-  Locale('hu'), // Hungarian
-  Locale('cs'), // Czech
-  Locale('fi'), // Finnish
-  Locale('da'), // Danish
-  Locale('no'), // Norwegian
-  Locale('sk'), // Slovak
-  Locale('bg'), // Bulgarian
-  Locale('hr'), // Croatian
-  Locale('sr'), // Serbian
-  Locale('lt'), // Lithuanian
-  Locale('lv'), // Latvian
-  Locale('et'), // Estonian
-  Locale('sl'), // Slovenian
-  Locale('ms'), // Malay
-  Locale('fil'), // Filipino
-  Locale('sw'), // Swahili
-  Locale('am'), // Amharic
+  // HIDDEN (no app_hu.arb yet) — uncomment after adding the .arb file
+  // Locale('hu'), // Hungarian
+  // HIDDEN (no app_cs.arb yet) — uncomment after adding the .arb file
+  // Locale('cs'), // Czech
+  // HIDDEN (no app_fi.arb yet) — uncomment after adding the .arb file
+  // Locale('fi'), // Finnish
+  // HIDDEN (no app_da.arb yet) — uncomment after adding the .arb file
+  // Locale('da'), // Danish
+  // HIDDEN (no app_no.arb yet) — uncomment after adding the .arb file
+  // Locale('no'), // Norwegian
+  // HIDDEN (no app_sk.arb yet) — uncomment after adding the .arb file
+  // Locale('sk'), // Slovak
+  // HIDDEN (no app_bg.arb yet) — uncomment after adding the .arb file
+  // Locale('bg'), // Bulgarian
+  // HIDDEN (no app_hr.arb yet) — uncomment after adding the .arb file
+  // Locale('hr'), // Croatian
+  // HIDDEN (no app_sr.arb yet) — uncomment after adding the .arb file
+  // Locale('sr'), // Serbian
+  // HIDDEN (no app_lt.arb yet) — uncomment after adding the .arb file
+  // Locale('lt'), // Lithuanian
+  // HIDDEN (no app_lv.arb yet) — uncomment after adding the .arb file
+  // Locale('lv'), // Latvian
+  // HIDDEN (no app_et.arb yet) — uncomment after adding the .arb file
+  // Locale('et'), // Estonian
+  // HIDDEN (no app_sl.arb yet) — uncomment after adding the .arb file
+  // Locale('sl'), // Slovenian
+  // HIDDEN (no app_ms.arb yet) — uncomment after adding the .arb file
+  // Locale('ms'), // Malay
+  // HIDDEN (no app_fil.arb yet) — uncomment after adding the .arb file
+  // Locale('fil'), // Filipino
+  // HIDDEN (no app_sw.arb yet) — uncomment after adding the .arb file
+  // Locale('sw'), // Swahili
+  // HIDDEN (no app_am.arb yet) — uncomment after adding the .arb file
+  // Locale('am'), // Amharic
   Locale('fa'), // Persian
   Locale('pa'), // Punjabi
-  Locale('gu'), // Gujarati
-  Locale('mr'), // Marathi
-  Locale('kn'), // Kannada
-  Locale('ml'), // Malayalam
-  Locale('te'), // Telugu
-  Locale('ne'), // Nepali
-  Locale('si'), // Sinhala
-  Locale('my'), // Burmese
-  Locale('km'), // Khmer
-  Locale('az'), // Azerbaijani
-  Locale('kk'), // Kazakh
-  Locale('uz'), // Uzbek
-  Locale('mn'), // Mongolian
-  Locale('is'), // Icelandic
-  Locale('sq'), // Albanian
-  Locale('af'), // Afrikaans
-  Locale('zu'), // Zulu
-  Locale('xh'), // Xhosa
-  Locale('ha'), // Hausa
-  Locale('yo'), // Yoruba
-  Locale('ig'), // Igbo
-  Locale('so'), // Somali
+  // HIDDEN (no app_gu.arb yet) — uncomment after adding the .arb file
+  // Locale('gu'), // Gujarati
+  // HIDDEN (no app_mr.arb yet) — uncomment after adding the .arb file
+  // Locale('mr'), // Marathi
+  // HIDDEN (no app_kn.arb yet) — uncomment after adding the .arb file
+  // Locale('kn'), // Kannada
+  // HIDDEN (no app_ml.arb yet) — uncomment after adding the .arb file
+  // Locale('ml'), // Malayalam
+  // HIDDEN (no app_te.arb yet) — uncomment after adding the .arb file
+  // Locale('te'), // Telugu
+  // HIDDEN (no app_ne.arb yet) — uncomment after adding the .arb file
+  // Locale('ne'), // Nepali
+  // HIDDEN (no app_si.arb yet) — uncomment after adding the .arb file
+  // Locale('si'), // Sinhala
+  // HIDDEN (no app_my.arb yet) — uncomment after adding the .arb file
+  // Locale('my'), // Burmese
+  // HIDDEN (no app_km.arb yet) — uncomment after adding the .arb file
+  // Locale('km'), // Khmer
+  // HIDDEN (no app_az.arb yet) — uncomment after adding the .arb file
+  // Locale('az'), // Azerbaijani
+  // HIDDEN (no app_kk.arb yet) — uncomment after adding the .arb file
+  // Locale('kk'), // Kazakh
+  // HIDDEN (no app_uz.arb yet) — uncomment after adding the .arb file
+  // Locale('uz'), // Uzbek
+  // HIDDEN (no app_mn.arb yet) — uncomment after adding the .arb file
+  // Locale('mn'), // Mongolian
+  // HIDDEN (no app_is.arb yet) — uncomment after adding the .arb file
+  // Locale('is'), // Icelandic
+  // HIDDEN (no app_sq.arb yet) — uncomment after adding the .arb file
+  // Locale('sq'), // Albanian
+  // HIDDEN (no app_af.arb yet) — uncomment after adding the .arb file
+  // Locale('af'), // Afrikaans
+  // HIDDEN (no app_zu.arb yet) — uncomment after adding the .arb file
+  // Locale('zu'), // Zulu
+  // HIDDEN (no app_xh.arb yet) — uncomment after adding the .arb file
+  // Locale('xh'), // Xhosa
+  // HIDDEN (no app_ha.arb yet) — uncomment after adding the .arb file
+  // Locale('ha'), // Hausa
+  // HIDDEN (no app_yo.arb yet) — uncomment after adding the .arb file
+  // Locale('yo'), // Yoruba
+  // HIDDEN (no app_ig.arb yet) — uncomment after adding the .arb file
+  // Locale('ig'), // Igbo
+  // HIDDEN (no app_so.arb yet) — uncomment after adding the .arb file
+  // Locale('so'), // Somali
 ];
 
 /// Native-script names shown in the language picker (not translated into
