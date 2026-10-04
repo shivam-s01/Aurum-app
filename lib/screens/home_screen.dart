@@ -47,7 +47,6 @@ import 'login_screen.dart';
 import 'full_player_screen.dart';
 import 'edge_to_edge_full_player.dart';
 import 'spotify_full_player_screen.dart';
-import 'premium_screen.dart';
 import 'mix_screen.dart';
 import 'moods_genres_screen.dart';
 import '../providers/auth_provider.dart';
@@ -1312,26 +1311,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       title: AurumPressable(
         scaleAmount: 0.95,
-        onTap: () => Navigator.of(context).push(
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 380),
-            pageBuilder: (_, __, ___) => const PremiumScreen(),
-            transitionsBuilder: (context, animation, __, child) {
-              final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
-              final slide = Tween<Offset>(
-                begin: const Offset(0, 0.04),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(parent: animation, curve: AurumMotion.standard));
-              return ColoredBox(
-                color: AurumTheme.bgOf(context),
-                child: FadeTransition(
-                  opacity: fade,
-                  child: SlideTransition(position: slide, child: child),
-                ),
-              );
-            },
-          ),
-        ),
+        // Payment screen disabled: no navigation on tap.
+        onTap: null,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -5886,6 +5867,9 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
 
   @override
   Widget build(BuildContext context) {
+    // Payment screen disabled: hide the upsell banner entirely.
+    const paymentDisabled = true;
+    if (paymentDisabled) return const SizedBox.shrink();
     final isPremium = context.watch<PremiumProvider>().isPremium;
     if (isPremium) return const SizedBox.shrink();
 
@@ -5895,7 +5879,7 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
         scaleAmount: 0.97,
         // Same AurumDepthRoute switch as Settings/Profile above, so
         // Premium's entry animation matches the rest of that flow too.
-        onTap: () => AurumDepthRoute.to(context, const PremiumScreen()),
+        onTap: null, // payment screen disabled
         child: AnimatedBuilder(
           animation: _shimmer,
           builder: (_, __) {

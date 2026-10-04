@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
@@ -61,8 +62,49 @@ class AurumAudioOutputManager(
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
-            onDevicesChanged?.invoke()
+            notifyDevicesChangedSoon()
         }
+    }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // registerAudioDeviceCallback replays every already-connected device as
+    // "added" right after registering. Ignore that replay so it can never
+    // wipe a manual speaker/earbuds choice made right after the sheet opens.
+    @Volatile private var callbackReady = false
+
+    /** Android updates its device list / active route a beat AFTER the
+     *  broadcast fires, so re-emit a few times to catch the settled state.
+     *  This is what makes the sheet update live. */
+    private fun notifyDevicesChangedSoon() {
+        onDevicesChanged?.invoke()
+        mainHandler.postDelayed({ onDevicesChanged?.invoke() }, 250)
+        mainHandler.postDelayed({ onDevicesChanged?.invoke() }, 800)
+    }
+
+    // Fires on ANY device add/remove (earbuds connect/disconnect, wired
+    // plug) and keeps our manual override from going stale.
+    private val deviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
+            // New non-speaker device connected: drop a forced-speaker override
+            // so the fresh earbuds take over automatically like any music app.
+            if (callbackReady && added.any { isRelevantOutput(it.type) && it.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }) {
+                clearOverride()
+            }
+            notifyDevicesChangedSoon()
+        }
+
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+            val id = selectedDeviceId
+            if (id != null && removed.any { it.id == id }) clearOverride()
+            notifyDevicesChangedSoon()
+        }
+    }
+
+    private fun clearOverride() {
+        forcedSpeaker = false
+        selectedDeviceId = null
+        try { player.setPreferredAudioDevice(null) } catch (e: Exception) {}
     }
 
     // ROOT-CAUSE-SAFE CHOICE: an earlier version of this fix used
@@ -92,6 +134,9 @@ class AurumAudioOutputManager(
             addAction(AudioManager.ACTION_HEADSET_PLUG)
             addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
+            addAction("android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED")
+            addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -99,6 +144,8 @@ class AurumAudioOutputManager(
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, filter)
         }
+        audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler)
+        mainHandler.post { callbackReady = true }
         lastKnownVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         context.contentResolver.registerContentObserver(
             Settings.System.CONTENT_URI, true, volumeObserver)
@@ -155,11 +202,19 @@ class AurumAudioOutputManager(
         }
 
         return byNameAndKind.values.map { info ->
+            val groupKey = "${deviceLabel(info)}|${deviceTypeName(info.type)}"
+            val isSelected = info.id == currentId || relevant.any {
+                it.id == currentId &&
+                    "${deviceLabel(it)}|${deviceTypeName(it.type)}" == groupKey
+            }
             mapOf(
                 "id" to info.id,
                 "name" to deviceLabel(info),
+                // Dart reads "kind" (was "type" only -> every device showed
+                // as unknown). Keep both for safety.
+                "kind" to deviceTypeName(info.type),
                 "type" to deviceTypeName(info.type),
-                "selected" to (info.id == currentId),
+                "selected" to isSelected,
             )
         }
     }
@@ -175,6 +230,7 @@ class AurumAudioOutputManager(
         return try {
             player.setPreferredAudioDevice(target)
             selectedDeviceId = target.id
+            notifyDevicesChangedSoon()
             true
         } catch (e: Exception) {
             false
@@ -189,12 +245,14 @@ class AurumAudioOutputManager(
         if (!force) {
             player.setPreferredAudioDevice(null)
             selectedDeviceId = null
+            notifyDevicesChangedSoon()
             return
         }
         val speaker = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         player.setPreferredAudioDevice(speaker)
         selectedDeviceId = speaker?.id
+        notifyDevicesChangedSoon()
     }
 
     fun release() {
@@ -203,6 +261,12 @@ class AurumAudioOutputManager(
         } catch (e: Exception) {
             // Already unregistered — safe to ignore.
         }
+        try {
+            audioManager.unregisterAudioDeviceCallback(deviceCallback)
+        } catch (e: Exception) {
+            // Already unregistered — safe to ignore.
+        }
+        mainHandler.removeCallbacksAndMessages(null)
         try {
             context.contentResolver.unregisterContentObserver(volumeObserver)
         } catch (e: Exception) {

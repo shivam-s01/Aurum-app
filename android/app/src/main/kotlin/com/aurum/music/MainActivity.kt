@@ -117,7 +117,7 @@ class MainActivity : FlutterFragmentActivity() {
         // since Flutter's own setHighRefreshRate call only fires from the
         // Settings screen, not on cold start.
         val enabled = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            .getBoolean("flutter.high_refresh_rate", true)
+            .getBoolean("flutter.high_refresh_rate", false)
         applyHighRefreshRate(enabled)
     }
 

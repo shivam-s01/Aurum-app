@@ -241,6 +241,9 @@ Future<void> main() async {
     await AudioPrefs.primeDataSaverEarly();
   } catch (_) {}
 
+  // Saved theme must be known before the first frame (no theme flash).
+  await ThemeProvider.primeEarly();
+
   runApp(AurumApp(engine: _audioEngine = NativeAudioEngine()));
 
   // FAST FIRST HOME (new users): start the Home shelves fetch NOW, before

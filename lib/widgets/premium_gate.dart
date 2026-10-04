@@ -18,7 +18,6 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
-import '../screens/premium_screen.dart';
 import '../utils/aurum_transitions.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
@@ -142,17 +141,12 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
 
       if (success) {
         // Signed in — now go to premium screen
-        Navigator.pop(context);
-        // Matches Settings/Profile's fade + slide-up push (see
-        // aurum_transitions.dart's AurumDepthRoute) instead of the old
-        // horizontal slide-in-from-right.
-        AurumDepthRoute.to(context, const PremiumScreen());
+        Navigator.pop(context); // payment screen disabled
       }
       // If cancelled/failed, sheet stays open
     } else {
       // Already signed in — go directly to premium screen
-      Navigator.pop(context);
-      AurumDepthRoute.to(context, const PremiumScreen());
+      Navigator.pop(context); // payment screen disabled
     }
   }
 

@@ -25,7 +25,7 @@ class SettingsAppearanceScreen extends StatefulWidget {
 
 class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // Theme
-  bool _highRefreshRate = true;
+  bool _highRefreshRate = false;
   Color _accentColor = AurumTheme.accent;
   // Player
   String _playerBgStyle = 'Blur';
@@ -112,7 +112,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     // standard fix: if the widget's gone, there's nothing to update.
     if (!mounted) return;
     setState(() {
-      _highRefreshRate = p.getBool('high_refresh_rate') ?? true;
+      _highRefreshRate = p.getBool('high_refresh_rate') ?? false;
       _accentColor = Color(p.getInt('accent_color') ?? AurumTheme.accent.value);
       _playerBgStyle = p.getString('player_bg_style') ?? 'Blur';
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;

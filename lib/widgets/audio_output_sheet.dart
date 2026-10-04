@@ -64,6 +64,7 @@ class _AudioOutputSheet extends StatefulWidget {
 
 class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   AudioOutputDevices? _devices;
+  StreamSubscription<AudioOutputDevices?>? _devSub;
   bool _loading = true;
   // Tracks an in-flight tap so rapid double-taps on two different rows
   // can't both be "selecting" at once and race each other's optimistic
@@ -100,10 +101,22 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
     super.initState();
     _load();
     _loadVolume();
+    // Live route/device updates. Kept in local state (not read straight from
+    // the BehaviorSubject) so a stale replayed snapshot can never override
+    // the fresh one fetched in _load().
+    _devSub = context
+        .read<PlayerProvider>()
+        .engine
+        .outputDevicesStream
+        .skip(1) // skip the replayed stale snapshot; _load() fetches fresh
+        .listen((d) {
+      if (d != null && mounted) setState(() => _devices = d);
+    });
   }
 
   @override
   void dispose() {
+    _devSub?.cancel();
     _volumeDebounce?.cancel();
     _boostDebounce?.cancel();
     super.dispose();
@@ -300,7 +313,7 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
       builder: (context, snapshot) {
         // Live stream update (device connected/disconnected) takes
         // priority over the initial one-shot load once it arrives.
-        final devices = snapshot.data ?? _devices;
+        final devices = _devices;
         return SafeArea(
           top: false,
           child: Padding(

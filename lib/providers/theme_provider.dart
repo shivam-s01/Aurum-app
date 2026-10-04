@@ -40,7 +40,11 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   // first frame, consistent with the native layer. Users who have already
   // picked an explicit mode are unaffected — _load() below overwrites this
   // with their saved preference if one exists.
-  AurumThemeMode _mode      = AurumThemeMode.system;
+  // NEW-USER DEFAULT: fresh installs start on the Midnight color theme
+  // (dark-styled, purple accent) from the very first frame. Users who
+  // already have a saved choice (or finished onboarding earlier) are
+  // switched back to their own value in _load() below.
+  AurumThemeMode _mode      = AurumThemeMode.dark;
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.accent;
   // Named full-palette color theme (Ocean/Forest/Sunset/Midnight/Aurora).
@@ -55,7 +59,7 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   // THEME list above always clears the preset back to `none` the same way
   // (see setMode() below) — the two lists behave as one single top-level
   // choice, exactly like Astra's own theme picker.
-  AurumColorPreset _colorPreset = AurumColorPreset.none;
+  AurumColorPreset _colorPreset = AurumColorPreset.midnight;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Waveform';
   String         _fullPlayerStyle = 'Edge to Edge';
@@ -220,7 +224,20 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
     return platformBrightness == Brightness.dark;
   }
 
+  // Prefs loaded BEFORE runApp() (see main.dart) so the very first frame
+  // already uses the user's real saved theme — no Midnight->Light/AMOLED
+  // flash for people who picked something else.
+  static SharedPreferences? _early;
+
+  static Future<void> primeEarly() async {
+    try {
+      _early = await SharedPreferences.getInstance();
+    } catch (_) {}
+  }
+
   ThemeProvider() {
+    final early = _early;
+    if (early != null) _applyPrefs(early); // synchronous, before 1st frame
     _load();
     WidgetsBinding.instance.addObserver(this);
   }
@@ -252,11 +269,48 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    _applyPrefs(p);
+    notifyListeners();
+  }
+
+  /// Reads every saved appearance value from [p] into this provider.
+  /// Pure/synchronous (writes for brand-new users are fire-and-forget) so
+  /// it can run both before the first frame and again from _load().
+  void _applyPrefs(SharedPreferences p) {
     final val = p.getString(_key);
+    final presetVal = p.getString(_colorPresetKey);
     if (val != null) {
       _mode = AurumThemeMode.values.firstWhere(
         (e) => e.name == val,
         orElse: () => AurumThemeMode.dark,
+      );
+      // Saved mode but no saved preset = older install from before color
+      // presets existed: keep it on the plain palette, never Midnight.
+      _colorPreset = presetVal == null
+          ? AurumColorPreset.none
+          : AurumColorPreset.values.firstWhere(
+              (e) => e.name == presetVal,
+              orElse: () => AurumColorPreset.none,
+            );
+    } else if (presetVal == null) {
+      if (p.getBool('onboarding_complete') ?? false) {
+        // Existing user who never touched the theme: keep the old default.
+        _mode = AurumThemeMode.system;
+        _colorPreset = AurumColorPreset.none;
+      } else {
+        // Brand-new user: Midnight, locked in so it stays stable.
+        _mode = AurumThemeMode.dark;
+        _colorPreset = AurumColorPreset.midnight;
+        p.setString(_key, AurumThemeMode.dark.name);
+        p.setString(_colorPresetKey, AurumColorPreset.midnight.name);
+      }
+    } else {
+      // Preset saved without a mode (should not happen) — presets are
+      // always dark-styled.
+      _mode = AurumThemeMode.dark;
+      _colorPreset = AurumColorPreset.values.firstWhere(
+        (e) => e.name == presetVal,
+        orElse: () => AurumColorPreset.none,
       );
     }
     _fontStyle = p.getString(_fontKey) ?? 'Default';
@@ -265,14 +319,6 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
     _playerButtonColorMode = p.getString(_btnColorKey) ?? _playerButtonColorMode;
     _playerSliderStyle = p.getString(_sliderStyleKey) ?? _playerSliderStyle;
     _fullPlayerStyle = p.getString(_fullPlayerStyleKey) ?? _fullPlayerStyle;
-    final presetVal = p.getString(_colorPresetKey);
-    if (presetVal != null) {
-      _colorPreset = AurumColorPreset.values.firstWhere(
-        (e) => e.name == presetVal,
-        orElse: () => AurumColorPreset.none,
-      );
-    }
-    notifyListeners();
   }
 
   Future<void> setMode(AurumThemeMode mode) async {
