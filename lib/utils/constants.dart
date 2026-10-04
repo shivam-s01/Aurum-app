@@ -12,7 +12,7 @@ class AppConstants {
   // Support developer page — handle shown under the logo, and the
   // "I'll help" target (UPI tip page on the Astra website).
   static const String handle    = '@shivam_shrma.01';
-  static const String support   = 'https://astra.mmusic.workers.dev';
+  static const String support   = 'https://astra.mmusic.workers.dev/support';
 
   // Legal pages (hosted on the Astra website)
   static const String privacyPolicy = 'https://astra.mmusic.workers.dev/privacy';
