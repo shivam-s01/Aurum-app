@@ -392,7 +392,7 @@ class AurumAudioEngine(
             .setIsSpeedChangeSupportRequired(false)
             .build()
 
-    // Premium Sound's in-app DSP (see PremiumDspCore). MUST be declared before
+    // Premium Sound's in-app DSP (see AurumDspCore / PremiumVoicing). MUST be declared before
     // `player`: the renderers factory below installs it into the audio sink's
     // PCM pipeline. Replaces the old vendor AudioEffect chain (Equalizer +
     // LoudnessEnhancer + Virtualizer + BassBoost + DynamicsProcessing) that

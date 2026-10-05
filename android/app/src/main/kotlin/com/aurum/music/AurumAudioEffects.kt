@@ -21,7 +21,7 @@ import androidx.media3.exoplayer.ExoPlayer
  * Audio effects for the native engine. Two completely separate mechanisms:
  *
  * 1. PREMIUM SOUND — runs entirely inside the app's own audio pipeline via
- *    [PremiumSoundProcessor] / [PremiumDspCore] (software DSP, no vendor code,
+ *    [PremiumSoundProcessor] / [AurumDspCore] (software DSP, no vendor code,
  *    no AudioEffect objects, no dependency on the audio session).
  *
  *    ROOT-CAUSE FIX ("Premium Sound ON -> fine for a while -> audio glitch"):
