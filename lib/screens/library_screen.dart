@@ -2796,13 +2796,53 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Text(
-                AppLocalizations.of(context)!.libraryRecentlyPlayed,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
+              child: Row(
+                children: [
+                  Text(
+                    AppLocalizations.of(context)!.libraryRecentlyPlayed,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Spacer(),
+                  // FEATURE ("history laibry mai show hota hai kinare hi
+                  // see all ka button... click pr animation ke sath
+                  // history screen pr le jaye"): this rail only previews
+                  // the 10 latest plays; "See all" opens the full
+                  // _HistoryScreen (entire stored history) with the same
+                  // depth transition the Playlists "See all" uses.
+                  GestureDetector(
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const _HistoryScreen());
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            AppLocalizations.of(context)!.commonSeeAll,
+                            style: TextStyle(
+                              color: AurumTheme.accentOf(context),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: AurumTheme.accentOf(context),
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

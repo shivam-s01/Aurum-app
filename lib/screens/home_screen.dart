@@ -3246,6 +3246,74 @@ class _ArtistChip extends StatelessWidget {
 // Curated Playlists — Spotify-type big cards with gradient
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Reduces credit strings ("A, B", "A & B", "A feat. B") to the primary artist
+// and drops repeats, so the same artist can never seed two Home rows.
+List<String> _uniquePrimaryArtists(List<String> raw) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final r in raw) {
+    final primary = r
+        .split(RegExp(r'\s*(?:,|&|\+|/|;|\bfeat\.?\b|\bft\.?\b)\s*',
+            caseSensitive: false))
+        .first
+        .trim();
+    final key = primary.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (key.isEmpty || !seen.add(key)) continue;
+    out.add(primary);
+  }
+  return out;
+}
+
+// Removes repetition ACROSS "Similar to" rows: a row for an artist already
+// shown (same name or same photo) is dropped, an album already shown in an
+// earlier row is removed from later ones, the "related artist" circle is
+// shown only once, and rows left with fewer than 3 albums are dropped.
+List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})> _dedupeSimilarRows(
+    List<({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})> rows) {
+  final seenArtists = <String>{};
+  final seenImages = <String>{};
+  final seenAlbums = <String>{};
+  final seenRelated = <String>{};
+  String norm(String v) => v.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  final out = <({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})>[];
+  for (final row in rows) {
+    final aKey = norm(row.artistName);
+    final img = (row.artistImageUrl ?? '').trim();
+    if (aKey.isEmpty || seenArtists.contains(aKey)) continue;
+    if (img.isNotEmpty && seenImages.contains(img)) continue;
+
+    final albums = <ArtistAlbum>[];
+    final rowKeys = <String>{};
+    for (final al in row.albums) {
+      final k = norm(al.name);
+      if (k.isEmpty || seenAlbums.contains(k) || !rowKeys.add(k)) continue;
+      albums.add(al);
+    }
+    if (albums.length < 3) continue;
+
+    var related = row.relatedArtist;
+    if (related != null) {
+      final rk = related.id.isNotEmpty ? related.id : norm(related.name);
+      if (norm(related.name) == aKey || seenRelated.contains(rk)) {
+        related = null;
+      } else {
+        seenRelated.add(rk);
+      }
+    }
+
+    seenArtists.add(aKey);
+    if (img.isNotEmpty) seenImages.add(img);
+    seenAlbums.addAll(rowKeys);
+    out.add((
+      artistName: row.artistName,
+      artistImageUrl: row.artistImageUrl,
+      relatedArtist: related,
+      albums: albums,
+    ));
+  }
+  return out;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // "Playlists For You" — real YT Music playlist cards (the previous
 // hand-picked query-list version, _CuratedPlaylistsSection, has been
@@ -4546,10 +4614,17 @@ class _HomeShelvesAndSimilarSectionState
       // no invented fallback, just fixing the race so the real data that
       // already exists on-device gets seen.
       await RecommendationEngine.load();
-      final seedArtists = RecommendationEngine.rotatingAffinityArtists(
-        count: 3,
+      // DUPLICATE-ROW FIX ("home page pr ye sb do do kyu aa rahe hai"):
+      // affinity artists come back as raw credit strings, so
+      // "Kumar Sanu, Anu Malik" and "Kumar Sanu" counted as two different
+      // seeds yet resolved to the same artist -> identical rows. Credits
+      // are now reduced to the primary artist, de-duplicated, and a few
+      // extra candidates are pulled so we can still fill 3 distinct rows.
+      final rawSeeds = RecommendationEngine.rotatingAffinityArtists(
+        count: 6,
         seed: widget.refreshKey,
       );
+      final seedArtists = _uniquePrimaryArtists(rawSeeds);
       if (seedArtists.isEmpty) return const [];
       // FIX ("similar to artist wala section refresh pe automatically
       // gayab ho ja raha hai" — 2026-09-14): Future.wait is fail-fast by
@@ -4581,16 +4656,19 @@ class _HomeShelvesAndSimilarSectionState
       // LOW-END: teeno artists ek saath (har ek 1 browse + 2-3 grid calls =
       // ~10 parallel requests) weak phone/net ko choke karta tha. Pehle 2
       // parallel, teesra baad me — total time lagbhag same, peak load kam.
-      final first = await Future.wait(seedArtists.take(2).map(fetchOne));
-      final rest = <({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})?>[];
-      for (final a in seedArtists.skip(2)) {
-        rest.add(await fetchOne(a));
+      final fetched = <({String artistName, String? artistImageUrl, RelatedArtist? relatedArtist, List<ArtistAlbum> albums})?>[];
+      fetched.addAll(await Future.wait(seedArtists.take(2).map(fetchOne)));
+      if (seedArtists.length > 2) fetched.add(await fetchOne(seedArtists[2]));
+      var rows = _dedupeSimilarRows(
+          fetched.where((r) => r != null).map((r) => r!).toList());
+      // Some seeds were dropped as duplicates -> try the spare candidates
+      // one at a time (low-end friendly) until 3 distinct rows or none left.
+      for (var i = 3; i < seedArtists.length && rows.length < 3; i++) {
+        final extra = await fetchOne(seedArtists[i]);
+        if (extra == null) continue;
+        rows = _dedupeSimilarRows([...rows, extra]);
       }
-      final results = [...first, ...rest];
-      return results
-          .where((r) => r != null && r.albums.length >= 3)
-          .map((r) => r!)
-          .toList();
+      return rows.take(3).toList();
     } catch (_) {
       return const [];
     }
@@ -4703,7 +4781,7 @@ class _HomeShelvesAndSimilarSectionState
       }
     }
 
-    final similar = _similarRows ?? const [];
+    final similar = _dedupeSimilarRows(_similarRows ?? const []);
     final similarSongs = _similarSongRows ?? const [];
     final realShelves = shelves ?? const [];
 

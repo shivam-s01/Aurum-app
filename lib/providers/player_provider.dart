@@ -1206,7 +1206,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
-    if (q.length < 2 || remaining > 8 || _isAutoExtendingQueue) return;
+    if (q.length < 2 || remaining > 8 || _isAutoExtendingQueue || _isBuildingInitialQueue) return;
     if (index >= q.length) return;
 
     _isAutoExtendingQueue = true;
@@ -1295,10 +1295,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // just means those songs keep their original Saavn/YT titles.
       final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
 
-      for (final song in cleanToAdd) {
-        await _engine.addToQueue(song);
-        _queue.add(song);
-      }
+      final addedCount = await _appendUniqueSongs(cleanToAdd);
 
       // NOTE: no Dart-side prefetchNext() call here anymore — see the
       // FIX comment above _engine.addToQueue in this same loop. Native
@@ -1312,7 +1309,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // as the native-side priority-window fix, just from the Dart side
       // instead. The song is already ready to play instantly by the time
       // playback reaches it; nothing here needs to warm it a second time.
-      if (cleanToAdd.isNotEmpty) {
+      if (addedCount > 0) {
         notifyListeners();
       }
     } catch (e) {
@@ -1833,11 +1830,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         // switched songs while these lookups were in flight.
         final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
         if (sessionId != _uiPlaySession) return;
-        for (final s in cleanToAdd) {
-          if (sessionId != _uiPlaySession) return;
-          await _engine.addToQueue(s);
-          _queue.add(s);
-        }
+        await _appendUniqueSongs(cleanToAdd, sessionId: sessionId);
+        if (sessionId != _uiPlaySession) return;
         alreadyInQueue.addAll(cleanToAdd.map((s) => s.id));
         notifyListeners();
       }
@@ -1870,11 +1864,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         // staleness after it, same reasoning as Phase 1 above.
         final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
         if (sessionId != _uiPlaySession) return;
-        for (final s in cleanToAdd) {
-          if (sessionId != _uiPlaySession) return;
-          await _engine.addToQueue(s);
-          _queue.add(s);
-        }
+        await _appendUniqueSongs(cleanToAdd, sessionId: sessionId);
+        if (sessionId != _uiPlaySession) return;
         notifyListeners();
       }
     } catch (e, st) {
@@ -2303,10 +2294,46 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     return false;
   }
 
+  // DUPLICATE-PAIR FIX: _buildInitialSmartQueue and _maybeExtendQueue can
+  // run at the same time (each only guards against itself) and both fetch
+  // the same recommendations, dedupe against a snapshot taken BEFORE their
+  // awaits, then append one-by-one with `await _engine.addToQueue`. The two
+  // loops interleave, so every song lands twice (A A B B ...). Every
+  // auto-append now goes through this helper, which re-checks the live
+  // queue + songs currently being appended right before each add.
+  final List<Song> _pendingAppend = [];
+
+  bool _isDuplicateIncludingPending(Song song) {
+    if (_isDuplicateInQueue(song)) return true;
+    final tk = _normTitleForDedup(song.title);
+    for (final s in _pendingAppend) {
+      if (s.id == song.id) return true;
+      if (_normTitleForDedup(s.title) == tk) return true;
+      if (RecommendationEngine.isSameSongSmart(song.title, s.title)) return true;
+    }
+    return false;
+  }
+
+  Future<int> _appendUniqueSongs(List<Song> songs, {int? sessionId}) async {
+    var added = 0;
+    for (final song in songs) {
+      if (sessionId != null && sessionId != _uiPlaySession) break;
+      if (_isDuplicateIncludingPending(song)) continue;
+      _pendingAppend.add(song);
+      try {
+        await _engine.addToQueue(song);
+        _queue.add(song);
+        added++;
+      } finally {
+        _pendingAppend.remove(song);
+      }
+    }
+    return added;
+  }
+
+
   Future<void> addToQueue(Song song) async {
-    if (_isDuplicateInQueue(song)) return;
-    await _engine.addToQueue(song);
-    _queue.add(song);
+    if (await _appendUniqueSongs([song]) == 0) return;
     notifyListeners();
   }
 
@@ -2325,13 +2352,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // checked against the true, up-to-date queue state, including
   // whatever the batch itself has already added.
   Future<int> addSongsToQueue(List<Song> songs) async {
-    var added = 0;
-    for (final song in songs) {
-      if (_isDuplicateInQueue(song)) continue;
-      await _engine.addToQueue(song);
-      _queue.add(song);
-      added++;
-    }
+    final added = await _appendUniqueSongs(songs);
     if (added > 0) notifyListeners();
     return added;
   }
