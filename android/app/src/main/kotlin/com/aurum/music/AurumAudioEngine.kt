@@ -392,8 +392,41 @@ class AurumAudioEngine(
             .setIsSpeedChangeSupportRequired(false)
             .build()
 
+    // Premium Sound's in-app DSP (see PremiumDspCore). MUST be declared before
+    // `player`: the renderers factory below installs it into the audio sink's
+    // PCM pipeline. Replaces the old vendor AudioEffect chain (Equalizer +
+    // LoudnessEnhancer + Virtualizer + BassBoost + DynamicsProcessing) that
+    // caused the "glitch after some time with Premium Sound on" bug.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    val player: ExoPlayer = ExoPlayer.Builder(context)
+    private val premiumProcessor = PremiumSoundProcessor()
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val aurumRenderersFactory: androidx.media3.exoplayer.RenderersFactory =
+        object : androidx.media3.exoplayer.DefaultRenderersFactory(context) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): androidx.media3.exoplayer.audio.AudioSink? {
+                return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf<androidx.media3.common.audio.AudioProcessor>(premiumProcessor))
+                    // Deeper PCM AudioTrack buffer (default floor is 250 ms): a
+                    // scheduling hiccup on a busy/throttled phone is absorbed by
+                    // the buffer instead of becoming an audible underrun. Seeks,
+                    // skips and pause flush it, so no extra latency is felt.
+                    .setAudioTrackBufferSizeProvider(
+                        androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider.Builder()
+                            .setMinPcmBufferDurationUs(500_000)
+                            .build()
+                    )
+                    .build()
+            }
+        }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    val player: ExoPlayer = ExoPlayer.Builder(context, aurumRenderersFactory)
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
         // Routes every playback through the disk-cache-backed data source
@@ -893,7 +926,7 @@ class AurumAudioEngine(
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    val effects: AurumAudioEffects = AurumAudioEffects(player, context)
+    val effects: AurumAudioEffects = AurumAudioEffects(player, context, premiumProcessor)
 
     private val _state = MutableStateFlow(NativeEngineState())
     val state: StateFlow<NativeEngineState> = _state

@@ -254,6 +254,13 @@ Future<void> main() async {
   // (see ApiService.fetchHomeShelvesForDisplay) — no duplicate traffic.
   unawaited(_prefetchHomeFeed());
 
+  // Re-apply the user's saved Premium Sound / Bass Boost / EQ settings to the
+  // native engine. The settings screen only pushes them when a switch is
+  // toggled, so after every cold start the switches showed ON while the engine
+  // was actually running flat (and the user had to toggle off/on to get the
+  // effect back).
+  unawaited(_restoreAudioEffects());
+
   // ── COLD-START HANG FIX — everything below used to run BEFORE runApp() ──
   // "app open karte hi bahut lag/hang hota hai" traced to this function
   // chaining 6+ sequential `await` calls ahead of runApp(): Hive init,
@@ -1015,6 +1022,31 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
 /// Home, so it is deliberately NOT prefetched (it cost ~70 requests that
 /// competed with the shelves for bandwidth). Fully fail-soft: any error just
 /// means HomeScreen fetches normally.
+Future<void> _restoreAudioEffects() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    final premium = p.getBool('premium_sound') ?? false;
+    final bass = p.getBool('bass_boost') ?? false;
+    final norm = p.getBool('volume_normalization') ?? false;
+    final bands = List.generate(10, (i) => p.getDouble('eq_band_$i') ?? 0.0);
+    final customCurve = bands.any((g) => g != 0.0);
+    // Only touch the engine when something is actually enabled, so users who
+    // never use these keep audio offload (cooler, less battery).
+    if (bass || norm || customCurve) {
+      await _audioEngine.applyAudioEffects(
+        bassBoost: bass,
+        volumeNormalization: norm,
+        bandGainsDb: bands,
+      );
+    }
+    if (premium) {
+      await _audioEngine.applyPremiumSound(true);
+    }
+  } catch (_) {
+    // Best effort — a failure here must never affect startup.
+  }
+}
+
 Future<void> _prefetchHomeFeed() async {
   try {
     if (await HomeFeedCache.isHomeShelvesFresh()) return;
