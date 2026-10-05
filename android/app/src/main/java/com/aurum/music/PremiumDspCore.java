@@ -53,7 +53,7 @@ final class PremiumDspCore {
     // shape as the previous curve, scaled so it is actually audible now that
     // it is no longer split across the device's 5-band hardware equalizer.)
     private static final double[] CURVE_DB = {
-        0.30, 0.10, -0.70, 0.30, 0.90, 1.10, 0.90, 0.60, 0.10, -0.20,
+        1.00, 1.50, 0.50, -1.00, 0.00, 1.20, 2.50, 2.80, 2.00, 2.20,
     };
 
     // Extra tilt for low-bitrate (lossy, dull-sounding) sources, dB at <=96 kbps.
@@ -64,12 +64,12 @@ final class PremiumDspCore {
     private static final int KBPS_NONE = 192;  // none at/above
 
     private static final double BASS_SHELF_HZ = 95.0;
-    private static final double BASS_SHELF_DB = 1.5;
-    private static final double WIDEN_AMOUNT = 0.12; // side-channel boost (12%) at full intensity
+    private static final double BASS_SHELF_DB = 2.5;
+    private static final double WIDEN_AMOUNT = 0.30; // side-channel boost (30%) at full intensity
 
     // Fraction of the filter chain's worst-case boost that is taken back as
     // headroom before the filters (rest is covered by the limiter).
-    private static final double HEADROOM_FRACTION = 0.40;
+    private static final double HEADROOM_FRACTION = 0.35;
 
     private static final double LIMIT_THRESHOLD = 0.97;
     private static final double LIMIT_ATTACK_S = 0.0005;
@@ -95,12 +95,28 @@ final class PremiumDspCore {
     private int appliedKbps = -1;
     private int appliedRate = -1;
 
-    private int biquadCount = 0;
+    private int biquadCount = MAX_BIQUADS;
+    // Live coefficients used by the audio loop; rebuilt from curDb while gains glide.
     private final double[] b0 = new double[MAX_BIQUADS];
     private final double[] b1 = new double[MAX_BIQUADS];
     private final double[] b2 = new double[MAX_BIQUADS];
     private final double[] a1 = new double[MAX_BIQUADS];
     private final double[] a2 = new double[MAX_BIQUADS];
+    // Scratch coefficient set, used only to evaluate the target chain's response.
+    private final double[] sb0 = new double[MAX_BIQUADS];
+    private final double[] sb1 = new double[MAX_BIQUADS];
+    private final double[] sb2 = new double[MAX_BIQUADS];
+    private final double[] sa1 = new double[MAX_BIQUADS];
+    private final double[] sa2 = new double[MAX_BIQUADS];
+    // Per-slot gain in dB: slot 0 = low shelf, slots 1..10 = bands.
+    // curDb glides to targetDb (~60 ms time constant) so intensity / bitrate
+    // changes never produce a coefficient jump (= click).
+    private final double[] curDb = new double[MAX_BIQUADS];
+    private final double[] targetDb = new double[MAX_BIQUADS];
+    private boolean snapPending = true;
+    private int glideCountdown = 0;
+    private double glideAlpha = 0.0;
+    private static final int GLIDE_INTERVAL_FRAMES = 64;
     // [channel][biquad]
     private final double[][] z1 = new double[2][MAX_BIQUADS];
     private final double[][] z2 = new double[2][MAX_BIQUADS];
@@ -108,7 +124,8 @@ final class PremiumDspCore {
     private double preGain = 1.0;       // current (smoothed)
     private double preGainTarget = 1.0;  // desired
     private double preCoef = 0.0;
-    private double widen = 0.0;
+    private double widen = 0.0;        // current (smoothed)
+    private double widenTarget = 0.0;
 
     private double limiterEnv = 1.0;
     private double attackCoef = 0.0;
@@ -135,7 +152,9 @@ final class PremiumDspCore {
         releaseCoef = 1.0 - Math.exp(-1.0 / (LIMIT_RELEASE_S * sampleRateHz));
         mixStep = 1.0 / (CROSSFADE_S * sampleRateHz);
         preCoef = 1.0 - Math.exp(-1.0 / (0.030 * sampleRateHz));
-        appliedRate = -1; // force coefficient rebuild
+        glideAlpha = 1.0 - Math.exp(-(double) GLIDE_INTERVAL_FRAMES / (0.060 * sampleRateHz));
+        appliedRate = -1; // force target rebuild
+        snapPending = true;
         resetState();
         mix = paramEnabled ? 1.0 : 0.0;
         mixTarget = mix;
@@ -143,6 +162,7 @@ final class PremiumDspCore {
 
     /** Audio thread: seek / track change / format change. Snaps without a fade. */
     void flush() {
+        snapPending = true;
         resetState();
         mix = paramEnabled ? 1.0 : 0.0;
         mixTarget = mix;
@@ -203,11 +223,14 @@ final class PremiumDspCore {
 
     private void processStereo(ByteBuffer in, ByteBuffer out, boolean isFloat, int frames) {
         final int n = biquadCount;
-        final double w = widen;
         final double[] zl1 = z1[0], zl2 = z2[0], zr1 = z1[1], zr2 = z2[1];
 
         for (int f = 0; f < frames; f++) {
             stepMix();
+            if (--glideCountdown <= 0) {
+                glideCountdown = GLIDE_INTERVAL_FRAMES;
+                glideStep();
+            }
             preGain += (preGainTarget - preGain) * preCoef;
             final double pre = preGain;
             final double dryL, dryR;
@@ -232,6 +255,7 @@ final class PremiumDspCore {
                 r = y;
             }
 
+            final double w = widen;
             if (w > 0.0) {
                 final double m = 0.5 * (l + r);
                 final double s = 0.5 * (l - r) * (1.0 + w);
@@ -264,6 +288,10 @@ final class PremiumDspCore {
 
         for (int f = 0; f < frames; f++) {
             stepMix();
+            if (--glideCountdown <= 0) {
+                glideCountdown = GLIDE_INTERVAL_FRAMES;
+                glideStep();
+            }
             preGain += (preGainTarget - preGain) * preCoef;
             final double pre = preGain;
             final double dry = isFloat ? in.getFloat() : in.getShort() * (1.0 / 32768.0);
@@ -340,7 +368,7 @@ final class PremiumDspCore {
         final int kbps = paramKbps;
 
         if (iq != appliedIntensityQ || kbps != appliedKbps || sampleRate != appliedRate) {
-            rebuild(iq / 100.0, kbps);
+            computeTarget(iq / 100.0, kbps);
             appliedIntensityQ = iq;
             appliedKbps = kbps;
             appliedRate = sampleRate;
@@ -348,9 +376,43 @@ final class PremiumDspCore {
         if (en != appliedEnabled) {
             appliedEnabled = en;
             mixTarget = en ? 1.0 : 0.0;
-            // Starting from fully dry: make sure the filters start clean.
-            if (en && mix <= 0.0) resetState();
+            if (en && mix <= 0.0) {
+                // Starting from fully dry: filters start clean and at the target
+                // settings (nothing audible is being replaced, so no glide needed).
+                snapPending = true;
+                resetState();
+            }
         }
+        if (snapPending) {
+            System.arraycopy(targetDb, 0, curDb, 0, MAX_BIQUADS);
+            widen = widenTarget;
+            preGain = preGainTarget;
+            designLive();
+            glideCountdown = GLIDE_INTERVAL_FRAMES;
+            snapPending = false;
+        }
+    }
+
+    /** Advances curDb / widen one small step toward the target and refreshes the live filters. */
+    private void glideStep() {
+        boolean moved = false;
+        for (int k = 0; k < MAX_BIQUADS; k++) {
+            final double d = targetDb[k] - curDb[k];
+            if (d > 0.0005 || d < -0.0005) {
+                curDb[k] += d * glideAlpha;
+                moved = true;
+            } else if (d != 0.0) {
+                curDb[k] = targetDb[k];
+                moved = true;
+            }
+        }
+        final double dw = widenTarget - widen;
+        if (dw > 0.00005 || dw < -0.00005) {
+            widen += dw * glideAlpha;
+        } else {
+            widen = widenTarget;
+        }
+        if (moved) designLive();
     }
 
     private static double lowBitrateScale(int kbps) {
@@ -359,31 +421,24 @@ final class PremiumDspCore {
         return 1.0 - (double) (kbps - KBPS_FULL) / (double) (KBPS_NONE - KBPS_FULL);
     }
 
-    private void rebuild(double intensity, int kbps) {
+    /** Computes the target gains, headroom and widening for the given intensity / bitrate. */
+    private void computeTarget(double intensity, int kbps) {
         final double lowBr = lowBitrateScale(kbps);
         final double nyquistLimit = 0.45 * sampleRate;
+
         // Fixed slot layout (slot 0 = low shelf, 1..10 = bands). A band that is
-        // not needed is an exact identity filter instead of being removed, so
-        // slot <-> filter-state mapping never shifts when intensity or the
-        // source bitrate changes (no state mismatch -> no click).
+        // not needed has 0 dB gain = an exact identity filter, so the
+        // slot <-> filter-state mapping never shifts (no state mismatch, no click).
         final double shelfDb = BASS_SHELF_DB * intensity;
-        if (shelfDb > 0.01) {
-            designLowShelf(0, BASS_SHELF_HZ, shelfDb);
-        } else {
-            designIdentity(0);
-        }
+        targetDb[0] = shelfDb > 0.01 ? shelfDb : 0.0;
         for (int i = 0; i < BAND_HZ.length; i++) {
             final double db = CURVE_DB[i] * intensity + LOWBR_DB[i] * lowBr;
-            if (Math.abs(db) < 0.01 || BAND_HZ[i] >= nyquistLimit) {
-                designIdentity(i + 1);
-            } else {
-                designPeaking(i + 1, BAND_HZ[i], BAND_Q, db);
-            }
+            targetDb[i + 1] = (Math.abs(db) < 0.01 || BAND_HZ[i] >= nyquistLimit) ? 0.0 : db;
         }
-        biquadCount = MAX_BIQUADS;
 
-        // Worst-case boost of the whole chain -> headroom so boosted material
-        // doesn't pin the limiter.
+        // Worst-case boost of the TARGET chain -> headroom, so boosted material
+        // does not pin the limiter. Evaluated on scratch coefficients.
+        designInto(sb0, sb1, sb2, sa1, sa2, targetDb);
         double maxDb = 0.0;
         final double fMax = Math.min(20000.0, nyquistLimit);
         for (int p = 0; p < RESPONSE_POINTS; p++) {
@@ -391,58 +446,85 @@ final class PremiumDspCore {
             maxDb = Math.max(maxDb, chainResponseDb(f));
         }
         preGainTarget = Math.pow(10.0, -HEADROOM_FRACTION * maxDb / 20.0);
-        widen = channels == 2 ? WIDEN_AMOUNT * intensity : 0.0;
+        widenTarget = channels == 2 ? WIDEN_AMOUNT * intensity : 0.0;
     }
 
+    private void designLive() {
+        designInto(b0, b1, b2, a1, a2, curDb);
+    }
+
+    private void designInto(double[] ob0, double[] ob1, double[] ob2,
+                            double[] oa1, double[] oa2, double[] gainsDb) {
+        if (gainsDb[0] > 0.001) {
+            designLowShelf(ob0, ob1, ob2, oa1, oa2, 0, BASS_SHELF_HZ, gainsDb[0]);
+        } else {
+            designIdentity(ob0, ob1, ob2, oa1, oa2, 0);
+        }
+        for (int i = 0; i < BAND_HZ.length; i++) {
+            final double db = gainsDb[i + 1];
+            if (Math.abs(db) < 0.001) {
+                designIdentity(ob0, ob1, ob2, oa1, oa2, i + 1);
+            } else {
+                designPeaking(ob0, ob1, ob2, oa1, oa2, i + 1, BAND_HZ[i], BAND_Q, db);
+            }
+        }
+    }
+
+    /** Magnitude response (dB) of the scratch (target) chain at {@code hz}. */
     private double chainResponseDb(double hz) {
         final double w = 2.0 * Math.PI * hz / sampleRate;
         final double cw = Math.cos(w), sw = Math.sin(w);
         final double c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
         double db = 0.0;
-        for (int k = 0; k < biquadCount; k++) {
-            final double nr = b0[k] + b1[k] * cw + b2[k] * c2;
-            final double ni = -(b1[k] * sw + b2[k] * s2);
-            final double dr = 1.0 + a1[k] * cw + a2[k] * c2;
-            final double di = -(a1[k] * sw + a2[k] * s2);
+        for (int k = 0; k < MAX_BIQUADS; k++) {
+            final double nr = sb0[k] + sb1[k] * cw + sb2[k] * c2;
+            final double ni = -(sb1[k] * sw + sb2[k] * s2);
+            final double dr = 1.0 + sa1[k] * cw + sa2[k] * c2;
+            final double di = -(sa1[k] * sw + sa2[k] * s2);
             final double mag = Math.sqrt((nr * nr + ni * ni) / (dr * dr + di * di));
             db += 20.0 * Math.log10(mag);
         }
         return db;
     }
 
-    private void designIdentity(int k) {
-        b0[k] = 1.0;
-        b1[k] = 0.0;
-        b2[k] = 0.0;
-        a1[k] = 0.0;
-        a2[k] = 0.0;
+    private static void designIdentity(double[] ob0, double[] ob1, double[] ob2,
+                                       double[] oa1, double[] oa2, int k) {
+        ob0[k] = 1.0;
+        ob1[k] = 0.0;
+        ob2[k] = 0.0;
+        oa1[k] = 0.0;
+        oa2[k] = 0.0;
     }
 
     // RBJ audio-EQ-cookbook designs, normalised by a0.
-    private void designPeaking(int k, double hz, double q, double db) {
+    private void designPeaking(double[] ob0, double[] ob1, double[] ob2,
+                               double[] oa1, double[] oa2,
+                               int k, double hz, double q, double db) {
         final double A = Math.pow(10.0, db / 40.0);
         final double w0 = 2.0 * Math.PI * hz / sampleRate;
         final double cs = Math.cos(w0);
         final double alpha = Math.sin(w0) / (2.0 * q);
         final double a0 = 1.0 + alpha / A;
-        b0[k] = (1.0 + alpha * A) / a0;
-        b1[k] = (-2.0 * cs) / a0;
-        b2[k] = (1.0 - alpha * A) / a0;
-        a1[k] = (-2.0 * cs) / a0;
-        a2[k] = (1.0 - alpha / A) / a0;
+        ob0[k] = (1.0 + alpha * A) / a0;
+        ob1[k] = (-2.0 * cs) / a0;
+        ob2[k] = (1.0 - alpha * A) / a0;
+        oa1[k] = (-2.0 * cs) / a0;
+        oa2[k] = (1.0 - alpha / A) / a0;
     }
 
-    private void designLowShelf(int k, double hz, double db) {
+    private void designLowShelf(double[] ob0, double[] ob1, double[] ob2,
+                                double[] oa1, double[] oa2,
+                                int k, double hz, double db) {
         final double A = Math.pow(10.0, db / 40.0);
         final double w0 = 2.0 * Math.PI * hz / sampleRate;
         final double cs = Math.cos(w0);
         final double alpha = Math.sin(w0) / 2.0 * Math.sqrt(2.0); // shelf slope S = 1
         final double tsA = 2.0 * Math.sqrt(A) * alpha;
         final double a0 = (A + 1.0) + (A - 1.0) * cs + tsA;
-        b0[k] = A * ((A + 1.0) - (A - 1.0) * cs + tsA) / a0;
-        b1[k] = 2.0 * A * ((A - 1.0) - (A + 1.0) * cs) / a0;
-        b2[k] = A * ((A + 1.0) - (A - 1.0) * cs - tsA) / a0;
-        a1[k] = -2.0 * ((A - 1.0) + (A + 1.0) * cs) / a0;
-        a2[k] = ((A + 1.0) + (A - 1.0) * cs - tsA) / a0;
+        ob0[k] = A * ((A + 1.0) - (A - 1.0) * cs + tsA) / a0;
+        ob1[k] = 2.0 * A * ((A - 1.0) - (A + 1.0) * cs) / a0;
+        ob2[k] = A * ((A + 1.0) - (A - 1.0) * cs - tsA) / a0;
+        oa1[k] = -2.0 * ((A - 1.0) + (A + 1.0) * cs) / a0;
+        oa2[k] = ((A + 1.0) + (A - 1.0) * cs - tsA) / a0;
     }
 }

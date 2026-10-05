@@ -60,19 +60,19 @@ class AurumAudioEffects(
 
         // Premium Sound intensity ceiling by output route (speaker is the
         // most fatiguing / most likely to distort, wired the cleanest).
-        private const val K_S1 = 0.55f // speaker
+        private const val K_S1 = 0.85f // speaker
         private const val K_S2 = 1.0f // wired
-        private const val K_S3 = 0.85f // bluetooth
-        private const val K_S4 = 0.75f // unknown
+        private const val K_S3 = 0.95f // bluetooth
+        private const val K_S4 = 0.90f // unknown
 
         // Battery-saver taper: at/below K_B1 percent (and not charging) the
         // effect is scaled by K_B2.
         private const val K_B1 = 20
-        private const val K_B2 = 0.5f
+        private const val K_B2 = 0.8f
 
         // Louder system volume -> proportionally less effect (K_A2 at silence,
         // K_A1 at full volume).
-        private const val K_A1 = 0.7f
+        private const val K_A1 = 0.85f
         private const val K_A2 = 1.0f
 
         // DynamicsProcessing limiter (safety net for manual boosts only).
@@ -313,7 +313,7 @@ class AurumAudioEffects(
     }
 
     private fun _mx1(): Float =
-        (_ro2() * _bt2() * _cx1()).coerceIn(0.15f, 1.0f)
+        (_ro2() * _bt2() * _cx1()).coerceIn(0.5f, 1.0f)
 
     // ═════════════════════════════════════════════════════════════════════
     // MANUAL CONTROLS (platform effects: custom EQ / Bass Boost / Vol Boost)
