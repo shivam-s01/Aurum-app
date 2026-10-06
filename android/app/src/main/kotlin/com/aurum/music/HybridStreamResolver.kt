@@ -24,6 +24,10 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
         // _handleEngineCallback dispatcher (native_engine_bridge.dart) just
         // gets one more case, no new channel/listener plumbing needed.
         private const val ENGINE_CHANNEL = "com.aurum.music/audio_engine"
+
+        // Video mode: when true, YouTube songs resolve to a muxed (audio+video)
+        // stream instead of audio-only. Set by AurumAudioEngine.setVideoMode().
+        @Volatile var videoMode: Boolean = false
     }
 
     private val fallback = MethodChannelStreamResolver(messenger)
@@ -44,6 +48,12 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
     override suspend fun resolve(song: NativeSong, forceRefresh: Boolean): String? {
         if (song.source != "youtube") {
             return fallback.resolve(song, forceRefresh)
+        }
+
+        if (videoMode) {
+            val v = try { YoutubeInnertube.resolveVideo(song.id)?.url } catch (e: Exception) { null }
+            if (!v.isNullOrBlank()) return v
+            Log.w(TAG, "Video resolve failed for ${song.id}, falling back to audio")
         }
 
         // Native path first: no MethodChannel round-trip, no Worker network

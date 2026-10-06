@@ -27,6 +27,7 @@ import '../models/lyrics.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/audio_prefs.dart';
+import '../services/native_engine_bridge.dart' show NativeAudioEngine;
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_like_button.dart';
@@ -2496,7 +2497,9 @@ class _ArtworkVisual extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(radius),
-                    child: AurumArtwork(
+                    child: _VideoArtworkStack(
+                      song: song,
+                      child: AurumArtwork(
                       // Upgrades the list-sized artworkUrl to a sharper
                       // version for this full-screen hero disc art — see
                       // AurumArtwork.upgradeForFullPlayer's doc comment.
@@ -2514,6 +2517,7 @@ class _ArtworkVisual extends StatelessWidget {
                       // loaded.
                       suppressWhiteShimmer: true,
                     ),
+                    ),
                   ),
                 ),
               );
@@ -2521,6 +2525,110 @@ class _ArtworkVisual extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// Video mode: overlays the muxed video (Texture) on the artwork for YouTube
+// songs, with a small toggle button. Audio-only remains the default.
+class _VideoArtworkStack extends StatefulWidget {
+  final Song song;
+  final Widget child;
+  const _VideoArtworkStack({required this.song, required this.child});
+
+  @override
+  State<_VideoArtworkStack> createState() => _VideoArtworkStackState();
+}
+
+class _VideoArtworkStackState extends State<_VideoArtworkStack> with WidgetsBindingObserver {
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App in background / screen off: back to audio-only (saves data/battery).
+    if (state != AppLifecycleState.resumed && NativeAudioEngine.videoTextureId.value != null) {
+      NativeAudioEngine().setVideoMode(false);
+    }
+  }
+
+  Future<void> _toggle(bool on) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await NativeAudioEngine().setVideoMode(!on);
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // Leaving the player screen: drop back to audio-only (saves data/battery).
+    if (NativeAudioEngine.videoTextureId.value != null) {
+      NativeAudioEngine().setVideoMode(false);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.song.source != SongSource.youtube) return widget.child;
+    return ValueListenableBuilder<int?>(
+      valueListenable: NativeAudioEngine.videoTextureId,
+      builder: (context, texId, _) {
+        final on = texId != null;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            if (on)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: ClipRect(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: 1600,
+                        height: 900,
+                        child: Texture(textureId: texId),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              right: 8,
+              top: 8,
+              child: GestureDetector(
+                onTap: () => _toggle(on),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: _busy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Icon(
+                          on ? Icons.music_note_rounded : Icons.videocam_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
