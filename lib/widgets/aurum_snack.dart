@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../theme/aurum_theme.dart';
 
@@ -82,10 +84,7 @@ class AurumSnack {
     // ki line na lage (YT Music jaisa).
     if (hasAction) messenger.hideCurrentSnackBar();
 
-    messenger.showSnackBar(SnackBar(
-      // Flutter 3.29+: action wala SnackBar default me auto-dismiss nahi
-      // hota. Undo toast duration baad apne aap jaana chahiye.
-      persist: false,
+    final controller = messenger.showSnackBar(SnackBar(
       content: Text(
         message,
         style: TextStyle(
@@ -114,5 +113,17 @@ class AurumSnack {
             )
           : null,
     ));
+
+    // Action wale SnackBar kuch Flutter versions me auto-dismiss nahi hote
+    // (accessibility/Material rule). Undo toast hamesha [duration] baad
+    // band ho — version-independent timer. 'closed' guard se kisi naye
+    // toast ko galti se band nahi karta.
+    if (hasAction) {
+      var closed = false;
+      unawaited(controller.closed.then((_) => closed = true));
+      Timer(duration, () {
+        if (!closed) controller.close();
+      });
+    }
   }
 }
