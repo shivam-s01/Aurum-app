@@ -3741,15 +3741,23 @@ class ApiService {
             'weekly top videos hindi',
           ]
         : ['weekly top videos ${UserRegion.name}'];
+    // Pehle har query se sirf 1 card liya jata tha (aksar poore shelf me
+    // 1 hi dikhta tha). Ab har query ke real results lo, mix karke unique.
     final perQuery = await Future.wait(
-      queries.map((q) => _searchAsHomeShelf(q, 'Featured playlists for you', take: 1)),
+      queries.map((q) => _searchAsHomeShelf(q, 'Featured playlists for you', take: 5)),
     );
     final items = <HomeShelfItem>[];
-    for (final shelf in perQuery) {
-      if (shelf != null && shelf.items.isNotEmpty) items.add(shelf.items.first);
+    final ids = <String>{};
+    for (var k = 0; k < 5; k++) {
+      for (final shelf in perQuery) {
+        if (shelf == null || k >= shelf.items.length) continue;
+        final it = shelf.items[k];
+        if (ids.add(it.browseId)) items.add(it);
+      }
     }
-    if (items.isEmpty) return null;
-    return HomeShelf(title: 'Featured playlists for you', items: items);
+    if (items.length < 3) return null;
+    return HomeShelf(
+        title: 'Featured playlists for you', items: items.take(10).toList());
   }
 
   static Future<List<SearchPlaylistResult>> fetchFeaturedPlaylistsForSearch() async {
@@ -3800,13 +3808,41 @@ class ApiService {
   }
 
   static Future<List<HomeShelf>> fetchSimilarToArtistShelves({int? seed, int artistCount = 3}) async {
-    final topArtists =
-        RecommendationEngine.rotatingAffinityArtists(count: artistCount, seed: seed);
-    if (topArtists.isEmpty) return const [];
-
-    final perArtist = await Future.wait(
-      topArtists.map((a) => _searchAsHomeShelf('$a mix playlist', 'Similar to $a', take: 10)),
-    );
+    // Affinity list me credit strings aate hain ("Sonu Nigam, Alka Yagnik,
+    // Sanjivani, ...") — poori string se search karne par 1 hi card bachta
+    // tha. Primary artist nikal ke dedupe karo, phir real playlists lao.
+    final raw = RecommendationEngine.rotatingAffinityArtists(
+        count: artistCount + 3, seed: seed);
+    if (raw.isEmpty) return const [];
+    final splitter = RegExp(
+        r'\s*(?:,|&|\+|\s/\s|;|\bfeat\.?\b|\bft\.?\b)\s*',
+        caseSensitive: false);
+    final seenKeys = <String>{};
+    final artists = <String>[];
+    for (final r in raw) {
+      final primary = r.split(splitter).first.trim();
+      final key = primary.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (key.isEmpty || !seenKeys.add(key)) continue;
+      artists.add(primary);
+      if (artists.length >= artistCount) break;
+    }
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    final perArtist = await Future.wait(artists.map((a) async {
+      final title = 'Similar to $a';
+      final first = await _searchAsHomeShelf('$a mix playlist', title, take: 10);
+      var items = <HomeShelfItem>[...?first?.items];
+      // Data Saver: dusra search sirf tab jab shelf (min 3 cards) warna
+      // gayab ho jati; normal me 4 se kam par.
+      if (items.length < (saver ? 3 : 4)) {
+        final second = await _searchAsHomeShelf('$a playlist', title, take: 10);
+        final ids = items.map((e) => e.browseId).toSet();
+        for (final it in second?.items ?? const <HomeShelfItem>[]) {
+          if (ids.add(it.browseId)) items.add(it);
+        }
+      }
+      if (items.length < 3) return null;
+      return HomeShelf(title: title, items: items.take(10).toList());
+    }));
     return perArtist.whereType<HomeShelf>().toList();
   }
 
@@ -3840,7 +3876,10 @@ class ApiService {
     const maxShelvesLocal = 7;
     HomeShelf? featured;
     var seeded = <HomeShelf>[];
-    final have = real.length + similar.length;
+    final have = real
+            .where((e) => e.isList ? e.songs.length >= 3 : e.items.length >= 3)
+            .length +
+        similar.length;
     if (have < maxShelvesLocal) {
       final need = maxShelvesLocal - have;
       final rot = (refreshSeed ?? 0).abs();
@@ -3889,12 +3928,19 @@ class ApiService {
     // their slot to a generic fixed-query one with the same name), before
     // the maxShelves cap so a duplicate never displaces a genuinely
     // different shelf that would otherwise have made the cut.
-    final combined = [
+    // Ek-do card wali patli shelves YT Music jaisi nahi lagti — hata do
+    // (par agar sab hat jaayein to kuch bhi na dikhne se behtar hai wapas
+    // rakh lo).
+    bool shelfOk(HomeShelf sh) =>
+        sh.isList ? sh.songs.length >= 3 : sh.items.length >= 3;
+    var combined = [
       ...real,
       ...similar,
       if (featured != null) featured,
       ...seeded,
     ];
+    final thick = combined.where(shelfOk).toList();
+    if (thick.isNotEmpty) combined = thick;
 
     final seenTitles = <String>{};
     final deduped = <HomeShelf>[];
@@ -3904,8 +3950,20 @@ class ApiService {
       deduped.add(shelf);
     }
 
+    // 7 shelves x 12 cards (Data Saver me bhi same — fetch ke baad trim se
+    // data bachta nahi, bas content kam dikhta).
     const maxShelves = 7;
-    return deduped.take(maxShelves).toList();
+    const maxItemsPerShelf = 12;
+    return deduped.take(maxShelves).map((sh) {
+      if (sh.items.length <= maxItemsPerShelf) return sh;
+      return HomeShelf(
+        title: sh.title,
+        items: sh.items.take(maxItemsPerShelf).toList(),
+        strapline: sh.strapline,
+        isList: sh.isList,
+        songs: sh.songs,
+      );
+    }).toList();
   }
 
   static Future<List<Song>> resolveHomeShelfPlaylist(
@@ -3930,7 +3988,7 @@ class ApiService {
   static Future<List<Song>> fetchHomeShelfPlaylistMore(
     HomeShelfItem item, {
     required List<String> existingVideoIds,
-    int targetCount = 100,
+    int targetCount = 175,
     Duration timeout = const Duration(seconds: 8),
   }) async {
     final songs = <Song>[];
@@ -4877,6 +4935,7 @@ class ApiService {
   static Future<List<_RealPlaylistCandidate>> _searchRealPlaylists(
     String query, {
     int take = 5,
+    bool filterJunk = true,
   }) async {
 
     try {
@@ -4901,7 +4960,10 @@ class ApiService {
         }
 
         final title = _flexColumnText(item, 0);
-        if (title.isEmpty || RecommendationEngine.isLowQualityUpload(title)) continue;
+        if (title.isEmpty) continue;
+        // Junk filter sirf home shelves ke liye — user ne khud search kiya
+        // to uska exact result dikhna chahiye.
+        if (filterJunk && RecommendationEngine.isLowQualityUpload(title)) continue;
 
         final thumbs = (item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
                     ?['thumbnails'] as List?) ??
@@ -4915,10 +4977,22 @@ class ApiService {
                         ?['text']?['runs'] as List?) ??
                 const [])
             : const [];
-        final author = subtitleRuns
-            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
-            .where((t) => t != ' • ' && t.trim().isNotEmpty)
-            .lastWhere((_) => true, orElse: () => '');
+        // Subtitle: "Playlist • Author • 2.3M views / 50 songs" — last run
+        // aksar views/songs count hota hai, author nahi. Count wale runs
+        // hata ke last bacha hua text author hai.
+        final subtitleTexts = subtitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString().trim())
+            .where((t) => t.isNotEmpty && t != '•')
+            .toList();
+        final countRe = RegExp(r'\d.*(view|song|track|video|play|सुनी|गाने)',
+            caseSensitive: false);
+        final nameRuns = subtitleTexts.where((t) => !countRe.hasMatch(t)).toList();
+        final author = nameRuns.length >= 2
+            ? nameRuns[1]
+            : (nameRuns.length == 1 &&
+                    nameRuns.first.toLowerCase() != 'playlist'
+                ? nameRuns.first
+                : '');
 
         candidates.add(_RealPlaylistCandidate(
           id: browseId.startsWith('VL') ? browseId.substring(2) : browseId,
@@ -4939,17 +5013,61 @@ class ApiService {
     String query, {
     int take = 15,
   }) async {
-    if (query.trim().isEmpty) return const [];
-    final candidates = await _searchRealPlaylists(query.trim(), take: take);
-    return candidates
-        .where((c) => c.title.isNotEmpty)
-        .map((c) => SearchPlaylistResult(
-              id: c.id,
-              title: c.title,
-              author: c.author,
-              artworkUrl: c.artworkUrl,
-            ))
-        .toList();
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    // Pehle exact query, phir variants — taaki kuch na kuch hamesha mile
+    // (transient network miss ya bahut specific query pe bhi).
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    final attempts = <String>[q, '$q playlist', '$q songs', '$q mix'];
+    final seen = <String>{};
+    final out = <SearchPlaylistResult>[];
+    const enough = 8;
+
+    Future<List<_RealPlaylistCandidate>> attempt(String a,
+        {bool retry = false}) async {
+      try {
+        var c = await _searchRealPlaylists(a, take: take, filterJunk: false);
+        if (c.isEmpty && retry) {
+          // ek quick retry same query pe (network blip)
+          c = await _searchRealPlaylists(a, take: take, filterJunk: false);
+        }
+        return c;
+      } catch (_) {
+        return const <_RealPlaylistCandidate>[];
+      }
+    }
+
+    void collect(List<_RealPlaylistCandidate> c) {
+      for (final r in c) {
+        if (r.title.isEmpty || !seen.add(r.id)) continue;
+        out.add(SearchPlaylistResult(
+          id: r.id,
+          title: r.title,
+          author: r.author,
+          artworkUrl: r.artworkUrl,
+        ));
+      }
+    }
+
+    // Exact query pehle (result order wahi rahega). Kam results aaye tabhi
+    // baaki variants EK SAATH (parallel) chalte hain — serial wait nahi.
+    collect(await attempt(attempts.first, retry: true));
+    if (out.length < enough && attempts.length > 1) {
+      if (saver) {
+        // Data Saver: ek ek karke, enough results milte hi ruk jao (kam
+        // network, same content). Normal: sab variants parallel (fast).
+        for (final a in attempts.skip(1)) {
+          collect(await attempt(a));
+          if (out.length >= enough) break;
+        }
+      } else {
+        final rest = await Future.wait(attempts.skip(1).map(attempt));
+        for (final c in rest) {
+          collect(c);
+        }
+      }
+    }
+    return out.take(take).toList();
   }
 
   static Future<List<Song>> _raceSongSources(
@@ -5378,18 +5496,32 @@ class ApiService {
     final completer = Completer<List<Song>>();
     var pending = 2;
     Object? lastError;
+    List<Song> best = const [];
+    Timer? grace;
+
+    void finish() {
+      grace?.cancel();
+      if (!completer.isCompleted) completer.complete(best);
+    }
 
     void settleIfBest(List<Song> songs, String source, {Object? error}) {
       if (completer.isCompleted) return;
-      if (songs.isNotEmpty) {
-        _log('[fetchYtPlaylistSongs] winner: $source (${songs.length})');
-        completer.complete(songs);
+      pending--;
+      if (songs.length > best.length) best = songs;
+      if (songs.isEmpty && error != null) lastError = error;
+      if (pending == 0) {
+        finish();
+        return;
+      }
+      if (best.isEmpty) return;
+      _log('[fetchYtPlaylistSongs] first: $source (${songs.length})');
+      // Chhoti playlist (<90 songs) turant dikha do. Badi playlist ka pehla
+      // jawab aksar page-limit pe cut hota hai — doosre source ko max 3s
+      // do taaki zyada complete list mile.
+      if (best.length < 90 || best.length >= limit) {
+        finish();
       } else {
-        if (error != null) lastError = error;
-        pending--;
-        if (pending == 0 && !completer.isCompleted) {
-          completer.complete(const []);
-        }
+        grace ??= Timer(const Duration(seconds: 3), finish);
       }
     }
 
@@ -5420,7 +5552,6 @@ class ApiService {
 
     final result = await completer.future;
     if (result.isEmpty) {
-
       if (lastError is YtPlaylistImportException) throw lastError!;
       throw const YtPlaylistImportException(YtPlaylistImportError.notFound);
     }
@@ -5471,15 +5602,14 @@ class ApiService {
 
   static List<Song> _dedupAndFilterPlaylistSongs(List<Song> songs) {
     final seenIds = <String>{};
-    final seenTitles = <String>{};
     final result = <Song>[];
     for (final s in songs) {
       if (s.id.isEmpty || s.title.isEmpty) continue;
       if (!seenIds.add(s.id)) continue;
-      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
-      if (RecommendationEngine.isNonMusicContent(s)) continue;
-      final tk = _normTitle(s.title);
-      if (!seenTitles.add(tk)) continue;
+      // User-curated playlist: songs wahi dikhao jo playlist me hain.
+      // Sirf deleted/private placeholders aur exact duplicate hatao.
+      final tl = s.title.trim().toLowerCase();
+      if (tl == 'deleted video' || tl == 'private video') continue;
       result.add(s);
     }
 

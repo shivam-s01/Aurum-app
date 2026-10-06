@@ -60,6 +60,8 @@ class AurumSnack {
     String message, {
     Duration duration = const Duration(seconds: 2),
     Duration dedupeWindow = const Duration(milliseconds: 800),
+    String? actionLabel,
+    VoidCallback? onAction,
   }) {
     final messenger = ScaffoldMessenger.of(context);
     final now = DateTime.now();
@@ -74,7 +76,16 @@ class AurumSnack {
     final surface = AurumTheme.bgElevatedOf(context);
     final textColor = AurumTheme.textPrimaryOf(context);
 
+    final hasAction = actionLabel != null && onAction != null;
+    // Undo wale toast ko queue me mat lagao: pehle wala turant hatao taaki
+    // naya action (jaise lagataar "Not interested") fauran dikhe, 5s-5s
+    // ki line na lage (YT Music jaisa).
+    if (hasAction) messenger.hideCurrentSnackBar();
+
     messenger.showSnackBar(SnackBar(
+      // Flutter 3.29+: action wala SnackBar default me auto-dismiss nahi
+      // hota. Undo toast duration baad apne aap jaana chahiye.
+      persist: false,
       content: Text(
         message,
         style: TextStyle(
@@ -95,6 +106,13 @@ class AurumSnack {
       ),
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       duration: duration,
+      action: (actionLabel != null && onAction != null)
+          ? SnackBarAction(
+              label: actionLabel,
+              textColor: AurumTheme.accentOf(context),
+              onPressed: onAction,
+            )
+          : null,
     ));
   }
 }

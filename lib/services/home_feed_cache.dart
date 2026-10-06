@@ -296,6 +296,15 @@ class HomeFeedCache {
     } catch (_) {}
   }
 
+  // Failed/empty cold fetch ke baad marker hata do taaki agli launch pe
+  // (Data Saver ON me bhi) dobara try ho, 24h tak khali home na rahe.
+  static Future<void> clearColdAttempt(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cold_attempt_$key');
+    } catch (_) {}
+  }
+
   static Future<bool> isFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -580,14 +589,19 @@ class HomeFeedCache {
   // fresh) had nothing to reshuffle and fell back to a real fetch anyway —
   // safe, but quietly defeated the point of a network-free light refresh
   // in the most common case.
-  static Future<void> saveQuickPicks(List<Song> songs) async {
+  // [touch] false => sirf list update (timestamp nahi badhta). "Not interested"
+  // jaise local edit pe purana feed "fresh" na dikhe.
+  static Future<void> saveQuickPicks(List<Song> songs,
+      {bool touch = true}) async {
     if (songs.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final encoded = jsonEncode(songs.map((s) => s.toJson()).toList());
       await prefs.setString(_quickPicksKey, encoded);
-      await prefs.setInt(
-          _quickPicksSavedAtKey, DateTime.now().millisecondsSinceEpoch);
+      if (touch) {
+        await prefs.setInt(
+            _quickPicksSavedAtKey, DateTime.now().millisecondsSinceEpoch);
+      }
     } catch (_) {}
   }
 

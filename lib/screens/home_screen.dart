@@ -28,6 +28,9 @@ import '../widgets/aurum_scroll_nudge.dart';
 import '../widgets/aurum_stage_backdrop.dart';
 import '../widgets/faded_horizontal_list.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/aurum_song_options_sheet.dart';
+import '../services/quick_picks_filter.dart';
+import '../widgets/aurum_snack.dart';
 import 'album_screen.dart';
 import '../main.dart' show aurumRouteObserver, aurumDebugErrorWidgetBuilder;
 import '../widgets/aurum_loader.dart';
@@ -3883,7 +3886,63 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
   @override
   void dispose() {
     _recent?.removeListener(_onHistoryChanged);
+    _pageCtrl?.dispose();
     super.dispose();
+  }
+
+  // Persistent PageController: pehle har build() me naya ban jata tha, to koi
+  // bhi setState (Not interested, gradual refresh) row ko page 0 pe jhatak
+  // deta tha. Ab sirf screen width badalne par naya banta hai.
+  PageController? _pageCtrl;
+  double _pageFraction = 0;
+  int _gradualGen = 0;
+  // Jin songs ka "remove" animation chal raha hai (collapse + fade).
+  final Set<String> _fading = <String>{};
+
+  PageController _pageController(double fraction) {
+    final existing = _pageCtrl;
+    if (existing != null && (fraction - _pageFraction).abs() < 0.001) {
+      return existing;
+    }
+    final fresh = PageController(viewportFraction: fraction);
+    _pageCtrl = fresh;
+    _pageFraction = fraction;
+    if (existing != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => existing.dispose());
+    }
+    return fresh;
+  }
+
+  // DATA SAVER refresh: naye songs ek-ek karke (har ~110ms) badalte hain.
+  // Swap-based, taaki beech me kabhi duplicate song (duplicate key) na bane.
+  Future<void> _applyGradually(List<Song> target) async {
+    final gen = ++_gradualGen;
+    final cur = List<Song>.from(_songs ?? const <Song>[]);
+    for (var i = 0; i < target.length; i++) {
+      if (!mounted || gen != _gradualGen) return;
+      final want = target[i];
+      if (i < cur.length) {
+        if (cur[i].id == want.id) continue;
+        final j = cur.indexWhere((s) => s.id == want.id, i + 1);
+        if (j >= 0) {
+          final t = cur[i];
+          cur[i] = cur[j];
+          cur[j] = t;
+        } else {
+          cur[i] = want;
+        }
+      } else {
+        if (cur.any((s) => s.id == want.id)) continue;
+        cur.add(want);
+      }
+      setState(() => _songs = List<Song>.from(cur));
+      await Future<void>.delayed(const Duration(milliseconds: 110));
+    }
+    if (!mounted || gen != _gradualGen) return;
+    if (cur.length > target.length) {
+      cur.removeRange(target.length, cur.length);
+      setState(() => _songs = List<Song>.from(cur));
+    }
   }
 
   void _onHistoryChanged() {
@@ -3903,8 +3962,111 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     _load(silent: hadSongs).whenComplete(() => _loading = false);
   }
 
+  // 3-dot menu: "Not interested" / "Don't recommend artist" — row turant
+  // hat jaati hai aur choice save hoti hai (QuickPicksFilter).
+  // Return: Undo callback (row ko pehle jaisa kar deta hai, agar beech me
+  // refresh na hua ho).
+  VoidCallback _removeFromRow(bool Function(Song) test) {
+    if (!mounted) return () {};
+    _gradualGen++; // chalta hua gradual refresh cancel
+    final prevSongs = _songs;
+    final prevPool = _pool;
+    List<Song>? afterSongs;
+    setState(() {
+      _pool = _pool.where((s) => !test(s)).toList();
+      final next = (_songs ?? const <Song>[]).where((s) => !test(s)).toList();
+      // Row khali na ho: pool se bhar do.
+      if (next.length < _kMaxShown) {
+        final have = next.map((s) => s.id).toSet();
+        for (final s in _pool) {
+          if (next.length >= _kMaxShown) break;
+          if (have.add(s.id)) next.add(s);
+        }
+      }
+      _songs = next;
+      afterSongs = next;
+    });
+    unawaited(HomeFeedCache.saveQuickPicks(_pool, touch: false));
+    return () {
+      if (!mounted) return;
+      // Beech me row refresh/rotate ho gayi to usse mat chhedo (hide to
+      // already hat chuka hai, gaana agle refresh me wapas aa jayega).
+      if (!identical(_songs, afterSongs)) return;
+      setState(() {
+        _songs = prevSongs;
+        _pool = prevPool;
+      });
+      unawaited(HomeFeedCache.saveQuickPicks(_pool, touch: false));
+    };
+  }
+
+  void _showUndo(String message, VoidCallback onUndo) {
+    if (!mounted) return;
+    AurumSnack.show(
+      context,
+      message,
+      duration: const Duration(seconds: 5),
+      actionLabel: 'Undo',
+      onAction: onUndo,
+    );
+  }
+
+  // Row ko seedha hata dene ke bajay pehle 240ms collapse+fade animation
+  // (YT Music jaisa), phir data se hatao. Undo dono stage me safe hai.
+  void _dismissFromRow(
+    bool Function(Song) test,
+    String message,
+    VoidCallback onUnhide,
+  ) {
+    final ids = (_songs ?? const <Song>[])
+        .where(test)
+        .map((s) => s.id)
+        .toSet();
+    VoidCallback? rowUndo;
+    var undone = false;
+    if (mounted && ids.isNotEmpty) setState(() => _fading.addAll(ids));
+    Future<void>.delayed(const Duration(milliseconds: 260), () {
+      if (!mounted || undone) return;
+      _fading.removeAll(ids);
+      rowUndo = _removeFromRow(test);
+    });
+    _showUndo(message, () {
+      undone = true;
+      onUnhide();
+      final u = rowUndo;
+      if (u != null) {
+        u();
+      } else if (mounted) {
+        setState(() => _fading.removeAll(ids));
+      }
+    });
+  }
+
+  void _onNotInterested(Song song) {
+    unawaited(QuickPicksFilter.hideSong(song));
+    _dismissFromRow(
+      (s) => s.id == song.id,
+      "Got it — this song won't show in Quick picks",
+      () => unawaited(QuickPicksFilter.unhideSong(song)),
+    );
+  }
+
+  void _onDontRecommendArtist(Song song) {
+    if (!QuickPicksFilter.canHideArtist(song.artist)) return;
+    unawaited(QuickPicksFilter.hideArtist(song.artist));
+    final first = QuickPicksFilter.primaryArtistName(song.artist);
+    _dismissFromRow(
+      (s) => QuickPicksFilter.isHidden(s) || s.id == song.id,
+      first.isEmpty
+          ? 'Got it — fewer songs like this'
+          : 'Got it — fewer songs from $first',
+      () => unawaited(QuickPicksFilter.unhideArtist(song.artist)),
+    );
+  }
+
   Future<void> _hydrateFromCache() async {
-    final cached = await HomeFeedCache.loadQuickPicks();
+    await QuickPicksFilter.load();
+    final cached = QuickPicksFilter.apply(await HomeFeedCache.loadQuickPicks());
     if (!mounted) return;
     if (cached.isNotEmpty) {
       setState(() {
@@ -3946,6 +4108,25 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     // when the pool's too small to meaningfully reshuffle (see its own
     // doc comment), so no separate "full vs light" flag is needed here.
     if (oldWidget.refreshKey != widget.refreshKey) {
+      // Refresh ke baad row pehle column se shuru (pehle jaisa behavior).
+      if (AudioPrefs.dataSaverActiveNotifier.value) {
+        // Saver: halki animation se pehle column pe (build ke baad).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final c = _pageCtrl;
+          if (mounted && c != null && c.hasClients) {
+            unawaited(c.animateToPage(0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut));
+          }
+        });
+      } else {
+        // Normal: controller naya banega => page 0 turant, bilkul pehle jaisa.
+        final old = _pageCtrl;
+        _pageCtrl = null;
+        if (old != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+        }
+      }
       _rotateFromPool();
     }
   }
@@ -3958,9 +4139,11 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
   // this session's very first load somehow never populated one) so the
   // row never just does nothing on a refresh.
   void _rotateFromPool() {
-    if (_pool.length <= _kMaxShown) {
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    if (_pool.length <= _kMaxShown && !(saver && _pool.length >= 6)) {
       // Nothing meaningfully different to slice out of a pool this
       // small — a real fetch is the only way to actually look different.
+      // (Data Saver me 6+ songs ho to network nahi, local reshuffle.)
       _load(silent: true);
       return;
     }
@@ -3976,12 +4159,51 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
     _pool = List<Song>.from(_pool)..shuffle(math.Random(widget.refreshKey));
     final next = _pool.take(_kMaxShown).toList();
     if (!mounted) return;
+    if (saver) {
+      // Zero network + cache timestamp bhi nahi badhta (purana data
+      // "fresh" na dikhe). Cards ek-ek karke badalte hain.
+      unawaited(_applyGradually(next));
+      return;
+    }
     setState(() => _songs = next);
     unawaited(HomeFeedCache.saveQuickPicks(_pool));
   }
 
+  // Ek Quick Picks slot. Data Saver ON: key me refreshKey nahi (taaki sirf
+  // badla hua card rebuild ho) + har slot par halka cross-fade, to refresh
+  // "ek-ek card dhire dhire" dikhta hai. OFF: bilkul pehle jaisa.
+  Widget _qpSlot(List<Song> songs, int i) {
+    final saver = AudioPrefs.dataSaverActiveNotifier.value;
+    final row = _QuickPickListRow(
+      key: ValueKey(saver
+          ? 'quickpick_${songs[i].id}'
+          : 'quickpick_${songs[i].id}_${widget.refreshKey}'),
+      song: songs[i],
+      queue: songs,
+      index: i,
+      removing: _fading.contains(songs[i].id),
+      onNotInterested: () => _onNotInterested(songs[i]),
+      onDontRecommendArtist: QuickPicksFilter.canHideArtist(songs[i].artist)
+          ? () => _onDontRecommendArtist(songs[i])
+          : null,
+    );
+    if (!saver) return row;
+    return AnimatedSwitcher(
+      key: ValueKey('qp_slot_$i'),
+      duration: const Duration(milliseconds: 320),
+      layoutBuilder: (current, previous) => Stack(
+        children: <Widget>[...previous, if (current != null) current],
+      ),
+      child: row,
+    );
+  }
+
   Future<void> _load({bool silent = false}) async {
+    _gradualGen++; // chalta hua gradual refresh cancel
     if (!silent && mounted) setState(() => _failed = false);
+    // Fail/empty/no-history ke baad cold-attempt marker hata do, warna
+    // agli launch(es) pe 24h tak Quick Picks khali rehta hai.
+    var ok = false;
     try {
       // Real recent history, most-recent first — same source
       // _YouMightAlsoLikeSection already trusts for its own single seed.
@@ -4002,10 +4224,17 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
         return;
       }
 
-      final results = await Future.wait(
-        seedIds.map((id) => ApiService.fetchYouMightAlsoLike(id)
-            .catchError((_) => const <Song>[])),
-      );
+      // DATA SAVER (content kam kiye bina): pehle sirf 1 seed fetch hota
+      // hai. Row (24 songs) us se poori ban gayi to baaki seeds ka network
+      // call hota hi nahi; kam pade tabhi baaki seeds aate hain. Normal mode
+      // me teeno seeds ek saath (pehle jaisa).
+      final saver = AudioPrefs.dataSaverActiveNotifier.value;
+      Future<List<Song>> fetchSeed(String id) =>
+          ApiService.fetchYouMightAlsoLike(id)
+              .catchError((_) => const <Song>[]);
+      var results = saver && seedIds.length > 1
+          ? <List<Song>>[await fetchSeed(seedIds.first)]
+          : await Future.wait(seedIds.map(fetchSeed));
 
       // QUALITY FIX ("ekdam top garde level ka... har baar great songs
       // aaye" — 2026-09-13): this used to interleave the raw seed
@@ -4029,22 +4258,56 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
       //      term (taste affinity, mood/genre session match, completion/
       //      replay/skip history) still applies fully.
       final poolCap = _kMaxShown * 4;
-      final seen = <String>{};
-      final pool = <Song>[];
-      var idx = 0;
-      while (pool.length < poolCap) {
-        var addedThisRound = false;
-        for (final list in results) {
-          if (idx >= list.length) continue;
-          final s = list[idx];
-          if (s.id.isEmpty || !seen.add(s.id)) continue;
-          if (RecommendationEngine.isNonMusicContent(s)) continue;
-          pool.add(s);
-          addedThisRound = true;
-          if (pool.length >= poolCap) break;
+      await QuickPicksFilter.load();
+
+      List<Song> buildPool(List<List<Song>> lists) {
+        final seen = <String>{};
+        final built = <Song>[];
+        final skippedVariants = <Song>[];
+        var idx = 0;
+        while (built.length < poolCap) {
+          // BUG FIX: pehle "is round me kuch add nahi hua" pe loop toot jata
+          // tha, jabki aage ke songs bache hote the (filter ne sirf is index
+          // ke songs hataye). Ab tabhi rukta hai jab saari lists khatam.
+          var anyLeft = false;
+          for (final list in lists) {
+            if (idx >= list.length) continue;
+            anyLeft = true;
+            final s = list[idx];
+            if (s.id.isEmpty || !seen.add(s.id)) continue;
+            if (RecommendationEngine.isNonMusicContent(s)) continue;
+            if (QuickPicksFilter.isHidden(s)) continue;
+            // Remix/lofi/cover/junk upload Quick Picks me nahi aane chahiye
+            // (baaki home sections jaisa same quality gate).
+            if (RecommendationEngine.isInherentVariant(s.title) ||
+                RecommendationEngine.isLowQualityUpload(s.title)) {
+              skippedVariants.add(s);
+              continue;
+            }
+            built.add(s);
+            if (built.length >= poolCap) break;
+          }
+          if (!anyLeft) break; // every seed list exhausted
+          idx++;
         }
-        if (!addedThisRound) break; // every seed list exhausted
-        idx++;
+        // Agar quality filter ke baad row bahut chhoti reh gayi (seed khud
+        // remix wala ho sakta hai), to skipped songs se bhar do taaki Quick
+        // Picks kabhi khali/adhura na dikhe.
+        if (built.length < 12) {
+          for (final s in skippedVariants) {
+            if (built.length >= 12) break;
+            built.add(s);
+          }
+        }
+        return built;
+      }
+
+      var pool = buildPool(results);
+      if (saver && seedIds.length > results.length && pool.length < _kMaxShown) {
+        final rest = await Future.wait(
+            seedIds.skip(results.length).map(fetchSeed));
+        results = [...results, ...rest];
+        pool = buildPool(results);
       }
 
       // Stable-sort by genuine taste/quality score, highest first — ties
@@ -4062,6 +4325,7 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
         setState(() { if (!silent) _failed = true; });
         return;
       }
+      ok = true;
       final fullPool = pool.reversed.toList();
       // Persist the FULL pool (not just the shown _kMaxShown) — see
       // HomeFeedCache.saveQuickPicks' own doc comment — so a light
@@ -4080,6 +4344,10 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
       });
     } catch (_) {
       if (mounted && !silent) setState(() => _failed = true);
+    } finally {
+      if (!ok && !silent) {
+        unawaited(HomeFeedCache.clearColdAttempt('quickpicks'));
+      }
     }
   }
 
@@ -4197,11 +4465,9 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
           SizedBox(
             height: 68.0 * rowsPerColumn,
             child: PageView.builder(
-              controller: PageController(
-                viewportFraction:
-                    (MediaQuery.of(context).size.width - 24) /
-                        MediaQuery.of(context).size.width,
-              ),
+              controller: _pageController(
+                  (MediaQuery.of(context).size.width - 24) /
+                      MediaQuery.of(context).size.width),
               physics: const PageScrollPhysics(),
               padEnds: false,
               itemCount: columnCount,
@@ -4214,13 +4480,7 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (var i = start; i < end; i++)
-                        _QuickPickListRow(
-                          key: ValueKey(
-                              'quickpick_${songs[i].id}_${widget.refreshKey}'),
-                          song: songs[i],
-                          queue: songs,
-                          index: i,
-                        ),
+                        _qpSlot(songs, i),
                     ],
                   ),
                 );
@@ -4243,11 +4503,18 @@ class _QuickPickListRow extends StatelessWidget {
   final Song song;
   final List<Song> queue;
   final int index;
+  final VoidCallback? onNotInterested;
+  final VoidCallback? onDontRecommendArtist;
+  // true => row collapse+fade ho rahi hai (Not interested animation).
+  final bool removing;
   const _QuickPickListRow({
     super.key,
     required this.song,
     required this.queue,
     required this.index,
+    this.onNotInterested,
+    this.onDontRecommendArtist,
+    this.removing = false,
   });
 
   @override
@@ -4255,13 +4522,26 @@ class _QuickPickListRow extends StatelessWidget {
     final isPlaying = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == song.id,
     );
-    return RepaintBoundary(
+    // Equalizer sirf tab chalta hai jab sach me play ho raha ho; pause pe
+    // bars neeche thehar jaate hain.
+    final isActuallyPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == song.id && p.isPlaying,
+    );
+    final accent = AurumTheme.accentOf(context);
+
+    void openMenu() => showAurumSongOptions(
+          context,
+          song,
+          ytStyle: true,
+          onNotInterested: onNotInterested,
+          onDontRecommendArtist: onDontRecommendArtist,
+        );
+
+    final content = RepaintBoundary(
       child: Container(
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
-          color: isPlaying
-              ? AurumTheme.accentOf(context).withOpacity(0.10)
-              : Colors.transparent,
+          color: isPlaying ? accent.withOpacity(0.08) : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Material(
@@ -4274,14 +4554,38 @@ class _QuickPickListRow extends StatelessWidget {
                   .read<PlayerProvider>()
                   .playSong(song, queue: queue, index: index);
             },
+            // YT Music: row ko dabake rakho => wahi options menu.
+            onLongPress: openMenu,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              padding:
+                  const EdgeInsets.only(left: 4, right: 0, top: 6, bottom: 6),
               child: Row(
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: AurumArtwork(
-                        url: song.artworkUrl, size: 52, borderRadius: 0),
+                    borderRadius: BorderRadius.circular(6),
+                    child: SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          AurumArtwork(
+                              url: song.artworkUrl, size: 52, borderRadius: 0),
+                          // Now-playing: dim scrim + white equalizer, jaise
+                          // YT Music ke thumbnail pe.
+                          if (isPlaying)
+                            Container(
+                              color: Colors.black.withOpacity(0.5),
+                              alignment: Alignment.center,
+                              child: AurumEqualizerBars(
+                                playing: isActuallyPlaying,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -4295,7 +4599,7 @@ class _QuickPickListRow extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: isPlaying
-                                ? AurumTheme.accentOf(context)
+                                ? accent
                                 : AurumTheme.textPrimaryOf(context),
                             fontSize: 14.5,
                             fontWeight: FontWeight.w600,
@@ -4315,15 +4619,46 @@ class _QuickPickListRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.more_vert,
-                    size: 20,
-                    color: AurumTheme.textMutedOf(context),
+                  // 3-dot: 44x52 touch target (row tap se alag).
+                  Semantics(
+                    button: true,
+                    label: 'More options',
+                    child: InkResponse(
+                      radius: 24,
+                      onTap: openMenu,
+                      child: SizedBox(
+                        width: 44,
+                        height: 52,
+                        child: Icon(
+                          Icons.more_vert,
+                          size: 20,
+                          color: AurumTheme.textMutedOf(context),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+
+    // Remove animation: height + opacity 1 -> 0. Structure hamesha same
+    // rakhi hai taaki row ka state/artwork kabhi remount na ho.
+    return IgnorePointer(
+      ignoring: removing,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(end: removing ? 0.0 : 1.0),
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeInOutCubic,
+        child: content,
+        builder: (context, v, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: v,
+            child: Opacity(opacity: v, child: child),
           ),
         ),
       ),
@@ -4499,12 +4834,130 @@ class _HomeShelvesAndSimilarSectionState
       // "never clear, only overwrite on real new data" contract this
       // section's _load already follows for failures — see the FIX
       // comment above didUpdateWidget).
-      _load(
-        refreshKey: widget.refreshKey,
-        skipShelves: !widget.stage.shelves,
-        skipSimilar: !widget.stage.similarArtistRows,
-        skipSimilarSongs: !widget.stage.similarSongRows,
+      // DATA SAVER: jo piece is pull me due hai aur jiska data screen/cache
+      // me pehle se hai, usse network ke bina local reshuffle karte hain
+      // (row-by-row, dhire dhire). Data nahi hai to normal fetch (fallback),
+      // taaki refresh kabhi "kuch nahi" na kare. Data Saver OFF me rot* sab
+      // false => neeche ka code bilkul pehle jaisa chalta hai.
+      final saver = AudioPrefs.dataSaverActiveNotifier.value;
+      final rotShelves = saver &&
+          widget.stage.shelves &&
+          (_shelves?.isNotEmpty ?? false);
+      final rotSimilar = saver &&
+          widget.stage.similarArtistRows &&
+          (_similarRows?.isNotEmpty ?? false);
+      final rotSongs = saver &&
+          widget.stage.similarSongRows &&
+          (_similarSongRows?.isNotEmpty ?? false);
+      if (rotShelves || rotSimilar || rotSongs) {
+        unawaited(_rotateLocally(widget.refreshKey,
+            shelves: rotShelves, similar: rotSimilar, songs: rotSongs));
+      }
+      final skipShelves = !widget.stage.shelves || rotShelves;
+      final skipSimilar = !widget.stage.similarArtistRows || rotSimilar;
+      final skipSongs = !widget.stage.similarSongRows || rotSongs;
+      if (!(skipShelves && skipSimilar && skipSongs)) {
+        _load(
+          refreshKey: widget.refreshKey,
+          skipShelves: skipShelves,
+          skipSimilar: skipSimilar,
+          skipSimilarSongs: skipSongs,
+        );
+      }
+    }
+  }
+
+  int _rotGen = 0;
+
+  HomeShelf _shuffledShelf(HomeShelf s, math.Random rnd) {
+    if (s.isList) {
+      if (s.songs.length < 2) return s;
+      return HomeShelf(
+        title: s.title,
+        items: s.items,
+        strapline: s.strapline,
+        isList: true,
+        songs: List<Song>.of(s.songs)..shuffle(rnd),
       );
+    }
+    if (s.items.length < 2) return s;
+    return HomeShelf(
+      title: s.title,
+      items: List<HomeShelfItem>.of(s.items)..shuffle(rnd),
+      strapline: s.strapline,
+      isList: false,
+      songs: s.songs,
+    );
+  }
+
+  // Zero-network refresh: har row ke cards naye order me, ek-ek row karke
+  // (~420ms gap). Row keys stable rehti hain (title/artist), isliye layout
+  // ya scroll nahi toota. Cache ka timestamp nahi chhuaa jata.
+  Future<void> _rotateLocally(
+    int seed, {
+    required bool shelves,
+    required bool similar,
+    required bool songs,
+  }) async {
+    final gen = ++_rotGen;
+    final rnd = math.Random(seed);
+    const gap = Duration(milliseconds: 420);
+    bool alive() => mounted && gen == _rotGen;
+
+    if (similar) {
+      for (var i = 0;; i++) {
+        if (!alive()) return;
+        final cur = _similarRows;
+        if (cur == null || i >= cur.length) break;
+        final r = cur[i];
+        final albums = List<ArtistAlbum>.of(r.albums)..shuffle(rnd);
+        setState(() {
+          final l = [...?_similarRows];
+          if (i < l.length) {
+            l[i] = (
+              artistName: r.artistName,
+              artistImageUrl: r.artistImageUrl,
+              relatedArtist: r.relatedArtist,
+              albums: albums,
+            );
+            _similarRows = l;
+          }
+        });
+        await Future<void>.delayed(gap);
+      }
+    }
+    if (songs) {
+      for (var i = 0;; i++) {
+        if (!alive()) return;
+        final cur = _similarSongRows;
+        if (cur == null || i >= cur.length) break;
+        final r = cur[i];
+        final related = List<Song>.of(r.related)..shuffle(rnd);
+        setState(() {
+          final l = [...?_similarSongRows];
+          if (i < l.length) {
+            l[i] = (seedSong: r.seedSong, related: related);
+            _similarSongRows = l;
+          }
+        });
+        await Future<void>.delayed(gap);
+      }
+    }
+    if (shelves) {
+      for (var i = 0;; i++) {
+        if (!alive()) return;
+        final cur = _shelves;
+        if (cur == null || i >= cur.length) break;
+        final shuffled = _shuffledShelf(cur[i], rnd);
+        setState(() {
+          final l = [...?_shelves];
+          if (i < l.length) {
+            l[i] = shuffled;
+            _shelves = l;
+          }
+        });
+        await Future<void>.delayed(gap);
+      }
     }
   }
 
@@ -4523,6 +4976,7 @@ class _HomeShelvesAndSimilarSectionState
     // concurrently (no added latency), but now committed to state
     // together in one setState — Home goes straight from skeleton to
     // its final interleaved order, no mid-scroll layout shift.
+    _rotGen++; // chalta hua local rotation cancel
     final seed = refreshKey ?? widget.refreshKey;
     // MB FIX ("MB kam use ho, koi feature cut na ho" — 2026-09-14, and
     // "poora home page reopen pe shimmer karta hai" — 2026-09-15): a
@@ -4559,6 +5013,7 @@ class _HomeShelvesAndSimilarSectionState
           shelves = const [];
           failed = true;
         }
+        if (failed) unawaited(HomeFeedCache.clearColdAttempt('shelves'));
         if (!mounted) return;
         setState(() {
           if (shelves.isNotEmpty || _shelves == null) {
@@ -5564,7 +6019,9 @@ class _RealMoodChipsSectionState extends State<_RealMoodChipsSection> {
       _selectedMood = _kRealMoodAllId;
       _categoryShelves = null;
       _categoryFailed = false;
-      _loadCategories(force: true);
+      // Data Saver: fresh cache ho to network nahi (zero data); OFF me pehle
+      // jaisa forced fetch.
+      _loadCategories(force: !AudioPrefs.dataSaverActiveNotifier.value);
     }
   }
 

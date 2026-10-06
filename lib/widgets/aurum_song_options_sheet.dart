@@ -48,6 +48,13 @@ Future<void> showAurumSongOptions(
   /// everyday actions — no sleep timer / playback speed). Used by the Mix
   /// screen's track rows.
   bool compact = false,
+
+  /// YouTube Music-style menu (Quick Picks): Play next, Add to queue,
+  /// Download, Add to liked songs, Save to playlist, Go to album/artist,
+  /// View song credits, Share, Not interested, Don't recommend artist.
+  bool ytStyle = false,
+  VoidCallback? onNotInterested,
+  VoidCallback? onDontRecommendArtist,
 }) {
   AurumHaptics.light();
   return showAurumModalBottomSheet<void>(
@@ -61,6 +68,9 @@ Future<void> showAurumSongOptions(
       rootContext: context,
       showPlayerTools: showPlayerTools,
       compact: compact,
+      ytStyle: ytStyle,
+      onNotInterested: onNotInterested,
+      onDontRecommendArtist: onDontRecommendArtist,
     ),
   );
 }
@@ -120,6 +130,9 @@ class AurumSongOptionsSheet extends StatefulWidget {
   final BuildContext rootContext;
   final bool showPlayerTools;
   final bool compact;
+  final bool ytStyle;
+  final VoidCallback? onNotInterested;
+  final VoidCallback? onDontRecommendArtist;
 
   const AurumSongOptionsSheet({
     super.key,
@@ -127,6 +140,9 @@ class AurumSongOptionsSheet extends StatefulWidget {
     required this.rootContext,
     this.showPlayerTools = false,
     this.compact = false,
+    this.ytStyle = false,
+    this.onNotInterested,
+    this.onDontRecommendArtist,
   });
 
   @override
@@ -356,6 +372,142 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
         ? l10n.fpSleepRemaining(
             '${(SleepTimerService.instance.remaining.inSeconds / 60).ceil()}m')
         : l10n.fpSleepTimer;
+
+    if (widget.ytStyle) {
+      final canNotInterested = widget.onNotInterested != null;
+      final canHideArtist =
+          widget.onDontRecommendArtist != null && _artists.isNotEmpty;
+      return _SheetShell(
+        header: _Header(
+          title: song.title,
+          subtitle: song.artist,
+          artworkUrl: song.artworkUrl,
+          square: true,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Playback ──
+            _Row(
+              icon: Icons.sensors_rounded,
+              label: 'Start radio',
+              onTap: _startRadio,
+            ),
+            _Row(
+              icon: Icons.playlist_play_rounded,
+              label: l10n.fpPlayNext,
+              onTap: () {
+                _close();
+                unawaited(player.playNext(song));
+                _toast('Playing "${song.title}" next');
+              },
+            ),
+            _Row(
+              icon: Icons.playlist_add_rounded,
+              label: l10n.fpAddToQueue,
+              onTap: () {
+                _close();
+                unawaited(player.addToQueue(song));
+                _toast(l10n.fpAddedToQueue);
+              },
+            ),
+            const _GroupDivider(),
+            // ── Library ──
+            _Row(
+              icon: Icons.library_add_outlined,
+              label: l10n.fpSaveToPlaylist,
+              onTap: () {
+                _close();
+                showAddToPlaylistSheet(widget.rootContext, song);
+              },
+            ),
+            _Row(
+              icon: isLiked
+                  ? Icons.thumb_up_alt_rounded
+                  : Icons.thumb_up_off_alt_rounded,
+              label: isLiked ? l10n.fpLiked : 'Add to liked songs',
+              onTap: () {
+                PremiumGate.guard(
+                  context,
+                  feature: l10n.fpLikeSongsFeature,
+                  description: l10n.fpLikeSignInBuildLibrary,
+                  requiresLoginOnly: true,
+                  onAllowed: () {
+                    fav.toggleFavorite(song);
+                    final nowLiked = fav.isFavorite(song.id);
+                    _close();
+                    _toast(nowLiked
+                        ? l10n.fpAddedToLiked
+                        : l10n.fpRemovedFromLiked);
+                  },
+                );
+              },
+            ),
+            _Row(
+              icon: isDownloaded
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.download_for_offline_outlined,
+              label: isDownloaded
+                  ? l10n.fpDownloaded
+                  : isDownloading
+                      ? '${l10n.fpDownloading} ${(progress * 100).toStringAsFixed(0)}%'
+                      : l10n.fpDownload,
+              onTap: _download,
+            ),
+            const _GroupDivider(),
+            // ── Go to ──
+            if (song.album.isNotEmpty)
+              _Row(
+                icon: Icons.album_outlined,
+                label: 'Go to album',
+                onTap: _openAlbum,
+              ),
+            if (_artists.isNotEmpty)
+              _Row(
+                icon: Icons.person_outline_rounded,
+                label: _artists.length == 1 ? 'Go to artist' : 'Go to artists',
+                onTap: _openArtist,
+              ),
+            _Row(
+              icon: Icons.groups_outlined,
+              label: 'View song credits',
+              onTap: () {
+                _close();
+                showSongInfoDialog(widget.rootContext, song);
+              },
+            ),
+            _Row(
+              icon: Icons.share_rounded,
+              label: l10n.fpShare,
+              onTap: () {
+                _close();
+                shareSong(widget.rootContext, song);
+              },
+            ),
+            // ── Feedback (YT Music: sabse neeche, alag group) ──
+            if (canNotInterested || canHideArtist) const _GroupDivider(),
+            if (canNotInterested)
+              _Row(
+                icon: Icons.block_rounded,
+                label: 'Not interested',
+                onTap: () {
+                  _close();
+                  widget.onNotInterested!();
+                },
+              ),
+            if (canHideArtist)
+              _Row(
+                icon: Icons.remove_circle_outline_rounded,
+                label: "Don't recommend artist",
+                onTap: () {
+                  _close();
+                  widget.onDontRecommendArtist!();
+                },
+              ),
+          ],
+        ),
+      );
+    }
 
     if (widget.compact) {
       return _SheetShell(
@@ -715,11 +867,15 @@ class _Header extends StatelessWidget {
   final String subtitle;
   final String artworkUrl;
   final bool wide;
+  // YT Music track menu: chhota square cover (48dp, 6dp radius) — wide
+  // crop gaane ke cover ko kaat deta tha.
+  final bool square;
   const _Header({
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
     this.wide = false,
+    this.square = false,
   });
 
   @override
@@ -732,12 +888,14 @@ class _Header extends StatelessWidget {
       child: Row(
         children: [
           // Plain thumbnail only — no glow / tint / colour extraction.
-          if (wide)
+          if (square)
+            AurumArtwork(url: artworkUrl, size: 48, borderRadius: 6)
+          else if (wide)
             AurumWideThumb(
                 url: artworkUrl, width: 76, height: 43, borderRadius: 6)
           else
             AurumArtwork(url: artworkUrl, size: 43, borderRadius: 2),
-          SizedBox(width: wide ? 16 : 28),
+          SizedBox(width: square ? 14 : (wide ? 16 : 28)),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -771,6 +929,20 @@ class _Header extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Menu groups ke beech patla divider (playback / library / go-to / feedback).
+class _GroupDivider extends StatelessWidget {
+  const _GroupDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = _SheetPalette.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 19.5),
+      child: Divider(height: 1, thickness: 1, color: pal.divider),
     );
   }
 }
