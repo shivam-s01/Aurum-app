@@ -11,20 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class AurumEngineChannelHandler(
-    context: Context,
-    messenger: BinaryMessenger,
-    private val textures: io.flutter.view.TextureRegistry? = null,
-) {
-    private var videoTexture: io.flutter.view.TextureRegistry.SurfaceTextureEntry? = null
-    private var videoSurface: android.view.Surface? = null
-
-    private fun releaseVideoTexture() {
-        engine.setVideoSurface(null)
-        videoSurface?.release(); videoSurface = null
-        videoTexture?.release(); videoTexture = null
-    }
-
+class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
 
     // Kept as an application-context field — the constructor parameter
     // itself isn't visible from the method-call handler defined later in
@@ -326,29 +313,6 @@ class AurumEngineChannelHandler(
     private fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
-                "setVideoMode" -> {
-                    val enabled = call.argument<Boolean>("enabled") ?: false
-                    val reg = textures
-                    if (enabled && reg != null) {
-                        if (videoTexture == null) {
-                            val entry = reg.createSurfaceTexture()
-                            videoTexture = entry
-                            videoSurface = android.view.Surface(entry.surfaceTexture())
-                        }
-                        engine.setVideoSurface(videoSurface)
-                        engine.setVideoMode(true) { ok ->
-                            if (ok) {
-                                result.success(videoTexture?.id())
-                            } else {
-                                releaseVideoTexture()
-                                result.success(null)
-                            }
-                        }
-                    } else {
-                        releaseVideoTexture()
-                        engine.setVideoMode(false) { result.success(null) }
-                    }
-                }
                 "playQueue" -> {
                     val songs = (call.argument<List<Map<String, Any?>>>("songs") ?: emptyList()).map(::parseSong)
                     val startIndex = call.argument<Int>("startIndex") ?: 0
@@ -818,8 +782,6 @@ class AurumEngineChannelHandler(
      */
     fun release() {
         stateJob?.cancel()
-        // Activity going away: never leave video mode on with no UI to show it.
-        try { releaseVideoTexture(); engine.setVideoMode(false) { } } catch (_: Exception) {}
         engine.castManager.onStateChanged = null
         // Cast button is gone along with the Activity — stop LAN
         // discovery too, same reasoning as the EventChannel's onCancel

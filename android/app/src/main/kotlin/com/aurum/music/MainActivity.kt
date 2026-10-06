@@ -124,7 +124,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger, flutterEngine.renderer)
+        audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         bindMediaSessionService()
 
         relatedChannelHandler = AurumRelatedChannelHandler(flutterEngine.dartExecutor.binaryMessenger)

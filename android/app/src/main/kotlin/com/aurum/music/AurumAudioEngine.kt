@@ -1597,7 +1597,6 @@ class AurumAudioEngine(
     }
 
     private fun rememberStreamUrl(song: NativeSong, url: String) {
-        if (HybridStreamResolver.videoMode) return // never store a video URL as the song's audio URL
         if (song.isLocal || song.id.isEmpty() || url.startsWith("file://") ||
             url.startsWith("content://")) return
         try {
@@ -1610,69 +1609,6 @@ class AurumAudioEngine(
             ed.putString("_order", order.joinToString(","))
             ed.apply()
         } catch (_: Exception) {}
-    }
-
-    // ── VIDEO MODE ───────────────────────────────────────────────────
-    // Toggles YouTube (innertube) songs between audio-only and muxed video.
-    // Same player/queue/MediaSession — only the current item's URL is swapped
-    // in place at the same position, and the video track is enabled/disabled.
-    fun setVideoSurface(surface: android.view.Surface?) {
-        player.setVideoSurface(surface)
-    }
-
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun applyVideoTrack(enabled: Boolean) {
-        HybridStreamResolver.videoMode = enabled
-        trackSelector.setParameters(
-            trackSelector.buildUponParameters()
-                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled)
-        )
-    }
-
-    // [onDone] is called exactly once on the main thread: true = mode applied,
-    // false = could not switch (mode is reverted to audio-only, nothing breaks).
-    fun setVideoMode(enabled: Boolean, onDone: (Boolean) -> Unit) {
-        if (HybridStreamResolver.videoMode == enabled) { onDone(true); return }
-        applyVideoTrack(enabled)
-        val mediaId = player.currentMediaItem?.mediaId
-        val song = mediaId?.let { id -> queueSongs.firstOrNull { it.id == id } }
-        if (song == null || song.source != "youtube" || song.isLocal) { onDone(true); return }
-        val session = playSessionId
-        scope.launch {
-            val pos = player.currentPosition
-            val wasPlaying = player.playWhenReady
-            var url: String? = null
-            try {
-                url = kotlinx.coroutines.withTimeoutOrNull(26_000L) { resolver.resolve(song) }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                url = null
-            }
-            // Superseded by a newer toggle or a new song: leave that newer state alone.
-            if (session != playSessionId || HybridStreamResolver.videoMode != enabled ||
-                player.currentMediaItem?.mediaId != song.id) {
-                onDone(HybridStreamResolver.videoMode == enabled)
-                return@launch
-            }
-            if (url.isNullOrEmpty()) {
-                // Could not get the other stream: stay on what is playing now.
-                if (enabled) applyVideoTrack(false)
-                onDone(!enabled)
-                return@launch
-            }
-            try {
-                val idx = player.currentMediaItemIndex
-                player.replaceMediaItem(idx, buildMediaItem(song, url))
-                player.seekTo(idx, pos)
-                player.playWhenReady = wasPlaying
-                pushState()
-                onDone(true)
-            } catch (e: Exception) {
-                if (enabled) applyVideoTrack(false)
-                onDone(!enabled)
-            }
-        }
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -1688,7 +1624,6 @@ class AurumAudioEngine(
     }
 
     private fun cachedPlayableUrl(song: NativeSong): String? {
-        if (HybridStreamResolver.videoMode) return null
         if (song.isLocal || song.id.isEmpty()) return null
         return try {
             val url = lastUrlPrefs.getString(song.id, null) ?: return null

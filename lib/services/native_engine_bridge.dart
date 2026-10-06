@@ -19,7 +19,7 @@
 // =============================================================================
 
 import 'dart:async';
-import 'package:flutter/foundation.dart' show debugPrint, ValueNotifier;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:rxdart/rxdart.dart';
 import '../models/song.dart';
@@ -492,17 +492,6 @@ class NativeAudioEngine {
   Future<void> skipToQueueItem(int index) => _method.invokeMethod('skipToQueueItem', {'index': index});
   Future<void> setRepeatMode(String mode) => _method.invokeMethod('setRepeatMode', {'mode': mode});
   Future<void> setShuffleMode(bool enabled) => _method.invokeMethod('setShuffleMode', {'enabled': enabled});
-  // Video mode (YouTube/innertube songs): non-null texture id while video is on.
-  static final ValueNotifier<int?> videoTextureId = ValueNotifier<int?>(null);
-  Future<void> setVideoMode(bool enabled) async {
-    try {
-      final id = await _method.invokeMethod<int>('setVideoMode', {'enabled': enabled});
-      videoTextureId.value = enabled ? id : null;
-    } catch (e) {
-      videoTextureId.value = null;
-      debugPrint('setVideoMode failed: $e');
-    }
-  }
   Future<void> setSpeed(double speed) => _method.invokeMethod('setSpeed', {'speed': speed});
   // Pushes Battery Saver Mode's active state down to the native pre-buffer
   // resolver — see AurumAudioEngine.priorityForwardWindow. Best-effort: if
