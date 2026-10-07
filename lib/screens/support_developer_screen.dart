@@ -20,6 +20,7 @@
 //   Material You and light/dark mode matches. Body text inherits the app font.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -51,6 +52,7 @@ class _SupportDeveloperScreenState extends State<SupportDeveloperScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Support Developer');
     _clock = AnimationController(vsync: this, duration: const Duration(seconds: 24));
     _enter = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
     _burst = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));

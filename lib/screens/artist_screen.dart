@@ -4,6 +4,7 @@
 // DESCRIPTION: Artist page — profile header, Top Songs list, Albums/Singles grid.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -56,6 +57,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Artist');
     _scroll.addListener(_onScroll);
     _loadStreaming();
   }

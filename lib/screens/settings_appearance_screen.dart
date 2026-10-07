@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -97,6 +98,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Settings Appearance');
     _load();
   }
 

@@ -9,6 +9,7 @@
 //   ✅ On success: syncs cloud data, then pops back to caller
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -44,6 +45,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Login');
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),

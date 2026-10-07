@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -180,6 +181,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Settings Player');
     _load();
     _loadPremiumSoundCaps();
     SleepTimerService.instance.addListener(_onTimerTick);

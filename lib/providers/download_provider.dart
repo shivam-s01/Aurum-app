@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -405,6 +406,7 @@ class DownloadProvider extends ChangeNotifier {
   Future<bool> download(Song song) async {
     if (isDownloaded(song.id) || isDownloading(song.id)) return true;
     if (song.isLocal) return false;
+    AnalyticsService.instance.logDownload(song);
     return _runDownload(song);
   }
 

@@ -4,6 +4,7 @@
 // DESCRIPTION: Astra Plus paywall — cinematic premium experience.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -58,6 +59,7 @@ class _PremiumScreenState extends State<PremiumScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Premium');
 
     _entranceCtrl = AnimationController(
       vsync: this,

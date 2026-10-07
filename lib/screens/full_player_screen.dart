@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import '../widgets/aurum_seek_bar.dart';
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
@@ -273,6 +274,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Full Player');
     _routeDrag = RouteDragDismiss(context);
     WidgetsBinding.instance.addObserver(this);
 

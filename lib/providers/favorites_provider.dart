@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
+import '../services/analytics_service.dart';
 import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/sync_service.dart';
@@ -84,12 +85,14 @@ class FavoritesProvider extends ChangeNotifier {
   Future<void> toggleFavorite(Song song) async {
     if (isFavorite(song.id)) {
       await _remove(song.id);
+      AnalyticsService.instance.logFavorite(song, false);
       // Strong negative signal — user un-favorited
       if (song.source != SongSource.local) {
         RecommendationEngine.onUnfavorited(song);
       }
     } else {
       await _add(song);
+      AnalyticsService.instance.logFavorite(song, true);
       if (song.source != SongSource.local) {
         RecommendationEngine.onFavorited(song);
       }

@@ -8,6 +8,7 @@
 //   download row, track count, compact rows, then the related shelves.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'library_screen.dart' show DownloadsScreen;
@@ -118,6 +119,7 @@ class _AlbumScreenState extends State<AlbumScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Album');
     // Repaints on every animation tick while a glow fade is in flight —
     // see mix_screen.dart's matching listener for the full reasoning.
     _glowController.addListener(() {

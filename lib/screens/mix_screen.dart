@@ -17,6 +17,7 @@
 //   there's nothing to re-fetch from here.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'library_screen.dart' show DownloadsScreen;
@@ -195,6 +196,7 @@ class _MixScreenState extends State<MixScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Mix');
     // Repaints on every animation tick while a glow fade is in flight
     // (see _setGlowTarget) — AnimationController itself doesn't trigger
     // Flutter rebuilds on its own; something has to translate its

@@ -9,6 +9,7 @@
 //   ✅ Auto-persist to Hive on every mutation
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -190,6 +191,7 @@ class PlaylistProvider extends ChangeNotifier {
     );
     _playlists.insert(0, playlist);
     await _persist(playlist);
+    AnalyticsService.instance.logPlaylistCreate(playlist.name);
     notifyListeners();
     return playlist;
   }
@@ -239,6 +241,7 @@ class PlaylistProvider extends ChangeNotifier {
     if (pl == null) return false;
     if (pl.songs.any((s) => s.id == song.id)) return false; // duplicate guard
     pl.songs.add(song);
+    AnalyticsService.instance.logPlaylistAdd(song);
     pl.updatedAt = DateTime.now();
     await _persist(pl);
     _sortByUpdated();

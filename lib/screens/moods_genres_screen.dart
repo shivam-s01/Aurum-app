@@ -13,6 +13,7 @@
 //       a card here opens a genuinely real, fully-populated playlist.
 // =============================================================================
 
+import '../services/analytics_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -53,6 +54,7 @@ class _MoodsGenresScreenState extends State<MoodsGenresScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Moods Genres');
     _load();
   }
 

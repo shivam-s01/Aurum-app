@@ -62,6 +62,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    AnalyticsService.instance.logLogout();
     await AuthService.instance.signOut();
     _engineBridge.autoSleepGuardSetSignedIn(false);
     notifyListeners();

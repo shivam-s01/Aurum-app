@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Settings Storage');
     _load();
   }
 

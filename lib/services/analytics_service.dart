@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import 'audio_prefs.dart';
 import 'stats_service.dart';
+import 'supabase_tracker.dart';
 import 'user_region.dart';
 
 class AnalyticsService {
@@ -32,6 +33,7 @@ class AnalyticsService {
     } catch (e) {
       if (kDebugMode) debugPrint('[Aurum] AnalyticsService init failed: $e');
     }
+    SupabaseTracker.instance.start();
     _log('app_open');
   }
 
@@ -47,6 +49,7 @@ class AnalyticsService {
   void _log(String name, [Map<String, Object>? params]) {
     if (AudioPrefs.incognito) return;
     StatsService.instance.send(name, params);
+    SupabaseTracker.instance.send(name, params);
     final fa = _fa;
     if (fa == null) return;
     fa.logEvent(name: name, parameters: params).catchError((_) {});
@@ -70,12 +73,47 @@ class AnalyticsService {
         'screen_class': name,
       });
 
-  void logLogin() => _log('login', {'method': 'google'});
+  void logLogin() {
+    _log('login', {'method': 'google'});
+    SupabaseTracker.instance.onLogin();
+  }
+
+  // ── Supabase-only events (not sent to Firebase / Cloudflare worker) ──
+  Map<String, Object> _songParams(Song s) => {
+        'song_id': _cut(s.id),
+        'song_title': _cut(s.title),
+        'artist': _cut(s.artist),
+        'source': s.isLocal ? 'local' : 'online',
+      };
+
+  void _sb(String name, [Map<String, Object>? params]) {
+    if (AudioPrefs.incognito) return;
+    SupabaseTracker.instance.send(name, params);
+  }
+
+  void logSongSkip(Song s) => _sb('song_skip', _songParams(s));
+  void logSongComplete(Song s) => _sb('song_complete', _songParams(s));
+  void logSongReplay(Song s) => _sb('song_replay', _songParams(s));
+  void logSongListened(Song s, int sec) =>
+      _sb('song_listened', {..._songParams(s), 'sec': sec});
+  void logFavorite(Song s, bool added) =>
+      _sb(added ? 'favorite_add' : 'favorite_remove', _songParams(s));
+
+  void logDownload(Song s) => _sb('download_start', _songParams(s));
+  void logPlaylistCreate(String name) =>
+      _sb('playlist_create', {'name': _cut(name)});
+  void logPlaylistAdd(Song s) => _sb('playlist_add_song', _songParams(s));
+
+  void logLogout() {
+    _sb('logout');
+    SupabaseTracker.instance.flush();
+  }
 
   void logPremium(String planId) =>
       _log('premium_activated', {'plan_id': _cut(planId)});
 
   void setPremium(bool isPremium) {
+    SupabaseTracker.instance.setPremium(isPremium);
     final fa = _fa;
     if (fa == null) return;
     fa.setUserProperty(name: 'is_premium', value: isPremium ? '1' : '0')

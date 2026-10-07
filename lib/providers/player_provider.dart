@@ -45,6 +45,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
 import '../services/native_engine_bridge.dart';
+import '../services/analytics_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
@@ -646,6 +647,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Song?   _lastTrackedSong;       // song currently being tracked
   bool    _completionFired = false; // 80%+ fired for current song?
   bool    _earlySkipArmed  = false; // true when position < 15s
+  int     _listenMaxSec    = 0;     // furthest position (s) reached in current song (analytics)
   bool    _replayArmed     = false; // true when position near 0 after non-start
 
   // Subscriptions — cancelled on dispose (memory leak prevention)
@@ -1016,6 +1018,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (q.isEmpty || index >= q.length) return;
     final song = q[index];
 
+    // Analytics: how long the PREVIOUS song was actually listened to.
+    final prevTracked = _lastTrackedSong;
+    if (prevTracked != null && prevTracked.id != song.id && _listenMaxSec > 0) {
+      AnalyticsService.instance.logSongListened(prevTracked, _listenMaxSec);
+    }
+    _listenMaxSec = 0;
+
     // Reset all tracking state for new song
     _lastTrackedSong  = song;
     _completionFired  = false;
@@ -1112,6 +1121,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     _position = pos;
+    if (pos.inSeconds > _listenMaxSec) _listenMaxSec = pos.inSeconds;
 
     final song = _lastTrackedSong;
     if (song == null || song.source == SongSource.local) return;

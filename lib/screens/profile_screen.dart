@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:aurum_music/widgets/aurum_morph_loader.dart';
 import 'dart:math' as math;
@@ -44,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Profile');
     _fadeCtrl = AnimationController(
       vsync: this,
       duration: AurumMotion.durationOrZero(AurumMotion.long2),

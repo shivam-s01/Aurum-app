@@ -1,3 +1,4 @@
+import '../services/analytics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -66,6 +67,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logScreen('Settings Privacy');
     _load();
   }
 

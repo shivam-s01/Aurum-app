@@ -258,6 +258,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   void notifyCompletion(Song song) {
     if (AudioPrefs.incognito) return;
+    AnalyticsService.instance.logSongComplete(song);
     if (song.source == SongSource.local) return;
     RecommendationEngine.onSongCompleted(song);
   }
@@ -268,6 +269,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   void notifySkip(Song song) {
     if (AudioPrefs.incognito) return;
+    AnalyticsService.instance.logSongSkip(song);
     if (song.source == SongSource.local) return;
     RecommendationEngine.onEarlySkip(song);
   }
@@ -278,6 +280,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   void notifyReplay(Song song) {
     if (AudioPrefs.incognito) return;
+    AnalyticsService.instance.logSongReplay(song);
     if (song.source == SongSource.local) return;
     RecommendationEngine.onReplay(song);
   }

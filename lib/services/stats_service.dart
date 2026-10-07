@@ -33,6 +33,11 @@ class StatsService {
     } catch (_) {}
   }
 
+  Future<String?> anonId() async {
+    await (_ready ??= _init());
+    return _anon;
+  }
+
   void send(String ev, Map<String, Object>? params) {
     () async {
       try {

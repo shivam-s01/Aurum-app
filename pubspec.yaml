@@ -101,6 +101,7 @@ dependencies:
   # Offline
   dio: ^5.4.0
   package_info_plus: ^4.2.0
+  device_info_plus: ^10.1.2
   path_provider: ^2.1.1
 
   # Notifications (download progress)
