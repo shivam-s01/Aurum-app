@@ -23,6 +23,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import androidx.annotation.RequiresApi
+import android.provider.Settings
 import android.os.IBinder
 import android.util.Log
 import android.util.LruCache
@@ -608,6 +610,43 @@ class AurumIslandService : Service() {
         )
     }
 
+    /**
+     * Opens the system's audio-output picker (Bluetooth / speaker / cast).
+     * Android 14+: the system output-switcher dialog. Android 10-13: Settings'
+     * media-output panel. Anything else (or if those are refused by the OEM):
+     * the Bluetooth settings page. The island holds "draw over other apps",
+     * which is what allows these activities to start from the background.
+     */
+    private fun openOutputSwitcher(): Boolean {
+        if (Build.VERSION.SDK_INT >= 34) {
+            if (showSystemOutputSwitcherApi34()) return true
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                startActivity(
+                    Intent("com.android.settings.panel.action.MEDIA_OUTPUT")
+                        .putExtra("com.android.settings.panel.extra.PACKAGE_NAME", packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                return true
+            } catch (_: Throwable) {}
+        }
+        return try {
+            startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: Throwable) {
+            Log.w(TAG, "openOutputSwitcher failed: ${e.message}")
+            false
+        }
+    }
+
+    @RequiresApi(34)
+    private fun showSystemOutputSwitcherApi34(): Boolean = try {
+        android.media.MediaRouter2.getInstance(this).showSystemOutputSwitcher()
+    } catch (_: Throwable) {
+        false
+    }
+
     private fun updateRouteIcon(view: View) {
         val icon = view.findViewById<ImageView>(R.id.island_expanded_route_icon) ?: return
         val engine = AurumMediaSessionService.sharedEngine
@@ -627,7 +666,7 @@ class AurumIslandService : Service() {
             false
         }
         icon.setImageResource(if (isBluetooth) R.drawable.ic_island_bluetooth else R.drawable.ic_island_speaker)
-        icon.alpha = 0.7f
+        icon.alpha = if (isBluetooth) 1f else 0.7f
     }
 
     private fun setPlayPauseState(view: View, isPlaying: Boolean, animate: Boolean) {
@@ -1144,6 +1183,9 @@ class AurumIslandService : Service() {
             PixelFormat.TRANSLUCENT,
         )
         p.title = "AurumIsland"
+        // No OEM default add/remove window animation: some ROMs flash the whole
+        // (card-sized) window for a few frames when an overlay is removed.
+        p.windowAnimations = R.style.AurumIslandWindowAnim
         p.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             p.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -1316,9 +1358,12 @@ class AurumIslandService : Service() {
         }
     }
 
-    private fun addPillView() {
+    private fun addPillView(startHidden: Boolean = false) {
         if (pillView != null) return
         val view = LayoutInflater.from(this).inflate(R.layout.island_pill, null)
+        // Collapse fades the pill in; it must never be visible (even for one
+        // frame) before that fade starts, so it is transparent BEFORE attach.
+        if (startHidden) view.alpha = 0f
         val snapshot = readPrefs()
         val params = baseParams()
         applyPillCustomization(view, params, snapshot)
@@ -1431,6 +1476,16 @@ class AurumIslandService : Service() {
                 engine()?.skipToPrevious()
                 tick(b)
                 scheduleAutoCollapse()
+            }
+        }
+        view.findViewById<ImageView>(R.id.island_expanded_route_icon)?.let { b ->
+            b.contentDescription = getString(R.string.island_audio_output)
+            attachPressScale(b)
+            b.setOnClickListener {
+                tick(b)
+                // Hand off to the system output switcher / Bluetooth picker and
+                // fold the card away; if nothing could be opened keep it up.
+                if (openOutputSwitcher()) collapse() else scheduleAutoCollapse()
             }
         }
         view.findViewById<ImageView>(R.id.island_expanded_shuffle)?.let { b ->
@@ -1740,7 +1795,7 @@ class AurumIslandService : Service() {
         expandedView = null
         outgoing?.let { tick(it) }
 
-        addPillView()
+        addPillView(startHidden = true)
         val newPill = pillView
         val newParams = newPill?.layoutParams as? WindowManager.LayoutParams
         val pillOffsetX = newParams?.x ?: 0
@@ -1758,8 +1813,14 @@ class AurumIslandService : Service() {
         if (outgoing != null) {
             dyingViews.add(outgoing)
             val finish = {
-                dyingViews.remove(outgoing)
-                removeWindowSafely(outgoing)
+                // Make the card fully transparent first and only detach the
+                // window on the next animation frame, so the compositor never
+                // shows a stale card-sized black buffer for a few ms.
+                outgoing.alpha = 0f
+                outgoing.postOnAnimation {
+                    dyingViews.remove(outgoing)
+                    removeWindowSafely(outgoing)
+                }
             }
             val w = outgoing.width
             val h = outgoing.height

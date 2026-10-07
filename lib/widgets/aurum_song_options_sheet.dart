@@ -230,21 +230,111 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
     );
   }
 
+  // Normalises titles/names for comparison: lowercase, drops bracketed
+  // suffixes like "(From "X")" / "[Remix]" and every non-alphanumeric.
+  static String _albumKey(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\(\[][^\)\]]*[\)\]]'), '')
+      .replaceAll(RegExp(r'[^a-z0-9\u0900-\u097f]'), '');
+
   Future<void> _openAlbum() async {
     final song = widget.song;
     if (song.album.isEmpty) return;
     final nav = Navigator.of(widget.rootContext);
     final messenger = ScaffoldMessenger.maybeOf(widget.rootContext);
     _close();
+    messenger?.showSnackBar(SnackBar(
+      content: const Text('Finding album…'),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 4),
+    ));
     try {
-      final lower = song.album.trim().toLowerCase();
-      final results = await ApiService.searchAlbums(song.album, limit: 5);
-      final match = results.isEmpty
-          ? null
-          : results.firstWhere(
-              (a) => a.name.trim().toLowerCase() == lower,
-              orElse: () => results.first,
-            );
+      final albumKey = _albumKey(song.album);
+      final songKey = _albumKey(song.title);
+      final primaryArtist = song.artist
+          .split(RegExp(r',|&|/| feat\.? ', caseSensitive: false))
+          .first
+          .trim();
+
+      // Same-name albums are common (a movie soundtrack and an unrelated
+      // single can share a title), so a name-only match opens the wrong one.
+      // Search by album name AND album+artist, then verify by tracks below.
+      final batches = await Future.wait([
+        ApiService.searchAlbums(song.album, limit: 8),
+        ApiService.searchAlbums(
+            primaryArtist.isEmpty ? song.album : '${song.album} $primaryArtist',
+            limit: 8),
+      ]);
+      final rawName = song.album.trim().toLowerCase();
+      bool sameName(String n) => albumKey.isEmpty
+          ? n.trim().toLowerCase() == rawName // non-Latin names normalise to ''
+          : _albumKey(n) == albumKey;
+      final all = [
+        for (final batch in batches)
+          for (final a in batch)
+            if (a.collectionId.isNotEmpty) a,
+      ];
+      final seen = <String>{};
+      var named = [
+        for (final a in all)
+          if (sameName(a.name) && seen.add(a.collectionId)) a,
+      ];
+      final exactName = named.isNotEmpty;
+      if (named.isEmpty && albumKey.isNotEmpty) {
+        // Slightly different titles ("X" vs "X Reloaded"): allow containment,
+        // still verified by tracks below.
+        final seen2 = <String>{};
+        named = [
+          for (final a in all)
+            if (_albumKey(a.name).isNotEmpty &&
+                (_albumKey(a.name).contains(albumKey) ||
+                    albumKey.contains(_albumKey(a.name))) &&
+                seen2.add(a.collectionId))
+              a,
+        ];
+      }
+
+      // Typed by inference (BrowseAlbum is not re-exported here) — no dynamic.
+      final cands = named.take(4).toList();
+      var pick = -1;
+      if (cands.length == 1 && exactName) {
+        // Only one album carries this exact name: nothing to disambiguate, so
+        // skip the extra track fetch (saves data + a round-trip).
+        pick = 0;
+      } else if (cands.isNotEmpty) {
+        // Verify: the right album actually contains this song.
+        final tracks = await Future.wait(cands.map((a) => ApiService
+            .fetchAlbumSongs(a.collectionId)
+            .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])));
+        // Containment only counts for reasonably long titles, so a short
+        // title like "Dil" can't match "Dilbar" in the wrong album.
+        bool sameTitle(String k) {
+          if (k.isEmpty || songKey.isEmpty) return false;
+          if (k == songKey) return true;
+          final shorter = k.length < songKey.length ? k : songKey;
+          return shorter.length >= 5 && (k.contains(songKey) || songKey.contains(k));
+        }
+        for (var i = 0; i < cands.length && pick < 0; i++) {
+          if (tracks[i].any((t) => t.id == song.id || sameTitle(_albumKey(t.title)))) {
+            pick = i;
+          }
+        }
+        // Not verifiable: only accept an album whose credited artist matches.
+        if (pick < 0 && primaryArtist.isNotEmpty) {
+          final pa = _albumKey(primaryArtist);
+          for (var i = 0; i < cands.length; i++) {
+            final ak = _albumKey(cands[i].artist);
+            if (pa.isNotEmpty && ak.isNotEmpty && (ak.contains(pa) || pa.contains(ak))) {
+              pick = i;
+              break;
+            }
+          }
+        }
+      }
+      final match = pick >= 0 ? cands[pick] : null;
+
+      messenger?.hideCurrentSnackBar();
       final albumId = match?.collectionId;
       if (albumId == null || albumId.isEmpty) {
         messenger?.showSnackBar(SnackBar(
@@ -262,6 +352,7 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
         ),
       ));
     } catch (_) {
+      messenger?.hideCurrentSnackBar();
       messenger?.showSnackBar(SnackBar(
         content: Text('Couldn\'t open "${song.album}"'),
         behavior: SnackBarBehavior.floating,

@@ -57,6 +57,19 @@ class _MoodsGenresScreenState extends State<MoodsGenresScreen> {
   }
 
   Future<void> _load() async {
+    try {
+      await _loadInner();
+    } catch (_) {
+      // Never leave the screen on an endless spinner if a cache read or
+      // artwork top-up throws: show the normal "couldn't load" state instead
+      // (an already-showing cached grid is left untouched).
+      if (mounted && (_sections == null || _sections!.isEmpty)) {
+        setState(() => _failed = true);
+      }
+    }
+  }
+
+  Future<void> _loadInner() async {
     // Cache-first: show a previous successful fetch instantly (no
     // spinner) so the grid never feels like it's waiting on network,
     // matching how the rest of this app's real shelves already behave.

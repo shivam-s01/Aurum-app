@@ -56,32 +56,34 @@ class AurumStackedArtwork extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Back layer — furthest offset, faintest, very slightly smaller
-          // than the cover so it reads as a card peeking out from behind
-          // rather than a blurred halo bleeding past the edges.
-          Transform.translate(
-            offset: const Offset(0, -4),
-            child: Container(
-              width: size - 3,
-              height: size - 3,
-              decoration: BoxDecoration(
-                color: tint.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(stackRadius),
+          // Backing "cards" only for circular (artist) covers. Song covers
+          // render plain: the two faint layers peeked out above the cover as
+          // a white line on dark theme. The box size is unchanged, so row
+          // layout/alignment stay exactly the same.
+          if (circular) ...[
+            Transform.translate(
+              offset: const Offset(0, -4),
+              child: Container(
+                width: size - 3,
+                height: size - 3,
+                decoration: BoxDecoration(
+                  color: tint.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(stackRadius),
+                ),
               ),
             ),
-          ),
-          // Front layer — closer offset, slightly stronger.
-          Transform.translate(
-            offset: const Offset(0, -2.5),
-            child: Container(
-              width: size - 1.5,
-              height: size - 1.5,
-              decoration: BoxDecoration(
-                color: tint.withOpacity(0.25),
-                borderRadius: BorderRadius.circular(stackRadius),
+            Transform.translate(
+              offset: const Offset(0, -2.5),
+              child: Container(
+                width: size - 1.5,
+                height: size - 1.5,
+                decoration: BoxDecoration(
+                  color: tint.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(stackRadius),
+                ),
               ),
             ),
-          ),
+          ],
           // Real cover, full opacity, on top.
           circular
               ? ClipOval(

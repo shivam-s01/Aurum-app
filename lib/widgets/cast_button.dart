@@ -56,7 +56,7 @@ class CastIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final engine = context.watch<PlayerProvider>().engine;
+    final engine = context.read<PlayerProvider>().engine;
     final c = color ?? AurumTheme.textSecondaryOf(context);
 
     return ValueListenableBuilder<String>(
@@ -129,7 +129,7 @@ class CastingBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final engine = context.watch<PlayerProvider>().engine;
+    final engine = context.read<PlayerProvider>().engine;
     return StreamBuilder<CastState>(
       stream: engine.castStateStream,
       initialData: engine.castState,

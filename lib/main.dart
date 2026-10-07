@@ -131,7 +131,13 @@ Future<void> main() async {
   // widgets/aurum_glass.dart) before the first frame so the very first
   // glass surface on screen is real refracted glass immediately, not
   // frosted-fallback for a moment while the shader warms up.
-  await LiquidGlassShaders.ensureLoaded();
+  // (awaited below, in parallel with Hive + Supabase init — all three are
+  // independent and all must finish before runApp())
+  final shaderFuture = () async {
+    try {
+      await LiquidGlassShaders.ensureLoaded();
+    } catch (_) {} // glass falls back to its frosted look; never block startup
+  }();
 
   // GLOBAL CRASH-VISIBILITY FIX ("Library > Artists tab totally blank in
   // release build, no error, no empty state — despite per-widget try/catch
@@ -223,7 +229,7 @@ Future<void> main() async {
   // the widget tree builds inside runApp(), and 7 of them immediately
   // call `Hive.openBox(...)` — that throws if Hive hasn't been
   // initialized yet. This is a real dependency, not just caution.
-  await Hive.initFlutter();
+  final hiveFuture = Hive.initFlutter();
 
   // Supabase init — must happen before any AuthService/Supabase.instance
   // use. AuthProvider.init() (see MultiProvider below) runs synchronously
@@ -231,9 +237,15 @@ Future<void> main() async {
   // Supabase.instance.client — deferring this past runApp() would crash
   // instead of just being slow. In practice this call is fast (local
   // client setup, no network round-trip of its own).
-  try {
-    await AuthService.init();
-  } catch (_) {} // app still works fully offline/unauthenticated if this fails
+  final authFuture = () async {
+    try {
+      await AuthService.init();
+    } catch (_) {} // app still works fully offline/unauthenticated if this fails
+  }();
+
+  // Startup speed: shader compile, Hive init and Supabase init no longer run
+  // one after another — total wait is the slowest of the three, not the sum.
+  await Future.wait<void>([shaderFuture, hiveFuture, authFuture]);
 
   // Data Saver must already be known when the first frame builds Home —
   // see AudioPrefs.primeDataSaverEarly(). Never throws / never blocks long.
@@ -318,13 +330,18 @@ Future<void> main() async {
     PaintingBinding.instance.imageCache.maximumSize = 250;
   } catch (_) {}
 
-  try {
-    await AurumHaptics.init();
-  } catch (_) {} // haptics simply fall back to 'light' behavior if this fails
-
-  try {
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  } catch (_) {}
+  // Startup speed: haptics, orientation lock and AudioPrefs.load (below) are
+  // independent of each other — run them together instead of back to back.
+  final hapticsFuture = () async {
+    try {
+      await AurumHaptics.init();
+    } catch (_) {} // haptics simply fall back to 'light' behavior if this fails
+  }();
+  final orientationFuture = () async {
+    try {
+      await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    } catch (_) {}
+  }();
 
   // Restore Player & Audio settings (shake-to-skip, swipe-to-change,
   // stop-on-swipe, pause-on-call, duck-on-notifications, etc.) from disk.
@@ -333,7 +350,7 @@ Future<void> main() async {
   // window until this resolves, then live-updates — same pattern as
   // every other async-loaded preference in the app.
   try {
-    await AudioPrefs.load();
+    await Future.wait<void>([hapticsFuture, orientationFuture, AudioPrefs.load()]);
   } catch (_) {}
 
   // Battery Saver Mode: begin listening for live battery-percentage

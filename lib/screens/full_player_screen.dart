@@ -3349,7 +3349,7 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
     // _LyricsPageState below: explicitly watching currentSong in build()
     // makes detection deterministic on every song change, with no
     // dependency on anything else in the tree choosing to rebuild first.
-    final watchedSong = context.watch<PlayerProvider>().currentSong;
+    final watchedSong = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     if (watchedSong != null && watchedSong.id != _loadedForId) {
       _loadedForId = watchedSong.id;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -5904,7 +5904,7 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     // currentSong here makes this widget rebuild deterministically the
     // instant the song changes, every time, with no dependency on
     // anything else in the tree choosing to rebuild.
-    final song = context.watch<PlayerProvider>().currentSong;
+    final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     if (song != null && song.id != _loadedFor?.id) {
       _loadedFor = song;
       // _fetchLyrics() calls setState, which can't run synchronously from

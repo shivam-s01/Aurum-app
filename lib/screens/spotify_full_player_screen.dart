@@ -184,8 +184,14 @@ class _SpotifyFullPlayerScreenState extends State<SpotifyFullPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
+    // PERF: was Consumer<PlayerProvider> — rebuilt this whole screen on every
+    // 500ms position tick. Only these five fields are read below (the seek
+    // bar has its own Selector), so rebuild only when one of them changes.
+    return Selector<PlayerProvider, (Song?, bool, bool, LoopMode, bool)>(
+      selector: (_, p) =>
+          (p.currentSong, p.isLoading, p.isPlaying, p.loopMode, p.shuffle),
+      builder: (context, _, __) {
+        final player = context.read<PlayerProvider>();
         final song = player.currentSong;
         if (song == null) {
           return const Scaffold(
@@ -313,9 +319,9 @@ class _LyricsPageWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
-        final song = player.currentSong;
+    return Selector<PlayerProvider, Song?>(
+      selector: (_, p) => p.currentSong,
+      builder: (context, song, _) {
         final favorites = context.watch<FavoritesProvider>();
         return Scaffold(
           backgroundColor: const Color(0xFF121212),

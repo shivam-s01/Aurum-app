@@ -93,4 +93,13 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@color/bgColor</item>
     </style>
+
+    <!-- Island overlay windows: no system add/remove animation (it can flash
+         the full card-sized window for a few frames on some ROMs). -->
+    <style name="AurumIslandWindowAnim">
+        <item name="android:windowEnterAnimation">@null</item>
+        <item name="android:windowExitAnimation">@null</item>
+        <item name="android:windowShowAnimation">@null</item>
+        <item name="android:windowHideAnimation">@null</item>
+    </style>
 </resources>

@@ -6552,22 +6552,34 @@ class ApiService {
     return out;
   }
 
+  // Picks the result whose name equals the requested artist (same-name/
+  // similar-name artists are common); falls back to the top hit like before.
+  static String? _pickArtistId(List<ArtistSimple> list, String name) {
+    if (list.isEmpty) return null;
+    String key(String v) => v.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u0900-\u097f]'), '');
+    final want = key(name);
+    var pick = list.first;
+    if (want.isNotEmpty) {
+      for (final a in list) {
+        if (key(a.name) == want) {
+          pick = a;
+          break;
+        }
+      }
+    }
+    return pick.id.startsWith('yt_') ? pick.id.substring(3) : pick.id;
+  }
+
   static Future<String?> _resolveYtChannelId(String name) async {
     if (name.trim().isEmpty) return null;
 
-    final matches = await _searchArtistsAttempt(name, 1,
+    final matches = await _searchArtistsAttempt(name, 5,
         useArtistFilter: true, timeout: const Duration(seconds: 6));
-    if (matches.isNotEmpty) {
-      return matches.first.id.startsWith('yt_')
-          ? matches.first.id.substring(3)
-          : matches.first.id;
-    }
-    final fallback = await _searchArtistsAttempt(name, 1,
+    final first = _pickArtistId(matches, name);
+    if (first != null) return first;
+    final fallback = await _searchArtistsAttempt(name, 5,
         useArtistFilter: false, timeout: const Duration(seconds: 6));
-    if (fallback.isEmpty) return null;
-    return fallback.first.id.startsWith('yt_')
-        ? fallback.first.id.substring(3)
-        : fallback.first.id;
+    return _pickArtistId(fallback, name);
   }
 
   static const String _ytmArtistsFilterParam = 'EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D';
