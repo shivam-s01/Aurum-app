@@ -24,6 +24,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../services/aurum_image_cache.dart';
+import '../services/audio_prefs.dart' show AudioPrefs;
+import '../widgets/aurum_glass.dart';
+import '../widgets/aurum_wide_thumb.dart';
+import '../widgets/aurum_equalizer_bars.dart';
 import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
@@ -4522,9 +4528,78 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // PLAYLIST DETAIL SCREEN
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//
+// REDESIGN (2026-10-07, "playlist screen ekdam mix screen jaisa, SimpMusic
+// jaisa, first time stuck na aaye"): same full-bleed-artwork layout as
+// MixScreen — sharp square art that fades into the palette-tinted page,
+// centered title block, shuffle · Play · download row, track count, then
+// compact YT-Music-style rows (wide thumbnail + title/artist + 3-dot).
+// Every existing option is kept: gallery cover (add / change / remove),
+// rename + description, download playlist, delete, long-press multi-select
+// + bulk remove, per-row remove, drag-handle reorder.
+//
+// FIRST-OPEN STUTTER — root causes removed:
+//   1. The old header decoded the SAME 1200px cover twice (a blurred copy
+//      scaled 1.15x under sigma-18 ImageFiltered + a sharp copy) and put a
+//      pinned SliverAppBar + FlexibleSpaceBar + AurumGlassCollapseBar
+//      (a shader glass layer) on top. Blur + saveLayer + shader warm-up
+//      all landed inside the route-push transition. Now: ONE image decode,
+//      no blur, no pinned glass bar.
+//   2. Two nested AnimationControllers (screen + header) each called
+//      setState on EVERY tick of a 420ms palette fade, rebuilding the whole
+//      CustomScrollView (incl. the reorderable list) ~25 times while the
+//      route was still sliding in. Now the fade lives inside two tiny
+//      TweenAnimationBuilders (background + header fade) — the list never
+//      rebuilds for it.
+//   3. Cold-cache palette extraction used to start during the push
+//      transition. Now it waits until the route has settled.
+//   4. The action row watched DownloadProvider wholesale (rebuild on every
+//      progress tick); now a record-valued select rebuilds only when the
+//      done/total numbers actually change.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const Color _kPlaylistFallbackGlow = Color(0xFF1A1630);
+const Duration _kPlaylistGlowDuration = Duration(milliseconds: 420);
+
+/// Deterministic, pleasant poster color for playlists with no artwork
+/// (empty playlist / song without art) — stable per playlist id.
+Color _playlistPosterColor(String id) {
+  var h = 7;
+  for (final u in id.codeUnits) {
+    h = (h * 31 + u) & 0x7fffffff;
+  }
+  return HSLColor.fromAHSL(1.0, (h % 360).toDouble(), 0.58, 0.42).toColor();
+}
+
+/// Sharper source for the full-bleed header. upgradeForFullPlayer() lifts
+/// list-sized YouTube art to 600px; a phone-wide header wants more, so
+/// googleusercontent-hosted covers go to 1200px (the decode budget
+/// AurumArtwork already uses for size:infinity). Data-saver keeps whatever
+/// upgradeForFullPlayer decided.
+String _playlistHeaderArtUrl(String url) {
+  if (url.isEmpty) return url;
+  final up = AurumArtwork.upgradeForFullPlayer(url);
+  if (AudioPrefs.dataSaverActiveNotifier.value) return up;
+  if (!(up.contains('googleusercontent') || up.contains('ggpht'))) return up;
+  final m = RegExp(r'=w(\d+)-h(\d+)').firstMatch(up);
+  if (m != null && int.parse(m.group(1)!) < 1000) {
+    return up.replaceFirst(m.group(0)!, '=w1200-h1200');
+  }
+  return up;
+}
+
+String _playlistCreatedLine(DateTime created) {
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December',
+  ];
+  final d = created.toLocal();
+  final hh = d.hour.toString().padLeft(2, '0');
+  final mm = d.minute.toString().padLeft(2, '0');
+  return 'Created at $hh:$mm - ${d.day} ${months[d.month - 1]} ${d.year}';
+}
 
 class PlaylistDetailScreen extends StatefulWidget {
   final String playlistId;
@@ -4534,66 +4609,100 @@ class PlaylistDetailScreen extends StatefulWidget {
   State<PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
 }
 
-class _PlaylistDetailScreenState extends State<PlaylistDetailScreen>
-    with SingleTickerProviderStateMixin {
+class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   // -- Multi-select state --
   bool _selecting = false;
   final Set<String> _selectedIds = {};
-  // FIX ("mix/playlist screen pe palette snap hoti hai - ekdam smooth
-  // chahiye"): matches mix_screen.dart's/album_screen.dart's/
-  // artist_screen.dart's identical fix. `_glow` is now an animated
-  // getter (see below) so a color handed up from the child
-  // _PlaylistHeader via _onGlow fades in instead of snapping - this is
-  // the exact screen in the reported screenshot (Library -> a local
-  // playlist), so this is the highest-priority one of the four.
-  Color _glowTarget = const Color(0xFF1A1630);
-  String? _glowExtractedFor;
 
-  late final AnimationController _glowController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-  late Animation<Color?> _glowAnimation = AlwaysStoppedAnimation(_glowTarget);
-
-  /// The value every widget in build() actually paints with - see
-  /// mix_screen.dart's identical getter for the full reasoning.
-  Color get _glow => _glowAnimation.value ?? _glowTarget;
-
-  void _setGlowTarget(Color next) {
-    final tween = ColorTween(begin: _glow, end: next);
-    _glowTarget = next;
-    _glowAnimation = tween.animate(
-      CurvedAnimation(parent: _glowController, curve: Curves.easeOutCubic),
-    );
-    _glowController
-      ..reset()
-      ..forward();
-  }
-
-  void _onGlow(String key, Color c) {
-    if (_glowExtractedFor == key) return;
-    _glowExtractedFor = key;
-    // The child _PlaylistHeader (see _PlaylistHeaderState below) already
-    // does its own cache-peek + contrast-safe clamp before calling this,
-    // so `c` here is already final - routed through _setGlowTarget so
-    // it fades in rather than snapping.
-    if (mounted) setState(() => _setGlowTarget(c));
-  }
+  // -- Palette glow --------------------------------------------------------
+  // Plain target color. The fade between targets is animated by
+  // _PlaylistAnimatedBg / _PlaylistHeaderFade (TweenAnimationBuilder), so
+  // changing this never drives per-frame rebuilds of the list.
+  Color _glowTarget = _kPlaylistFallbackGlow;
+  String? _glowArt; // artwork key _glowTarget was resolved (or is resolving) for
+  bool _inited = false;
 
   @override
-  void initState() {
-    super.initState();
-    // Repaints on every animation tick while a glow fade is in flight -
-    // see mix_screen.dart's matching listener for the full reasoning.
-    _glowController.addListener(() {
-      if (mounted) setState(() {});
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_inited) return;
+    _inited = true;
+    // Warm the exact header image request before the header first builds
+    // (same idea as MixScreen._precacheHeaderArtwork).
+    final pl = context.read<PlaylistProvider>().getById(widget.playlistId);
+    if (pl != null) _precacheHeader(pl.coverArt ?? '');
   }
 
-  @override
-  void dispose() {
-    _glowController.dispose();
-    super.dispose();
+  void _precacheHeader(String art) {
+    if (art.isEmpty || art.startsWith('content://')) return;
+    final ImageProvider provider;
+    if (art.startsWith('/') || art.startsWith('file://')) {
+      final path =
+          art.startsWith('file://') ? art.replaceFirst('file://', '') : art;
+      provider = ResizeImage(FileImage(File(path)), width: 1200);
+    } else {
+      provider = CachedNetworkImageProvider(
+        _playlistHeaderArtUrl(art),
+        maxWidth: 1200,
+        cacheManager: AurumImageCache(),
+      );
+    }
+    precacheImage(provider, context).catchError((_) {});
+  }
+
+  /// Resolves [_glowTarget] for the playlist's current artwork. Cache hit /
+  /// no artwork → assigned synchronously, so the very first frame already
+  /// paints the right color (no pop). Cold cache → resolved after the route
+  /// transition settles, then faded in.
+  void _ensureGlow(AurumPlaylist pl) {
+    final art = pl.coverArt ?? '';
+    if (art == _glowArt) return;
+    _glowArt = art;
+    if (art.isEmpty) {
+      _glowTarget = _playlistPosterColor(pl.id);
+      return;
+    }
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final cached = ArtworkPaletteCache.peek(art);
+    if (cached != null) {
+      _glowTarget = ensureContrastSafe(cached.darkMuted, isLight: isLight);
+      return;
+    }
+    unawaited(_resolveGlow(art, isLight));
+  }
+
+  Future<void> _resolveGlow(String art, bool isLight) async {
+    await _routeSettled();
+    if (!mounted || _glowArt != art) return;
+    final c = await extractImmersiveColor(art);
+    if (!mounted || c == null || _glowArt != art) return;
+    final safe = ensureContrastSafe(c, isLight: isLight);
+    if (safe.value == _glowTarget.value) return;
+    setState(() => _glowTarget = safe);
+  }
+
+  /// Completes once this route's push animation has finished (or after a
+  /// 900ms safety cap), so heavy palette work never competes with the
+  /// slide-in frames.
+  Future<void> _routeSettled() async {
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == null || anim.status == AnimationStatus.completed) return;
+    final done = Completer<void>();
+    void listener(AnimationStatus s) {
+      if ((s == AnimationStatus.completed || s == AnimationStatus.dismissed) &&
+          !done.isCompleted) {
+        done.complete();
+      }
+    }
+
+    anim.addStatusListener(listener);
+    try {
+      await done.future.timeout(const Duration(milliseconds: 900));
+    } on TimeoutException {
+      // Proceed anyway.
+    } finally {
+      anim.removeStatusListener(listener);
+    }
   }
 
   void _enterSelectMode(String firstSongId) {
@@ -4625,6 +4734,189 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen>
     });
   }
 
+  // Gallery cover: add / change / remove. Same behaviour as before (tap the
+  // artwork, or the new photo button in the header toolbar).
+  Future<void> _changeCover(AurumPlaylist pl) async {
+    final provider = context.read<PlaylistProvider>();
+    final l10n = AppLocalizations.of(context)!;
+    AurumHaptics.selection();
+
+    final action = await showAurumModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgElevatedOf(ctx),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Icon(Icons.photo_library_rounded,
+                    color: AurumTheme.accentOf(ctx)),
+                title: Text(l10n.libraryChooseFromGallery,
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(ctx),
+                        fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(ctx, 'pick'),
+              ),
+              if (pl.hasCustomCover)
+                ListTile(
+                  leading:
+                      const Icon(Icons.restore_rounded, color: Colors.redAccent),
+                  title: Text(l10n.libraryRemoveCustomCover,
+                      style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(ctx),
+                          fontWeight: FontWeight.w600)),
+                  onTap: () => Navigator.pop(ctx, 'remove'),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (action == 'pick') {
+      try {
+        final picked = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 92,
+          // Header art decodes at 1200px max (AurumArtwork's sharp-hero
+          // budget), so there is no benefit in keeping more pixels.
+          maxWidth: 1200,
+          maxHeight: 1200,
+        );
+        if (picked != null) {
+          await provider.setCoverImage(pl.id, picked.path);
+        }
+      } catch (e) {
+        debugPrint('[PlaylistDetail] cover pick failed: $e');
+        if (mounted) AurumSnack.show(context, 'Could not set cover');
+      }
+    } else if (action == 'remove') {
+      await provider.clearCoverImage(pl.id);
+    }
+  }
+
+  void _showRowMenu(AurumPlaylist pl, Song song, int index) {
+    final l10n = AppLocalizations.of(context)!;
+    AurumHaptics.light();
+    showAurumModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: true,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgElevatedOf(ctx),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                child: Row(
+                  children: [
+                    AurumWideThumb(
+                      url: song.artworkUrl,
+                      width: 80,
+                      height: 45,
+                      borderRadius: 6,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: AurumTheme.textPrimaryOf(ctx),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 3),
+                          Text(song.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: AurumTheme.textSecondaryOf(ctx),
+                                  fontSize: 13.5)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(
+                  height: 1,
+                  thickness: 0.6,
+                  color: AurumTheme.textMutedOf(ctx).withOpacity(0.18)),
+              ListTile(
+                leading: Icon(Icons.check_circle_outline_rounded,
+                    color: AurumTheme.accentOf(ctx)),
+                title: Text(l10n.libraryEnterSelectMode,
+                    style: TextStyle(color: AurumTheme.textPrimaryOf(ctx))),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _enterSelectMode(song.id);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.remove_circle_outline_rounded,
+                    color: Colors.redAccent),
+                title: Text(l10n.libraryRemoveFromPlaylist,
+                    style: TextStyle(color: AurumTheme.textPrimaryOf(ctx))),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.read<PlaylistProvider>().removeSong(pl.id, song.id);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.more_horiz_rounded,
+                    color: AurumTheme.textSecondaryOf(ctx)),
+                title: Text('More options',
+                    style: TextStyle(color: AurumTheme.textPrimaryOf(ctx))),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showAurumSongOptions(context, song, compact: true);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -4632,13 +4924,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen>
     final pl = pp.getById(widget.playlistId);
 
     if (pl == null) {
-      // FIX (recheck): this is the "playlist not found" state (e.g.
-      // deleted from another device mid-view), not a loading state — it
-      // can persist on screen, so it needs the same MiniPlayerSlot as the
-      // normal loaded Scaffold below, otherwise nav bar/mini player
-      // vanish for as long as this state is shown.
+      // "Playlist not found" state (e.g. deleted from another device
+      // mid-view) — keeps the MiniPlayerSlot like the loaded Scaffold.
       return Scaffold(
-        backgroundColor: immersiveScaffoldBg(context, _glow),
+        backgroundColor: immersiveScaffoldBg(context, _glowTarget),
         bottomNavigationBar: const MiniPlayerSlot(),
         body: Center(
           child: Text(l10n.libraryPlaylistNotFound,
@@ -4660,230 +4949,214 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen>
       }
     }
 
-    return PopScope(
+    _ensureGlow(pl);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = immersiveScaffoldBg(context, _glowTarget);
+    final headerH = MediaQuery.of(context).size.width * 1.04;
+    final songs = pl.songs;
+    final duration = pl.totalDurationString;
+    final summary = '${songs.length} ${songs.length == 1 ? 'track' : 'tracks'}'
+        '${duration.isNotEmpty ? ' • $duration' : ''}';
+
+    final scroll = CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      // Bigger buffer so a fast fling through a long playlist doesn't
+      // tear down and rebuild rows just outside the default 250px.
+      cacheExtent: 1200,
+      slivers: [
+        // ── Header / Select-mode app bar ───────────────────────────────
+        if (_selecting)
+          _SelectModeAppBar(
+            background: bg,
+            selectedCount: _selectedIds.length,
+            totalCount: songs.length,
+            allSelected: _selectedIds.length == songs.length,
+            onClose: _exitSelectMode,
+            onToggleSelectAll: () {
+              AurumHaptics.light();
+              setState(() {
+                if (_selectedIds.length == songs.length) {
+                  _selectedIds.clear();
+                } else {
+                  _selectedIds
+                    ..clear()
+                    ..addAll(songs.map((s) => s.id));
+                }
+              });
+            },
+            onRemove: () => _confirmRemoveSelected(context, pl),
+          )
+        else ...[
+          SliverToBoxAdapter(
+            child: _PlaylistHeader(
+              playlist: pl,
+              height: headerH,
+              bg: bg,
+              poster: _playlistPosterColor(pl.id),
+              onBack: () {
+                AurumHaptics.selection();
+                Navigator.pop(context);
+              },
+              onEditCover: () => _changeCover(pl),
+              onMore: () => _showPlaylistOptions(context, pl),
+            ),
+          ),
+          // ── Action row: shuffle · Play · download ────────────────────
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+              child: _PlaylistActionRow(playlist: pl),
+            ),
+          ),
+        ],
+
+        if (songs.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+              child: Text(
+                summary,
+                style: TextStyle(
+                  color: AurumTheme.textSecondaryOf(context),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+
+        // ── Songs ──────────────────────────────────────────────────────
+        if (songs.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(40, 36, 40, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    summary,
+                    style: TextStyle(
+                      color: AurumTheme.textSecondaryOf(context),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: AurumTheme.accentOf(context).withOpacity(0.10),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: AurumTheme.accentOf(context).withOpacity(0.30)),
+                    ),
+                    child: Icon(Icons.music_note_rounded,
+                        color: AurumTheme.accentOf(context), size: 36),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(l10n.libraryNoSongsYetInPlaylist,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Text(l10n.librarySearchAndAddSongsHere,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AurumTheme.textMutedOf(context),
+                          fontSize: 13,
+                          height: 1.5)),
+                ],
+              ),
+            ),
+          )
+        else
+          SliverReorderableList(
+            itemCount: songs.length,
+            onReorder: (oldIdx, newIdx) {
+              if (_selecting) return; // reorder disabled while selecting
+              context
+                  .read<PlaylistProvider>()
+                  .reorderSong(pl.id, oldIdx, newIdx);
+            },
+            // Lift-and-settle drag proxy — always driven back to 0 on
+            // drop/cancel so an interrupted drag can't leave a ghost frame.
+            proxyDecorator: (child, index, animation) {
+              return AnimatedBuilder(
+                animation: animation,
+                builder: (context, _) {
+                  final t = Curves.easeOut.transform(animation.value);
+                  return Transform.scale(
+                    scale: 1.0 + (0.03 * t),
+                    child: Material(
+                      color: Colors.transparent,
+                      elevation: 0,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: AurumTheme.bgCardOf(context),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.28 * t),
+                              blurRadius: 20 * t,
+                              offset: Offset(0, 6 * t),
+                            ),
+                          ],
+                        ),
+                        child: child,
+                      ),
+                    ),
+                  );
+                },
+                child: child,
+              );
+            },
+            itemBuilder: (context, i) {
+              final song = songs[i];
+              return KeyedSubtree(
+                key: ValueKey('${pl.id}_${song.id}_$i'),
+                child: _PlaylistTrackRow(
+                  song: song,
+                  playlist: pl,
+                  index: i,
+                  selecting: _selecting,
+                  selected: _selectedIds.contains(song.id),
+                  canReorder: songs.length > 1,
+                  onEnterSelectMode: () => _enterSelectMode(song.id),
+                  onToggleSelected: () => _toggleSelected(song.id),
+                  onMenu: () => _showRowMenu(pl, song, i),
+                ),
+              );
+            },
+          ),
+
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+      ],
+    );
+
+    final scaffold = PopScope(
       canPop: !_selecting,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _selecting) _exitSelectMode();
       },
       child: Scaffold(
-        backgroundColor: immersiveScaffoldBg(context, _glow),
-        // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
-        // matching comment for the full reasoning.
+        backgroundColor: bg,
+        // Persistent mini player, same as every other detail screen.
         bottomNavigationBar: const MiniPlayerSlot(),
-        body: Container(
-          color: immersiveScaffoldBg(context, _glow),
-          child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          // PERF FIX (same class as home_screen.dart / artist_screen.dart's
-          // matching fix): default Sliver cacheExtent is only 250 logical
-          // px. With a 300px expanded header sitting above a potentially
-          // long, reorderable song list, a fast fling could easily outrun
-          // that tiny buffer — tiles just past it got torn down and
-          // rebuilt from scratch on every re-entry into view, which reads
-          // as stutter/lag on a big playlist. Matching the same 1200 used
-          // on Home/Artist for identical reasoning.
-          cacheExtent: 1200,
-          slivers: [
-            // â”€â”€ Header / Select-mode app bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            if (_selecting)
-              _SelectModeAppBar(
-                selectedCount: _selectedIds.length,
-                totalCount: pl.songs.length,
-                allSelected: _selectedIds.length == pl.songs.length,
-                onClose: _exitSelectMode,
-                onToggleSelectAll: () {
-                  AurumHaptics.light();
-                  setState(() {
-                    if (_selectedIds.length == pl.songs.length) {
-                      _selectedIds.clear();
-                    } else {
-                      _selectedIds
-                        ..clear()
-                        ..addAll(pl.songs.map((s) => s.id));
-                    }
-                  });
-                },
-                onRemove: () => _confirmRemoveSelected(context, pl),
-              )
-            else
-              SliverAppBar(
-                expandedHeight: 300,
-                pinned: true,
-                backgroundColor: immersiveScaffoldBg(context, _glow),
-                leading: IconButton(
-                  icon: Icon(Icons.arrow_back_ios_rounded,
-                      color: AurumTheme.textSecondaryOf(context), size: 20),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                actions: [
-                  IconButton(
-                    icon: Icon(Icons.more_vert_rounded,
-                        color: AurumTheme.textSecondaryOf(context)),
-                    onPressed: () => _showPlaylistOptions(context, pl),
-                  ),
-                ],
-                flexibleSpace: FlexibleSpaceBar(
-                  background: _PlaylistHeader(playlist: pl, onGlow: _onGlow),
-                  collapseMode: CollapseMode.pin,
-                ),
-                bottom: PreferredSize(
-                  preferredSize: const Size.fromHeight(0),
-                  child: Container(
-                    height: 1,
-                    color: AurumTheme.textMutedOf(context).withOpacity(0.1),
-                  ),
-                ),
-              ),
-
-            // â”€â”€ Action Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            if (!_selecting)
-              SliverToBoxAdapter(
-                child: _PlaylistActionRow(playlist: pl),
-              ),
-
-            // â”€â”€ Songs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            if (pl.songs.isEmpty)
-              SliverFillRemaining(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(40),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.purpleAccent.withOpacity(0.1),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: Colors.purpleAccent.withOpacity(0.3)),
-                          ),
-                          child: const Icon(Icons.music_note_rounded,
-                              color: Colors.purpleAccent, size: 36),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(l10n.libraryNoSongsYetInPlaylist,
-                            style: TextStyle(
-                                color: AurumTheme.textPrimaryOf(context),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 8),
-                        Text(l10n.librarySearchAndAddSongsHere,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                color: AurumTheme.textMutedOf(context),
-                                fontSize: 13,
-                                height: 1.5)),
-                      ],
-                    ),
-                  ),
-                ),
-              )
-            else
-              SliverReorderableList(
-                itemCount: pl.songs.length,
-                onReorder: (oldIdx, newIdx) {
-                  if (_selecting) return; // reorder disabled while selecting
-                  context
-                      .read<PlaylistProvider>()
-                      .reorderSong(pl.id, oldIdx, newIdx);
-                },
-                // FIX (companion to the reorderSong() timing fix): gives the
-                // dragged tile a deliberate, premium lift-and-settle instead
-                // of Flutter's default proxyDecorator, which wraps the tile
-                // in a plain Material with a hard elevation shadow — visually
-                // flat/dated next to the rest of Aurum's motion language, and
-                // the specific widget most likely to be left as a stray
-                // painted frame if a drag is interrupted (e.g. by a fast
-                // back-navigation) before its own drop animation finishes.
-                // A short, explicit AnimatedScale + AnimatedContainer shadow
-                // keyed off `animation` (which Flutter always drives to 0 on
-                // drop/cancel, including interrupted drags) ensures there's
-                // always a defined "off" state to settle back to rather than
-                // whatever Material's internal elevation happened to be
-                // mid-flight.
-                proxyDecorator: (child, index, animation) {
-                  return AnimatedBuilder(
-                    animation: animation,
-                    builder: (context, _) {
-                      final t = Curves.easeOut.transform(animation.value);
-                      final scale = 1.0 + (0.03 * t);
-                      return Transform.scale(
-                        scale: scale,
-                        child: Material(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          elevation: 0,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: AurumTheme.bgCardOf(context),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.28 * t),
-                                  blurRadius: 20 * t,
-                                  offset: Offset(0, 6 * t),
-                                ),
-                              ],
-                            ),
-                            child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    child: child,
-                  );
-                },
-                itemBuilder: (context, i) {
-                  final song = pl.songs[i];
-                  final tile = _PlaylistSongTile(
-                    song: song,
-                    playlist: pl,
-                    index: i,
-                    selecting: _selecting,
-                    selected: _selectedIds.contains(song.id),
-                    onEnterSelectMode: () => _enterSelectMode(song.id),
-                    onToggleSelected: () => _toggleSelected(song.id),
-                  );
-                  // Drag handle only makes sense outside select mode —
-                  // reordering while multi-selecting is an awkward,
-                  // ambiguous gesture combo most apps avoid entirely.
-                  if (_selecting) {
-                    return KeyedSubtree(
-                      key: ValueKey('${pl.id}_${song.id}_$i'),
-                      child: tile,
-                    );
-                  }
-                  // FIX ("playlist reorder galat/sahi se nahi hota"): this
-                  // used to wrap the ENTIRE tile in
-                  // ReorderableDelayedDragStartListener — but the tile's
-                  // own ListTile already has its own onTap (play song) AND
-                  // onLongPress (enter select mode), both competing with
-                  // the reorder drag's long-press-and-hold in the exact
-                  // same touch area/gesture arena. onLongPress in
-                  // particular almost always won or interfered, so a
-                  // press-and-hold-to-drag anywhere on the row read as
-                  // "enter select mode" (or nothing coherent) instead of
-                  // actually starting a reorder. Restricting the drag
-                  // trigger to ONLY the drag_handle icon inside the tile
-                  // (same YouTube Music / Spotify pattern already applied
-                  // to Queue screen) removes the ambiguity entirely — tap
-                  // and long-press elsewhere on the row behave exactly as
-                  // before, and the handle is the sole, unambiguous way to
-                  // start a drag.
-                  return KeyedSubtree(
-                    key: ValueKey('${pl.id}_${song.id}_$i'),
-                    child: tile,
-                  );
-                },
-              ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 100)),
-          ],
-          ),
-        ),
+        body: _PlaylistAnimatedBg(color: bg, child: scroll),
       ),
+    );
+
+    // Dark mode: the header artwork runs under the status bar, so keep the
+    // system icons light. Light mode keeps the app's global style.
+    if (!isDark) return scaffold;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
+      child: scaffold,
     );
   }
 
@@ -5074,11 +5347,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen>
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // Select-mode app bar — replaces the artwork header while multi-selecting
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _SelectModeAppBar extends StatelessWidget {
+  final Color background;
   final int selectedCount;
   final int totalCount;
   final bool allSelected;
@@ -5087,6 +5361,7 @@ class _SelectModeAppBar extends StatelessWidget {
   final VoidCallback onRemove;
 
   const _SelectModeAppBar({
+    required this.background,
     required this.selectedCount,
     required this.totalCount,
     required this.allSelected,
@@ -5100,8 +5375,10 @@ class _SelectModeAppBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return SliverAppBar(
       pinned: true,
-      backgroundColor: AurumTheme.bgOf(context),
+      backgroundColor: background,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 0,
       leading: IconButton(
         icon: Icon(Icons.close_rounded,
             color: AurumTheme.textSecondaryOf(context), size: 22),
@@ -5147,366 +5424,337 @@ class _SelectModeAppBar extends StatelessWidget {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Playlist Header (large artwork + info)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
+// Animated page background — the ONLY thing that repaints during a palette
+// fade. `child` (the scroll view) is built once and reused every tick.
+// ═══════════════════════════════════════════════════════════════════════════
 
-class _PlaylistHeader extends StatefulWidget {
-  final AurumPlaylist playlist;
-  final void Function(String key, Color color)? onGlow;
-  const _PlaylistHeader({required this.playlist, this.onGlow});
-
-  @override
-  State<_PlaylistHeader> createState() => _PlaylistHeaderState();
-}
-
-class _PlaylistHeaderState extends State<_PlaylistHeader>
-    with SingleTickerProviderStateMixin {
-  // FIX ("2-3 sec mai aane wala artwork/glow akward lagta hai — sab jagah
-  // instant, ekdam smooth chahiye"): matches mix_screen.dart's /
-  // album_screen.dart's identical fix. This header's cover art/first-song
-  // artwork was very likely already seen elsewhere (the playlist tile the
-  // user just tapped from Library), so peeking the cache synchronously at
-  // construction time paints the real color on the very first frame
-  // instead of always starting on the flat fallback — only a genuinely
-  // never-seen playlist still falls through to it. `_glow` is the
-  // animated getter every widget below actually paints with; any change
-  // after the first frame fades via _glowController instead of snapping.
-  late Color _glowTarget = _peekInitialGlow();
-
-  late final AnimationController _glowController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-  late Animation<Color?> _glowAnimation = AlwaysStoppedAnimation(_glowTarget);
-
-  Color get _glow => _glowAnimation.value ?? _glowTarget;
-
-  void _setGlowTarget(Color next) {
-    final tween = ColorTween(begin: _glow, end: next);
-    _glowTarget = next;
-    _glowAnimation = tween.animate(
-      CurvedAnimation(parent: _glowController, curve: Curves.easeOutCubic),
-    );
-    _glowController
-      ..reset()
-      ..forward();
-  }
-
-  String? _initialPeekUrl() {
-    final art = widget.playlist.coverArt;
-    if (art != null && art.isNotEmpty) return art;
-    if (widget.playlist.songs.isNotEmpty) {
-      return widget.playlist.songs.first.artworkUrl;
-    }
-    return null;
-  }
-
-  Color _peekInitialGlow() {
-    final url = _initialPeekUrl();
-    if (url == null || url.isEmpty) return const Color(0xFF1A1630);
-    final cached = ArtworkPaletteCache.peek(url);
-    if (cached == null) return const Color(0xFF1A1630);
-    // ensureContrastSafe needs `context` (theme brightness), not
-    // available yet at field-initializer time — same tradeoff mix_screen
-    // and album_screen make: paint the raw cached tone for one frame,
-    // clamp is applied a moment later once context exists. The gap is
-    // invisible on a cache hit either way.
-    return cached.darkMuted;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    // Repaints on every animation tick while a glow fade is in flight —
-    // see mix_screen.dart's matching listener for the full reasoning.
-    _glowController.addListener(() {
-      if (mounted) setState(() {});
-    });
-    _extractGlow();
-  }
-
-  @override
-  void dispose() {
-    _glowController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_PlaylistHeader old) {
-    super.didUpdateWidget(old);
-    if (old.playlist.coverArt != widget.playlist.coverArt) _extractGlow();
-  }
-
-  Future<void> _extractGlow() async {
-    final art = widget.playlist.coverArt;
-    final url = (art != null && art.isNotEmpty)
-        ? art
-        : (widget.playlist.songs.isNotEmpty
-            ? widget.playlist.songs.first.artworkUrl
-            : '');
-    if (url.isEmpty) return;
-    final c = await extractImmersiveColor(url);
-    // Same contrast-safety clamp as mix_screen.dart's matching fix —
-    // applied here (not in _onGlow above) so both this header's own
-    // _glow AND the value handed up to the parent screen's background
-    // via widget.onGlow are already the safe, clamped color.
-    if (c != null && mounted) {
-      final safe = ensureContrastSafe(
-        c,
-        isLight: Theme.of(context).brightness == Brightness.light,
-      );
-      // Cache-hit: _peekInitialGlow (possibly followed by a contrast
-      // clamp identical to this one) already painted this exact color —
-      // skip the redundant setState/fade entirely. Only a real
-      // cold-cache resolution actually moves the target.
-      if (safe.value != _glowTarget.value) {
-        setState(() => _setGlowTarget(safe));
-      }
-      widget.onGlow?.call(url, safe);
-    }
-  }
-
-  // CHANGE ("ek option daal do playlist mai users kud se gallery se
-  // playlist ka wallpaper chose kr sakhe ekdam production level"): opens
-  // the gallery via image_picker, hands the picked file off to
-  // PlaylistProvider.setCoverImage (which copies it into app storage and
-  // persists it), and — if a custom cover is already set — offers Remove
-  // as a second option instead of only ever letting you add one. Matches
-  // the long-press-free, single-tap-on-the-artwork pattern Spotify uses
-  // for playlist cover editing rather than burying it in a menu.
-  Future<void> _changeCover(BuildContext context) async {
-    final provider = context.read<PlaylistProvider>();
-    final l10n = AppLocalizations.of(context)!;
-
-    final action = await showAurumModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: AurumTheme.bgElevatedOf(ctx),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: Icon(Icons.photo_library_rounded,
-                    color: AurumTheme.accentOf(context)),
-                title: Text(l10n.libraryChooseFromGallery,
-                    style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(ctx),
-                        fontWeight: FontWeight.w600)),
-                onTap: () => Navigator.pop(ctx, 'pick'),
-              ),
-              if (widget.playlist.hasCustomCover)
-                ListTile(
-                  leading:
-                      const Icon(Icons.restore_rounded, color: Colors.redAccent),
-                  title: Text(l10n.libraryRemoveCustomCover,
-                      style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(ctx),
-                          fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(ctx, 'remove'),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (action == 'pick') {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 90,
-        // Cap the longest edge — playlist covers only ever render up to
-        // 180px in-app; a full 12MP camera photo would just waste disk
-        // space and slow the copy for zero visible benefit.
-        maxWidth: 1200,
-        maxHeight: 1200,
-      );
-      if (picked != null) {
-        await provider.setCoverImage(widget.playlist.id, picked.path);
-      }
-    } else if (action == 'remove') {
-      await provider.clearCoverImage(widget.playlist.id);
-    }
-  }
+class _PlaylistAnimatedBg extends StatelessWidget {
+  final Color color;
+  final Widget child;
+  const _PlaylistAnimatedBg({required this.color, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final hasArt = widget.playlist.coverArt != null && widget.playlist.coverArt!.isEmpty == false;
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: color, end: color),
+      duration: _kPlaylistGlowDuration,
+      curve: Curves.easeOutCubic,
+      child: child,
+      builder: (context, c, child) =>
+          ColoredBox(color: c ?? color, child: child),
+    );
+  }
+}
 
-    return GestureDetector(
-      onTap: () => _changeCover(context),
+/// Bottom fade of the header into the page background. Same color and the
+/// same tween timing as [_PlaylistAnimatedBg], so there is never a seam.
+class _PlaylistHeaderFade extends StatelessWidget {
+  final Color bg;
+  const _PlaylistHeaderFade({required this.bg});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: bg, end: bg),
+      duration: _kPlaylistGlowDuration,
+      curve: Curves.easeOutCubic,
+      builder: (context, c, _) {
+        final b = c ?? bg;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                b.withOpacity(0.0),
+                b.withOpacity(0.0),
+                b.withOpacity(0.55),
+                b.withOpacity(0.92),
+                b,
+              ],
+              stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Playlist header — full-bleed artwork, MixScreen proportions
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _PlaylistHeader extends StatelessWidget {
+  final AurumPlaylist playlist;
+  final double height;
+  final Color bg;
+  final Color poster;
+  final VoidCallback onBack;
+  final VoidCallback onEditCover;
+  final VoidCallback onMore;
+
+  const _PlaylistHeader({
+    required this.playlist,
+    required this.height,
+    required this.bg,
+    required this.poster,
+    required this.onBack,
+    required this.onEditCover,
+    required this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final topInset = MediaQuery.of(context).padding.top;
+    final art = playlist.coverArt ?? '';
+    final titleColor = isDark ? Colors.white : AurumTheme.textPrimaryOf(context);
+    final subColor = isDark
+        ? Colors.white.withOpacity(0.72)
+        : AurumTheme.textSecondaryOf(context);
+    final description = playlist.description.trim();
+
+    return SizedBox(
+      height: height,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // â”€â”€ Layer 1 — full-bleed background, edge to edge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-          // SimpMusic/YT Music-style: the artwork (or, with no cover set,
-          // the automatic artwork-derived gradient) fills the ENTIRE
-          // header, not a small floating square centered on flat black.
-          // Real photos are scaled up and blurred slightly so they still
-          // read as a rich backdrop rather than a sharp, cropped close-up.
-          hasArt
-              ? Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Transform.scale(
-                      scale: 1.15,
-                      child: ImageFiltered(
-                        imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                        child: AurumArtwork(
-                          url: widget.playlist.coverArt!,
-                          size: double.infinity,
-                          borderRadius: 0,
-                          fadeIn: false,
-                        ),
-                      ),
-                    ),
-                    // Sharp, centered focal copy on top of the blurred fill
-                    // — same layered look Full Player uses: soft color
-                    // everywhere at the edges, a crisp image where the eye
-                    // actually lands.
-                    Center(
-                      child: Container(
-                        width: 190,
-                        height: 190,
-                        margin: const EdgeInsets.only(top: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.45),
-                              blurRadius: 26,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: AurumArtwork(
-                            url: widget.playlist.coverArt!,
-                            size: 190,
-                            borderRadius: 18,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : PlaylistColorCover(
-                  artworkUrl:
-                      widget.playlist.songs.isNotEmpty ? widget.playlist.songs.first.artworkUrl : '',
-                  size: double.infinity,
-                  borderRadius: 0,
-                  iconSize: 72,
-                ),
-
-          // â”€â”€ Layer 2 — short scrim washing this cover's own extracted
-          // color through it — matches mix_screen.dart's/artist_screen
-          // .dart's/album_screen.dart's identical treatment, so a user's
-          // own local playlist here in Library reads as the exact same
-          // alive ecosystem as every curated/artist/album detail screen.
-          DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
-
-          // â”€â”€ SimpMusic-style frosted glass strip fading in behind the
-          // collapsed bar — see mix_screen.dart's matching comment. Same
-          // FlexibleSpaceBar this header is already the background of,
-          // so FlexibleSpaceBarSettings is reachable here directly.
-          Builder(builder: (context) {
-            final settings = context
-                .dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
-            return AurumGlassCollapseBar(
-              glow: _glow,
-              expandRatio: settings != null
-                  ? ((settings.currentExtent - settings.minExtent) /
-                          (settings.maxExtent - settings.minExtent))
-                      .clamp(0.0, 1.0)
-                  : 1.0,
-            );
-          }),
-
-          // â”€â”€ Edit affordance — small pill, bottom-right, signals the
-          // whole header is tappable without needing a hint/tooltip.
-          Positioned(
-            right: 16,
-            bottom: 76,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.55),
-                shape: BoxShape.circle,
-                border:
-                    Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-              ),
-              child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+          // Layer 0 — artwork (tap = change cover) or generated poster.
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onEditCover,
+              child: art.isNotEmpty
+                  ? _PlaylistHeaderArt(url: art)
+                  : _PlaylistPoster(color: poster),
             ),
           ),
 
-          // â”€â”€ Title + description + summary, stacked at the bottom over
-          // the artwork's lower half — matches MixScreen's header exactly.
+          // Layer 1 — top scrim so status bar + floating pills stay
+          // readable on bright covers.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: topInset + 90,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.40),
+                      Colors.black.withOpacity(0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Layer 2 — bottom fade into the page background.
+          Positioned.fill(
+            child: IgnorePointer(child: _PlaylistHeaderFade(bg: bg)),
+          ),
+
+          // Title block — centered, on the faded bottom edge.
           Positioned(
             left: 24,
             right: 24,
-            bottom: 18,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.playlist.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    height: 1.15,
-                    shadows: [Shadow(color: Colors.black54, blurRadius: 10)],
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (widget.playlist.description.isNotEmpty) ...[
-                  const SizedBox(height: 6),
+            bottom: 14,
+            child: IgnorePointer(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    widget.playlist.description,
+                    playlist.name,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
-                      fontSize: 13,
-                      shadows: const [
-                        Shadow(color: Colors.black45, blurRadius: 6),
-                      ],
-                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: titleColor,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      description,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: subColor,
+                        fontSize: 13.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    playlist.isYtSynced ? 'YouTube Playlist' : 'Your Playlist',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: subColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _playlistCreatedLine(playlist.createdAt),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: subColor.withOpacity(0.8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 6),
-                Text(
-                  '${AppLocalizations.of(context)!.librarySongsCount(widget.playlist.songCount)}'
-                  '${widget.playlist.totalDurationString.isNotEmpty ? ' • ${widget.playlist.totalDurationString}' : ''}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.75),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    shadows: const [Shadow(color: Colors.black45, blurRadius: 6)],
+              ),
+            ),
+          ),
+
+          // Floating glass toolbar — back (left), cover + overflow (right).
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _PlGlassPill(
+                    width: 44,
+                    child: _PlGlassIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      onTap: onBack,
+                    ),
                   ),
+                  _PlGlassPill(
+                    width: 88,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _PlGlassIconButton(
+                          icon: Icons.add_photo_alternate_rounded,
+                          onTap: onEditCover,
+                        ),
+                        _PlGlassIconButton(
+                          icon: Icons.more_vert_rounded,
+                          onTap: onMore,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sharp full-bleed cover. ONE decode (size:infinity → 1200px budget), no
+/// blur. The already-cached list thumbnail sits underneath so the header is
+/// never an empty placeholder while the sharper source streams in, and a
+/// cover change cross-fades instead of popping.
+class _PlaylistHeaderArt extends StatelessWidget {
+  final String url;
+  const _PlaylistHeaderArt({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final hi = _playlistHeaderArtUrl(url);
+    final underlay = hi != url && url.startsWith('http');
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(url),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (underlay)
+              AurumArtwork(
+                url: url,
+                size: double.infinity,
+                borderRadius: 0,
+                fadeIn: false,
+              ),
+            AurumArtwork(
+              url: hi,
+              size: double.infinity,
+              borderRadius: 0,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Header art for playlists with no cover: a rich vertical gradient with a
+/// soft highlight and a large queue glyph — fades into the same tinted
+/// background as a real cover.
+class _PlaylistPoster extends StatelessWidget {
+  final Color color;
+  const _PlaylistPoster({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final hsl = HSLColor.fromColor(color);
+    final top = hsl
+        .withLightness((hsl.lightness + 0.10).clamp(0.0, 0.85))
+        .toColor();
+    final bottom = hsl
+        .withLightness((hsl.lightness * 0.62).clamp(0.0, 1.0))
+        .toColor();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [top, color, bottom],
+          stops: const [0.0, 0.5, 1.0],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(-0.6, -0.7),
+                radius: 1.1,
+                colors: [
+                  Colors.white.withOpacity(0.20),
+                  Colors.white.withOpacity(0.0),
+                ],
+              ),
+            ),
+          ),
+          Align(
+            alignment: const Alignment(0, -0.30),
+            child: Icon(
+              Icons.queue_music_rounded,
+              size: 96,
+              color: Colors.white.withOpacity(0.90),
+              shadows: [
+                Shadow(
+                  color: Colors.black.withOpacity(0.28),
+                  blurRadius: 24,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
@@ -5517,11 +5765,84 @@ class _PlaylistHeaderState extends State<_PlaylistHeader>
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Mosaic 2Ã—2 cover grid
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Action Row (Play All / Shuffle)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/// Floating header pill — same real Liquid Glass surface the mini player
+/// and MixScreen use. Fixed size + interactive off so it can never warp.
+class _PlGlassPill extends StatelessWidget {
+  final Widget child;
+  final double width;
+  const _PlGlassPill({required this.child, required this.width});
+
+  static const double _height = 44;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: _height,
+      child: AurumGlass(
+        sigma: 6,
+        borderRadius: BorderRadius.circular(_height / 2),
+        isDark: true,
+        interactive: false,
+        child: SizedBox(width: width, height: _height, child: child),
+      ),
+    );
+  }
+}
+
+class _PlGlassIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _PlGlassIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        icon: Icon(icon, size: 21, color: Colors.white),
+        splashRadius: 20,
+        onPressed: onTap,
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Action row: shuffle · Play · download
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _PlRoundButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const _PlRoundButton({required this.child, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return AurumPressable(
+      scaleAmount: 0.9,
+      onTap: onTap == null
+          ? null
+          : () {
+              AurumHaptics.selection();
+              onTap!();
+            },
+      child: Container(
+        width: 46,
+        height: 46,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: (isDark ? Colors.white : Colors.black)
+              .withOpacity(isDark ? 0.12 : 0.07),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
 
 class _PlaylistActionRow extends StatelessWidget {
   final AurumPlaylist playlist;
@@ -5530,321 +5851,382 @@ class _PlaylistActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    if (playlist.songs.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-      Row(
-        children: [
-          // Play All
-          Expanded(
-            child: AurumPressable(
-              onTap: () {
-                context.read<PlayerProvider>().playSong(
-                      playlist.songs[0],
-                      queue: playlist.songs,
-                      index: 0,
-                      curatedQueue: true,
-                    );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  gradient: AurumTheme.accentGradientOf(context),
-                  borderRadius: BorderRadius.circular(14),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final songs = playlist.songs;
+    final empty = songs.isEmpty;
+    final fg = AurumTheme.textPrimaryOf(context);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _PlRoundButton(
+          onTap: empty
+              ? null
+              : () {
+                  final queue = List<Song>.from(songs)..shuffle();
+                  context.read<PlayerProvider>().playSong(queue.first,
+                      queue: queue, index: 0, curatedQueue: true);
+                },
+          child: Icon(Icons.shuffle_rounded,
+              size: 22, color: empty ? fg.withOpacity(0.35) : fg),
+        ),
+        const SizedBox(width: 12),
+        AurumPressable(
+          scaleAmount: 0.95,
+          onTap: empty
+              ? null
+              : () {
+                  AurumHaptics.medium();
+                  context.read<PlayerProvider>().playSong(songs.first,
+                      queue: songs, index: 0, curatedQueue: true);
+                },
+          child: Container(
+            height: 46,
+            constraints: const BoxConstraints(minWidth: 112),
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.white : const Color(0xFF111111))
+                  .withOpacity(empty ? 0.4 : 1.0),
+              borderRadius: BorderRadius.circular(23),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.play_arrow_rounded,
+                    color: isDark ? Colors.black : Colors.white, size: 24),
+                const SizedBox(width: 6),
+                Text(
+                  l10n.commonPlay,
+                  style: TextStyle(
+                    color: isDark ? Colors.black : Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.play_arrow_rounded,
-                        color: AurumTheme.bgOf(context), size: 22),
-                    const SizedBox(width: 6),
-                    Text(l10n.commonPlay,
-                        style: TextStyle(
-                            color: AurumTheme.bgOf(context),
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          // Shuffle
-          Expanded(
-            child: AurumPressable(
-              onTap: () {
-                final shuffled = List<Song>.from(playlist.songs)..shuffle();
-                context.read<PlayerProvider>().playSong(
-                      shuffled[0],
-                      queue: shuffled,
-                      index: 0,
-                      curatedQueue: true,
-                    );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color:
-                      Colors.purpleAccent.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                      color: Colors.purpleAccent.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.shuffle_rounded,
-                        color: Colors.purpleAccent, size: 20),
-                    const SizedBox(width: 6),
-                    Text(l10n.commonShuffle,
-                        style: TextStyle(
-                            color: AurumTheme.textPrimaryOf(context),
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      // Inline "downloading playlist" progress — visible right under
-      // Play/Shuffle without needing to open the overflow menu, same
-      // pattern as the Downloads screen's own per-song progress rows.
-      Builder(builder: (ctx2) {
-        final dl = ctx2.watch<DownloadProvider>();
-        if (!dl.isPlaylistDownloading(playlist.id)) {
-          return const SizedBox.shrink();
-        }
-        final (done, total) = dl.playlistDownloadProgress(playlist.songs);
-        return Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 14, height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AurumTheme.accentOf(context),
-                  value: total == 0 ? null : done / total,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                AppLocalizations.of(context)!
-                    .libraryDownloadPlaylistProgress(done, total),
-                style: TextStyle(
-                    color: AurumTheme.textMutedOf(context), fontSize: 12),
-              ),
-            ],
-          ),
-        );
-      }),
-        ],
-      ),
+        ),
+        const SizedBox(width: 12),
+        _PlaylistDownloadButton(playlist: playlist),
+      ],
     );
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Song tile inside playlist (with remove option)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/// Download button with live progress ring. Selects a (allDone, downloading,
+/// done, total) record so it rebuilds only when those values really change —
+/// not on every DownloadProvider notification.
+class _PlaylistDownloadButton extends StatelessWidget {
+  final AurumPlaylist playlist;
+  const _PlaylistDownloadButton({required this.playlist});
 
-class _PlaylistSongTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final songs = playlist.songs;
+    final st = context.select<DownloadProvider, (bool, bool, int, int)>((d) {
+      final downloading = d.isPlaylistDownloading(playlist.id);
+      final (done, total) = d.playlistDownloadProgress(songs);
+      final allDone =
+          songs.isNotEmpty && songs.every((s) => d.isDownloaded(s.id));
+      return (allDone, downloading, done, total);
+    });
+    final (allDone, downloading, done, total) = st;
+    final fg = AurumTheme.textPrimaryOf(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    final Widget icon;
+    if (downloading) {
+      icon = SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.4,
+          color: fg,
+          value: total == 0 ? null : done / total,
+        ),
+      );
+    } else if (allDone) {
+      icon = Icon(Icons.download_done_rounded, size: 26, color: fg);
+    } else {
+      icon = Icon(
+        Icons.download_for_offline_outlined,
+        size: 26,
+        color: songs.isEmpty ? fg.withOpacity(0.35) : fg,
+      );
+    }
+
+    return _PlRoundButton(
+      onTap: songs.isEmpty
+          ? null
+          : () {
+              if (downloading) {
+                AurumDepthRoute.to(context, const DownloadsScreen());
+              } else if (allDone) {
+                AurumSnack.show(context, 'Already downloaded');
+              } else {
+                context.read<DownloadProvider>().downloadPlaylist(
+                      playlistId: playlist.id,
+                      songs: songs,
+                    );
+                AurumSnack.show(context, l10n.libraryDownloadingPlaylist);
+              }
+            },
+      child: icon,
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Track row — MixScreen/YT Music style (wide thumbnail + title/artist + ⋮)
+// with playlist extras: multi-select checkbox + reorder drag handle.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _PlaylistTrackRow extends StatefulWidget {
   final Song song;
   final AurumPlaylist playlist;
   final int index;
   final bool selecting;
   final bool selected;
-  final VoidCallback? onEnterSelectMode;
-  final VoidCallback? onToggleSelected;
+  final bool canReorder;
+  final VoidCallback onEnterSelectMode;
+  final VoidCallback onToggleSelected;
+  final VoidCallback onMenu;
 
-  const _PlaylistSongTile({
+  const _PlaylistTrackRow({
     required this.song,
     required this.playlist,
     required this.index,
-    this.selecting = false,
-    this.selected = false,
-    this.onEnterSelectMode,
-    this.onToggleSelected,
+    required this.selecting,
+    required this.selected,
+    required this.canReorder,
+    required this.onEnterSelectMode,
+    required this.onToggleSelected,
+    required this.onMenu,
   });
 
   @override
+  State<_PlaylistTrackRow> createState() => _PlaylistTrackRowState();
+}
+
+class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
+  Timer? _prewarmTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Same staggered stream pre-warm SongTile does for YouTube songs, so a
+    // tap on a visible row starts playing without the resolve delay.
+    if (widget.song.source == SongSource.youtube) {
+      final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
+      _prewarmTimer = Timer(Duration(milliseconds: delayMs), () {
+        if (!mounted) return;
+        ApiService.prewarmYtStream(widget.song);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _prewarmTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final isCurrentSong = context.select<PlayerProvider, bool>(
+    final song = widget.song;
+    final isCurrent = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == song.id,
     );
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isActive = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == song.id && p.isPlaying,
+    );
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = AurumTheme.accentOf(context);
+    final ink = (isDark ? Colors.white : Colors.black);
 
-    return Container(
-      color: selected ? AurumTheme.accentOf(context).withOpacity(0.08) : null,
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: AnimatedSwitcher(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, anim) =>
-              ScaleTransition(scale: anim, child: child),
-          child: selecting
-              ? SizedBox(
-                  key: const ValueKey('checkbox'),
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: AurumMotion.durationOrZero(AurumMotion.short2),
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: selected ? AurumTheme.accentGradientOf(context) : null,
-                        color: selected
-                            ? null
-                            : AurumTheme.bgCardOf(context),
-                        border: Border.all(
-                          color: selected
-                              ? Colors.transparent
-                              : AurumTheme.textMutedOf(context)
-                                  .withOpacity(0.4),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: selected
-                          ? Icon(Icons.check_rounded,
-                              size: 16, color: AurumTheme.bgOf(context))
-                          : null,
-                    ),
-                  ),
+    return RepaintBoundary(
+      child: ColoredBox(
+        color: widget.selected ? accent.withOpacity(0.10) : Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            if (widget.selecting) {
+              widget.onToggleSelected();
+              return;
+            }
+            AurumHaptics.light();
+            context
+                .read<PlayerProvider>()
+                .playSong(
+                  song,
+                  queue: widget.playlist.songs,
+                  index: widget.index,
+                  curatedQueue: true,
                 )
-              : ClipRRect(
-                  key: const ValueKey('artwork'),
-                  borderRadius: BorderRadius.circular(8),
-                  child: AurumArtwork(
-                      url: song.artworkUrl, size: 48, borderRadius: 8),
-                ),
-        ),
-        title: Text(
-          song.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: isCurrentSong
-                ? AurumTheme.accentOf(context)
-                : AurumTheme.textPrimaryOf(context),
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Text(
-          song.artist,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-              color: AurumTheme.textMutedOf(context), fontSize: 12),
-        ),
-        trailing: selecting
-            ? null
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Options menu
-                  PopupMenuButton<String>(
-                    icon: Icon(Icons.more_vert_rounded,
-                        color: AurumTheme.textMutedOf(context), size: 20),
-                    // FIX — dynamic theme coverage: same lightBgCard-hardcode
-                    // gap as the sheet above, on this popup menu's surface.
-                    color: isLight
-                        ? AurumTheme.bgCardOf(context)
-                        : AurumTheme.darkBgElevated,
-                    onSelected: (value) {
-                      if (value == 'remove') {
-                        context
-                            .read<PlaylistProvider>()
-                            .removeSong(playlist.id, song.id);
-                      } else if (value == 'select') {
-                        onEnterSelectMode?.call();
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: 'select',
-                        child: Row(
-                          children: [
-                            Icon(Icons.check_circle_outline_rounded,
-                                color: AurumTheme.accentOf(context), size: 18),
-                            const SizedBox(width: 8),
-                            Text(l10n.libraryEnterSelectMode,
-                                style: TextStyle(
-                                    color: AurumTheme.textPrimaryOf(context),
-                                    fontSize: 14)),
-                          ],
+                .catchError((e) {
+              debugPrint('[_PlaylistTrackRow] playSong error: $e');
+            });
+          },
+          onLongPress: widget.selecting ? null : widget.onEnterSelectMode,
+          splashColor: ink.withValues(alpha: 0.06),
+          highlightColor: ink.withValues(alpha: 0.04),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 9, 4, 9),
+                child: Row(
+                  children: [
+                    AnimatedSize(
+                      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                      curve: Curves.easeOutCubic,
+                      alignment: Alignment.centerLeft,
+                      child: widget.selecting
+                          ? Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: _PlaylistCheck(selected: widget.selected),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AurumWideThumb(
+                          url: song.artworkUrl,
+                          width: 80,
+                          height: 45,
+                          borderRadius: 6,
                         ),
+                        if (isCurrent)
+                          Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Center(
+                                child: AurumEqualizerBars(
+                                  playing: isActive,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isCurrent
+                                  ? accent
+                                  : AurumTheme.textPrimaryOf(context),
+                              fontSize: 16,
+                              height: 1.2,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AurumTheme.textSecondaryOf(context),
+                              fontSize: 13.5,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
-                      PopupMenuItem(
-                        value: 'remove',
-                        child: Row(
-                          children: [
-                            const Icon(Icons.remove_circle_outline_rounded,
-                                color: Colors.redAccent, size: 18),
-                            const SizedBox(width: 8),
-                            Text(l10n.libraryRemoveFromPlaylist,
-                                style: TextStyle(
-                                    color: AurumTheme.textPrimaryOf(context),
-                                    fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Drag handle
-                  selecting
-                      ? const SizedBox.shrink()
-                      : ReorderableDragStartListener(
-                          index: index,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Icon(Icons.drag_handle_rounded,
-                                color: AurumTheme.textMutedOf(context)
-                                    .withOpacity(0.5),
-                                size: 20),
+                    ),
+                    if (!widget.selecting) ...[
+                      if (widget.canReorder)
+                        // Drag handle is the ONLY reorder trigger — tap /
+                        // long-press elsewhere on the row keep their own
+                        // meaning (play / multi-select).
+                        ReorderableDragStartListener(
+                          index: widget.index,
+                          child: SizedBox(
+                            width: 34,
+                            height: 44,
+                            child: Icon(
+                              Icons.drag_handle_rounded,
+                              size: 20,
+                              color: AurumTheme.textSecondaryOf(context)
+                                  .withOpacity(0.55),
+                            ),
                           ),
                         ),
-                ],
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: widget.onMenu,
+                        child: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(
+                            Icons.more_vert_rounded,
+                            size: 22,
+                            color: AurumTheme.textSecondaryOf(context),
+                          ),
+                        ),
+                      ),
+                    ] else
+                      const SizedBox(width: 16),
+                  ],
+                ),
               ),
-        // FIX (same class as song_tile.dart's InkWell fix — "cold start
-        // pe kisi bhi title tap karo, grey/white layer aa jaata hai"):
-        // playlist song list's ListTile had no explicit splash/highlight
-        // color, same unthemed Material default as the other fixed
-        // tiles. Same theme-correct, low-opacity fix closes it here too.
-        splashColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.06),
-        focusColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
-        hoverColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
-        onTap: () {
-          if (selecting) {
-            onToggleSelected?.call();
-            return;
-          }
-          AurumHaptics.light();
-          // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap
-          // now only starts playback — mini player is the tap feedback,
-          // matching every other song-tapping surface in the app.
-          context.read<PlayerProvider>().playSong(
-                song,
-                queue: playlist.songs,
-                index: index,
-                curatedQueue: true,
-              ).catchError((e) {
-            debugPrint('[_PlaylistSongTile] playSong error: $e');
-          });
-        },
-        onLongPress: selecting ? null : onEnterSelectMode,
+              Padding(
+                padding: EdgeInsets.only(
+                    left: widget.selecting ? 150 : 114, right: 16),
+                child: Divider(
+                  height: 1,
+                  thickness: 0.6,
+                  color: ink.withValues(alpha: 0.08),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+class _PlaylistCheck extends StatelessWidget {
+  final bool selected;
+  const _PlaylistCheck({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: AurumMotion.durationOrZero(AurumMotion.short2),
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: selected ? AurumTheme.accentGradientOf(context) : null,
+        color: selected ? null : Colors.transparent,
+        border: Border.all(
+          color: selected
+              ? Colors.transparent
+              : AurumTheme.textMutedOf(context).withOpacity(0.5),
+          width: 1.5,
+        ),
+      ),
+      child: selected
+          ? Icon(Icons.check_rounded,
+              size: 16, color: AurumTheme.bgOf(context))
+          : null,
     );
   }
 }
