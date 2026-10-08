@@ -12,13 +12,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.cast.CastPlayer
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -149,6 +145,10 @@ class AurumAudioEngine(
         .setBufferDurationsMs(15_000, 30_000, 3_000, 5_000)
         .setTargetBufferBytes(-1)
         .setPrioritizeTimeOverSizeThresholds(true)
+        // RAM-only back buffer (~60s already-played audio, a few MB at most):
+        // seeking back / replaying the last minute needs no re-download.
+        // Lives in memory only, freed when the song changes or app closes.
+        .setBackBuffer(60_000, true)
         .build()
 
     // Disables the video renderer entirely. This is what makes it safe for
@@ -172,102 +172,6 @@ class AurumAudioEngine(
                 .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
         )
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // DISK CACHE — ViMusic-inspired (github.com/vfsfitvnm/ViMusic,
-    // PlayerService.kt createCacheDataSource()/createDataSourceFactory()).
-    //
-    // PREVIOUSLY MISSING: every play of every song re-downloaded every
-    // byte from scratch, even for a song played 30 seconds ago, even for
-    // rewinding within the same song past already-buffered-then-evicted
-    // audio. This is pure disk cache with an LRU evictor — once a chunk
-    // of a stream is downloaded, it's kept on disk (up to the size cap
-    // below) and served instantly from there on any future request that
-    // overlaps it, with ZERO network call and ZERO dependency on the
-    // stream URL still being valid (googlevideo URLs expire; a cached
-    // chunk doesn't care, because it's not re-fetching that URL for
-    // data that already exists on disk).
-    //
-    // Concretely fixes: replaying a recently-played song, seeking
-    // backward in the current song, and resuming immediately after a
-    // brief network drop — all previously required a full URL
-    // re-resolve + full re-download from position 0/wherever ExoPlayer
-    // asked; now the on-disk portion serves instantly and only the
-    // missing portion (if any) triggers a network fetch.
-    //
-    // 350MB cap: enough for roughly 60-90 average songs at typical
-    // compressed audio bitrates, evicted least-recently-used first.
-    // Stored under the app's private cache dir — cleared automatically
-    // by Android under storage pressure, no manual cleanup needed, and
-    // never counts against the user's "app storage" the way a files-dir
-    // cache would.
-    // ─────────────────────────────────────────────────────────────────
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private var _streamCache: SimpleCache? = null
-
-    // Tracks whether streamCache has actually been touched this session —
-    // see release()'s matching comment for why release() needs this
-    // instead of just reading `streamCache` directly (that would
-    // force-initialize a cache that was never used, on every teardown).
-    private val streamCacheInitialized: Boolean
-        get() = _streamCache != null
-
-    // RECHECK FIX: this used to be a non-nullable `SimpleCache` getter, so
-    // the ONLY way to survive a construction failure was to hand back some
-    // other SimpleCache — meaning a fallback dir that was ALSO locked (rare,
-    // but real: e.g. two engines falling back around the same moment) had
-    // nowhere left to go except throw, crashing the app exactly like the
-    // original bug. Nullable return lets a total failure mean "no on-disk
-    // cache this session" instead of "crash" — createCacheDataSourceFactory()
-    // below already handles a null cache by streaming straight from the
-    // network with no caching layer, so playback itself never breaks even
-    // in that worst case.
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private val streamCache: SimpleCache?
-        get() = _streamCache ?: synchronized(this) {
-            _streamCache ?: run {
-                val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
-                // SAFETY NET (crash log: "IllegalStateException: Another
-                // SimpleCache instance uses the folder"): the real fix is
-                // release() below now actually releasing streamCache, so
-                // this lock should never still be held by the time a new
-                // AurumAudioEngine is constructed in the same process. But
-                // if some future code path ever creates a second engine
-                // without going through release() first, this construction
-                // throwing used to bring down the entire app before
-                // playback could even start. Falling back to a fresh
-                // SimpleCache is impossible while the old one is genuinely
-                // still alive, so retry against a throwaway per-attempt
-                // subfolder instead — playback still works (just without
-                // sharing the main cache's previously-downloaded bytes for
-                // this one session) rather than the app crashing outright.
-                try {
-                    val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
-                    SimpleCache(cacheDir, evictor, StandaloneDatabaseProvider(context))
-                        .also { _streamCache = it }
-                } catch (e: IllegalStateException) {
-                    try {
-                        // Unique per attempt (timestamp + identity suffix)
-                        // instead of one fixed fallback name, so a second
-                        // engine falling back at the same time can't collide
-                        // with THIS one either.
-                        val fallbackDir = java.io.File(
-                            context.cacheDir,
-                            "aurum_stream_cache_fallback_" +
-                                "${System.currentTimeMillis()}_${System.identityHashCode(this)}"
-                        )
-                        SimpleCache(fallbackDir, evictor, StandaloneDatabaseProvider(context))
-                            .also { _streamCache = it }
-                    } catch (e2: Exception) {
-                        // Both attempts failed — genuinely unrecoverable disk
-                        // issue. Return null: caller streams without a local
-                        // cache instead of the whole engine construction
-                        // crashing the app.
-                        null
-                    }
-                }
-            }
-        }
 
     // Live network throughput estimate, fed by every ExoPlayer HTTP
     // transfer via .setTransferListener() below. Used by Smart Saver
@@ -311,7 +215,7 @@ class AurumAudioEngine(
     // streamed songs (it delegates to the HTTP factory for http/https)
     // while adding the missing file/content/asset/rawresource handlers
     // needed for local playback, with zero change to network timeouts,
-    // User-Agent, or the disk cache wrapping below.
+    // User-Agent.
     // FIX (Spotify-style slow-network tolerance): on a genuinely slow
     // connection (throttled mobile data, weak WiFi), individual chunk
     // reads can legitimately take longer than a "normal" connection
@@ -342,22 +246,26 @@ class AurumAudioEngine(
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 
-    // Wraps the upstream factory with the disk cache. Every read first
-    // checks streamCache; only genuinely missing bytes hit the network.
-    // RECHECK FIX: streamCache is now nullable (see its getter's comment) —
-    // if it's null (both primary AND fallback construction genuinely
-    // failed), fall back to the plain upstream factory with no caching
-    // layer at all rather than crashing on a non-null `.setCache()` call.
-    // Playback still works either way; only the disk-cache speedup is lost.
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun createCacheDataSourceFactory(): androidx.media3.datasource.DataSource.Factory {
-        val cache = streamCache ?: return createUpstreamFactory()
-        return CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(createUpstreamFactory())
-    }
+    // NO DISK CACHE: bytes are streamed straight from the network; ExoPlayer
+    // only keeps its normal in-memory buffer for the current song, which is
+    // freed when the song changes or the app closes.
+    private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createUpstreamFactory())
 
-    private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
+    // One-time cleanup of the old on-disk cache (aurum_stream_cache*) and the
+    // old "last stream url" prefs left behind by previous versions, so the
+    // space is given back to the user. No cache is open anymore, so deleting
+    // the folders is safe.
+    init {
+        Thread {
+            try {
+                context.cacheDir.listFiles()
+                    ?.filter { it.name.startsWith("aurum_stream_cache") }
+                    ?.forEach { it.deleteRecursively() }
+                context.getSharedPreferences("aurum_last_stream_urls", Context.MODE_PRIVATE)
+                    .edit().clear().apply()
+            } catch (_: Exception) {}
+        }.start()
+    }
 
     // FIX ("phone heat ho raha hai aur battery jaldi drain ho rahi hai
     // gaana chalate waqt"): builds the AudioOffloadPreferences that
@@ -429,9 +337,8 @@ class AurumAudioEngine(
     val player: ExoPlayer = ExoPlayer.Builder(context, aurumRenderersFactory)
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
-        // Routes every playback through the disk-cache-backed data source
-        // above instead of ExoPlayer's bare default (which re-fetches from
-        // network every time with no persistence between plays).
+        // Plain network/file data source (no disk cache) — see
+        // cachedMediaSourceFactory above.
         .setMediaSourceFactory(cachedMediaSourceFactory)
         // FIX — "song randomly pauses for 1-2s then auto-resumes, happens
         // 50+ times during a single playback": this used to be
@@ -1572,85 +1479,8 @@ class AurumAudioEngine(
         return MediaItem.Builder()
             .setMediaId(song.id)
             .setUri(url)
-            // DATA FIX: googlevideo URLs change on every resolve (expire/
-            // signature/ip params), so with the default URL-based cache key a
-            // replay / skip-back / repeat of a YouTube song never hit the disk
-            // cache and re-downloaded the whole file. Key by the actual bytes'
-            // identity instead. null (-> default URL key) if anything is missing.
-            .setCustomCacheKey(youtubeStableCacheKey(song.id, url))
             .setMediaMetadata(metadataBuilder.build())
             .build()
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // OFFLINE-SAFE REPLAY: remembers the last stream URL that played for a
-    // song and, if the disk cache already holds that song COMPLETELY, hands
-    // that URL back so playback is served 100% from disk (0 MB, no resolve,
-    // works with no internet / exhausted data). The old URL may have expired,
-    // but CacheDataSource never touches upstream for fully cached bytes.
-    //  * Data Saver ON : used FIRST (saves resolve + network on replays).
-    //  * Data Saver OFF: used only as a FALLBACK when resolving fails or
-    //    there is no network, so normal behaviour is unchanged otherwise.
-    // ─────────────────────────────────────────────────────────────────
-    private val lastUrlPrefs by lazy {
-        context.getSharedPreferences("aurum_last_stream_urls", android.content.Context.MODE_PRIVATE)
-    }
-
-    private fun rememberStreamUrl(song: NativeSong, url: String) {
-        if (song.isLocal || song.id.isEmpty() || url.startsWith("file://") ||
-            url.startsWith("content://")) return
-        try {
-            val order = (lastUrlPrefs.getString("_order", "") ?: "")
-                .split(",").filter { it.isNotEmpty() && it != song.id }.toMutableList()
-            order.add(song.id)
-            val ed = lastUrlPrefs.edit()
-            ed.putString(song.id, url)
-            while (order.size > 300) ed.remove(order.removeAt(0))
-            ed.putString("_order", order.joinToString(","))
-            ed.apply()
-        } catch (_: Exception) {}
-    }
-
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun isFullyCached(key: String): Boolean {
-        val cache = streamCache ?: return false
-        return try {
-            val len = androidx.media3.datasource.cache.ContentMetadata
-                .getContentLength(cache.getContentMetadata(key))
-            len > 0 && cache.isCached(key, 0, len)
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun cachedPlayableUrl(song: NativeSong): String? {
-        if (song.isLocal || song.id.isEmpty()) return null
-        return try {
-            val url = lastUrlPrefs.getString(song.id, null) ?: return null
-            val key = youtubeStableCacheKey(song.id, url) ?: url
-            if (isFullyCached(key)) url else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    // Stable disk-cache key for googlevideo streams: videoId + itag (exact
-    // format) + clen (exact byte length) + lmt (last-modified). Same key =>
-    // same bytes, so a Data Saver (Opus ~50k) stream and a normal stream can
-    // never be mixed under one key. Returns null for any non-googlevideo URL
-    // or if itag/clen are absent, which keeps the old default behaviour.
-    private fun youtubeStableCacheKey(songId: String, url: String): String? {
-        return try {
-            val uri = android.net.Uri.parse(url)
-            val host = uri.host ?: return null
-            if (!host.endsWith("googlevideo.com")) return null
-            val itag = uri.getQueryParameter("itag") ?: return null
-            val clen = uri.getQueryParameter("clen") ?: return null
-            val lmt = uri.getQueryParameter("lmt") ?: ""
-            "yt:$songId:$itag:$clen:$lmt"
-        } catch (e: Exception) {
-            null
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -2102,11 +1932,6 @@ class AurumAudioEngine(
         // Fix: give native's worst case (~6-8s) + Dart's full 16s Worker
         // budget real headroom instead of racing them against a cap that
         // was sized for the old, shorter Dart timeout.
-        // Data Saver ON: a fully cached song replays straight from disk (0 MB).
-        if (YoutubeSaverResolver.active) {
-            cachedPlayableUrl(song)?.let { return it }
-        }
-
         val perAttemptTimeoutMs = if (song.source == "youtube") 26_000L else 12_000L
         repeat(maxAttempts) { attemptIndex ->
             if (sessionId != playSessionId) return null
@@ -2119,14 +1944,12 @@ class AurumAudioEngine(
             }
             if (sessionId != playSessionId) return null
             if (!url.isNullOrEmpty()) {
-                rememberStreamUrl(song, url)
                 return url
             }
             if (attemptIndex < maxAttempts - 1) delay(500)
         }
-        // Resolve failed (no data / slow / blocked): play from disk cache if
-        // this song was fully cached earlier.
-        return cachedPlayableUrl(song)
+        // Resolve failed (no data / slow / blocked).
+        return null
     }
 
     // No-auto-skip resolve policy (Spotify-style): the song the user
@@ -2171,8 +1994,8 @@ class AurumAudioEngine(
                 // pending and this same call site will naturally be
                 // re-entered on the next play/retry trigger once
                 // connectivity actually returns.
-                // Fully cached songs still play with no network at all.
-                return cachedPlayableUrl(song)
+                // Cache removed: nothing to play offline.
+                return null
             }
             val url = try {
                 withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, sessionId) }
@@ -2973,6 +2796,12 @@ class AurumAudioEngine(
                 for (i in startIndex + 1 until songs.size) {
                     if (sessionId != playSessionId) return@launch
                     if (i - startIndex > priorityForwardWindow) {
+                        // DATA SAVER: every resolve is a real network call (YouTube
+                        // page/player requests, often bigger than the audio itself at
+                        // low bitrate). Don't resolve the whole far-off queue in the
+                        // background -- ensureNextResolved() already resolves the next
+                        // song on demand each time the current song changes.
+                        if (dataSaverActive) return@launch
                         delay(effectivePacedDelayMs)
                         if (sessionId != playSessionId) return@launch
                     }
@@ -3012,6 +2841,7 @@ class AurumAudioEngine(
                 for (i in startIndex - 1 downTo 0) {
                     if (sessionId != playSessionId) return@launch
                     if (startIndex - i > PRIORITY_BACKWARD_WINDOW) {
+                        if (dataSaverActive) return@launch // see forward loop above
                         delay(effectivePacedDelayMs)
                         if (sessionId != playSessionId) return@launch
                     }
@@ -3558,37 +3388,5 @@ class AurumAudioEngine(
         _outputManager?.release()
         _castManager?.release()
         player.release()
-        // FIX (crash log: "IllegalStateException: Another SimpleCache
-        // instance uses the folder: .../aurum_stream_cache"): streamCache
-        // holds an on-disk lock (a .lock file inside its cache dir) for as
-        // long as the SimpleCache object is alive — release() never called
-        // it, so that lock outlived this entire AurumAudioEngine instance.
-        // Next time MainActivity.configureFlutterEngine ran (app reopened
-        // after being backgrounded/killed, or a fast re-attach during
-        // Activity recreation) a brand-new AurumAudioEngine's streamCache
-        // tried to open the SAME folder — Media3 refuses a second
-        // SimpleCache on one folder while the first's lock is still held,
-        // so construction throws immediately and crashes before the
-        // engine (and the whole Flutter engine attach) can finish.
-        //
-        // Only release if playback actually happened this session
-        // (streamCacheInitialized flag — set the first time streamCache is
-        // touched, see the getter override below) — otherwise reading
-        // `streamCache` here would force-initialize (then immediately
-        // tear down) a cache that was never used, wasting disk I/O on
-        // every single release() call including normal ones where
-        // playback never started.
-        if (streamCacheInitialized) {
-            try {
-                // RECHECK FIX: streamCache is nullable now — `?.` avoids a
-                // compile error and is also a safe no-op in the (already
-                // rare) case _streamCache somehow ended up null despite the
-                // initialized flag.
-                streamCache?.release()
-            } catch (e: Exception) {
-                // Best-effort — a failure here should never prevent the
-                // rest of teardown/app close from completing.
-            }
-        }
     }
 }
