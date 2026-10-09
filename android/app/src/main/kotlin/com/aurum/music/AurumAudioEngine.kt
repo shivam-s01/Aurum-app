@@ -141,15 +141,73 @@ class AurumAudioEngine(
     // amount of extra wait before sound starts, but lets a slow
     // connection build up enough of a lead to actually keep playing
     // through, instead of oscillating between BUFFERING and READY.
-    private val loadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMs(15_000, 30_000, 3_000, 5_000)
-        .setTargetBufferBytes(-1)
-        .setPrioritizeTimeOverSizeThresholds(true)
-        // RAM-only back buffer (~60s already-played audio, a few MB at most):
-        // seeking back / replaying the last minute needs no re-download.
-        // Lives in memory only, freed when the song changes or app closes.
-        .setBackBuffer(60_000, true)
-        .build()
+    //
+    // DATA SAVER BUFFER PROFILE ("song load ho jaye to 0 KB/s", Spotify-style):
+    // two LoadControls share ONE allocator and are switched live by
+    // [dataSaverActive] through the proxy below.
+    //  - NORMAL (Data Saver OFF): exactly the profile above, unchanged
+    //    (15s min / 30s max, 60s back buffer).
+    //  - SAVER (Data Saver ON): 60s min / 240s max. The song is pulled at
+    //    network speed in one go (a 50 kbps stream is only ~1.5 MB for a whole
+    //    4 min song), then the network goes completely idle (0 KB/s) until the
+    //    buffer drops below 60s. Because the target is 240s and only ONE next
+    //    song is ever in the timeline under Data Saver, at most that one next
+    //    song gets (partly) loaded for a gapless hand-off, never more.
+    //    Back buffer is 20s (less RAM on low-end phones).
+    // All lifecycle calls (void methods) go to BOTH controls so their internal
+    // state stays consistent; every query (shouldContinueLoading, ...) is
+    // answered by the active one. A proxy is used so this does not depend on
+    // exact method signatures of the Media3 LoadControl interface.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val loadControl: androidx.media3.exoplayer.LoadControl = run {
+        val sharedAllocator = androidx.media3.exoplayer.upstream.DefaultAllocator(
+            true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE
+        )
+        val normal = DefaultLoadControl.Builder()
+            .setAllocator(sharedAllocator)
+            .setBufferDurationsMs(15_000, 30_000, 3_000, 5_000)
+            .setTargetBufferBytes(-1)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            // RAM-only back buffer (~60s already-played audio, a few MB at most):
+            // seeking back / replaying the last minute needs no re-download.
+            // Lives in memory only, freed when the song changes or app closes.
+            .setBackBuffer(60_000, true)
+            .build()
+        val saver = DefaultLoadControl.Builder()
+            .setAllocator(sharedAllocator)
+            .setBufferDurationsMs(60_000, 240_000, 3_000, 5_000)
+            .setTargetBufferBytes(-1)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(20_000, true)
+            .build()
+        java.lang.reflect.Proxy.newProxyInstance(
+            androidx.media3.exoplayer.LoadControl::class.java.classLoader,
+            arrayOf<Class<*>>(androidx.media3.exoplayer.LoadControl::class.java),
+        ) { proxy, method, args ->
+            val callArgs = args ?: emptyArray<Any?>()
+            when {
+                method.declaringClass == Any::class.java -> when (method.name) {
+                    "equals" -> proxy === callArgs.firstOrNull()
+                    "hashCode" -> System.identityHashCode(proxy)
+                    else -> "AurumSwitchableLoadControl"
+                }
+                method.returnType == Void.TYPE -> {
+                    try {
+                        method.invoke(normal, *callArgs)
+                        method.invoke(saver, *callArgs)
+                    } catch (e: java.lang.reflect.InvocationTargetException) {
+                        throw e.targetException
+                    }
+                    null
+                }
+                else -> try {
+                    method.invoke(if (dataSaverActive) saver else normal, *callArgs)
+                } catch (e: java.lang.reflect.InvocationTargetException) {
+                    throw e.targetException
+                }
+            }
+        } as androidx.media3.exoplayer.LoadControl
+    }
 
     // Disables the video renderer entirely. This is what makes it safe for
     // the Worker to sometimes hand back a MUXED (video+audio combined) URL
@@ -199,6 +257,62 @@ class AurumAudioEngine(
      */
     fun getEstimatedBandwidthBitsPerSec(): Long = bandwidthMeter.bitrateEstimate
 
+    // DATA USAGE COUNTER (diagnostics): forwards every transfer event to the
+    // bandwidth meter exactly as before, and additionally writes one line to
+    // the in-app diagnostic log per finished HTTP transfer ("[data] 1.4 MB,
+    // dataSaver=true"), so real player traffic can be read per song instead of
+    // guessed. Does not change any bytes, timeouts or retries.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val countingTransferListener = object : androidx.media3.datasource.TransferListener {
+        private val perTransfer = java.util.IdentityHashMap<Any, Long>()
+
+        override fun onTransferInitializing(
+            source: androidx.media3.datasource.DataSource,
+            dataSpec: androidx.media3.datasource.DataSpec,
+            isNetwork: Boolean,
+        ) = bandwidthMeter.onTransferInitializing(source, dataSpec, isNetwork)
+
+        override fun onTransferStart(
+            source: androidx.media3.datasource.DataSource,
+            dataSpec: androidx.media3.datasource.DataSpec,
+            isNetwork: Boolean,
+        ) {
+            bandwidthMeter.onTransferStart(source, dataSpec, isNetwork)
+            if (isNetwork) synchronized(perTransfer) { perTransfer[source] = 0L }
+        }
+
+        override fun onBytesTransferred(
+            source: androidx.media3.datasource.DataSource,
+            dataSpec: androidx.media3.datasource.DataSpec,
+            isNetwork: Boolean,
+            bytesTransferred: Int,
+        ) {
+            bandwidthMeter.onBytesTransferred(source, dataSpec, isNetwork, bytesTransferred)
+            if (isNetwork) synchronized(perTransfer) {
+                perTransfer[source] = (perTransfer[source] ?: 0L) + bytesTransferred
+            }
+        }
+
+        override fun onTransferEnd(
+            source: androidx.media3.datasource.DataSource,
+            dataSpec: androidx.media3.datasource.DataSpec,
+            isNetwork: Boolean,
+        ) {
+            bandwidthMeter.onTransferEnd(source, dataSpec, isNetwork)
+            if (!isNetwork) return
+            val bytes = synchronized(perTransfer) { perTransfer.remove(source) } ?: return
+            if (bytes >= 32 * 1024) {
+                try {
+                    AurumDiagnosticLog.logEvent(
+                        "data",
+                        String.format(java.util.Locale.US, "%.2f MB, dataSaver=%b, song=%s",
+                            bytes / 1048576.0, dataSaverActive, queueSongs.getOrNull(currentIndex)?.id ?: "?"),
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
     // Upstream (network) data source used only for bytes not already on
     // disk. Same connect/read timeouts as ViMusic's working config, and a
     // real browser-style User-Agent — googlevideo.com and Saavn's CDN both
@@ -242,7 +356,7 @@ class AurumAudioEngine(
         .setConnectTimeoutMs(20_000)
         .setReadTimeoutMs(20_000)
         .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-        .setTransferListener(bandwidthMeter)
+        .setTransferListener(countingTransferListener)
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 
@@ -1055,6 +1169,10 @@ class AurumAudioEngine(
         // which floors at 1 regardless of this flag) still resolves right
         // away so skip/next never feels slow.
         private const val PACED_RESOLVE_DELAY_MS_DATA_SAVER = 60000L
+        // DATA SAVER: max resolveWithPatience() rounds before giving up (see there).
+        private const val DATA_SAVER_MAX_RESOLVE_ATTEMPTS = 6
+        // DATA SAVER: after the first 2 quick retries, wait this long between attempts.
+        private const val DATA_SAVER_SLOW_RETRY_MS = 30_000L
 
         // FIX (Spotify-style slow-network tolerance): both caps sized to
         // actually cover resolveFast()'s own inner budget instead of
@@ -2005,6 +2123,22 @@ class AurumAudioEngine(
             if (sessionId != playSessionId) return null
             if (!url.isNullOrEmpty()) return url
 
+            // DATA SAVER FIX ("MB lagatar jaa rahe hain, rukta hi nahi"): this loop
+            // used to retry FOREVER. Every attempt is a real, heavy network
+            // extraction (YouTube page + player JSON, up to 4 fetches per attempt
+            // through the saver/innertube/Worker chain). One song that cannot
+            // resolve (blocked / region / age-gated / flaky net) therefore kept
+            // burning MBs every few seconds indefinitely. With Data Saver ON we
+            // give up after a few attempts and return null -- exactly what the
+            // "no network" branch above does -- so the caller keeps the song
+            // pending and the reconnect listener / next user tap retries. Data
+            // Saver OFF keeps the old unlimited-patience behaviour unchanged.
+            if (dataSaverActive && attempt + 1 >= DATA_SAVER_MAX_RESOLVE_ATTEMPTS) {
+                resolveTakingLong = true
+                pushState()
+                return null
+            }
+
             if (!resolveTakingLong &&
                 SystemClock.elapsedRealtime() - startedAt >= RESOLVE_WARNING_THRESHOLD_MS
             ) {
@@ -2012,7 +2146,7 @@ class AurumAudioEngine(
                 pushState()
             }
 
-            delay(retryBackoffMs(attempt))
+            delay(if (dataSaverActive && attempt >= 2) DATA_SAVER_SLOW_RETRY_MS else retryBackoffMs(attempt))
             attempt++
         }
     }
@@ -2840,6 +2974,9 @@ class AurumAudioEngine(
 
                 for (i in startIndex - 1 downTo 0) {
                     if (sessionId != playSessionId) return@launch
+                    // DATA SAVER: previous-song prewarm is a full network resolve for a
+                    // song the user may never go back to -- skip it entirely.
+                    if (dataSaverActive) return@launch
                     if (startIndex - i > PRIORITY_BACKWARD_WINDOW) {
                         if (dataSaverActive) return@launch // see forward loop above
                         delay(effectivePacedDelayMs)

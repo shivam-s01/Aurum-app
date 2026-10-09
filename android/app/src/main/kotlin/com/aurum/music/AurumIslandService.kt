@@ -209,6 +209,7 @@ class AurumIslandService : Service() {
     private var refreshPosted = false
 
     private var lastArtworkUrl: String? = null
+    private val artworkFailedAt = HashMap<String, Long>()
     private var lastArtworkBitmap: Bitmap? = null
     private var currentExpandedTint: Int = DEFAULT_CARD_BASE
     private var currentAccent: Int = DEFAULT_ACCENT
@@ -545,7 +546,10 @@ class AurumIslandService : Service() {
             updateRouteIcon(view)
         }
 
-        if (artworkUri != lastArtworkUrl) {
+        val failedAt = artworkUri?.let { artworkFailedAt[it] }
+        val coolingDown = failedAt != null &&
+            android.os.SystemClock.elapsedRealtime() - failedAt < 300_000L
+        if (artworkUri != lastArtworkUrl && !coolingDown) {
             lastArtworkUrl = artworkUri
             loadArtwork(artworkUri)
         }
@@ -993,9 +997,14 @@ class AurumIslandService : Service() {
             val bmp = withContext(Dispatchers.IO) { downloadBitmap(urlString, 360) }
             if (bmp == null) {
                 // Allow a retry on the next refresh instead of staying blank.
+                // DATA FIX: this used to clear lastArtworkUrl so EVERY player refresh
+                // retried the download -- an artwork URL that keeps failing was
+                // re-fetched endlessly. Retry only after a 5 minute cool-down.
+                artworkFailedAt[urlString] = android.os.SystemClock.elapsedRealtime()
                 if (lastArtworkUrl == urlString) lastArtworkUrl = null
                 return@launch
             }
+            artworkFailedAt.remove(urlString)
             if (urlString != lastArtworkUrl) return@launch // a newer song took over
             // Old bitmap is NOT recycled by hand: a view may still be drawing it.
             lastArtworkBitmap = bmp
@@ -1013,11 +1022,7 @@ class AurumIslandService : Service() {
             val bytes = if (uri.scheme == "content") {
                 contentResolver.openInputStream(uri)?.use { it.readBytes() }
             } else {
-                val conn = URL(urlString).openConnection().apply {
-                    connectTimeout = 6_000
-                    readTimeout = 8_000
-                }
-                conn.getInputStream().use { it.readBytes() }
+                ArtworkBytesCache.fetch(urlString, 6_000, 8_000)
             } ?: return null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

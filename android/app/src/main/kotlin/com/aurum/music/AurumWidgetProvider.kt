@@ -383,15 +383,9 @@ open class AurumWidgetProvider : AppWidgetProvider() {
 
         private fun downloadBitmap(urlString: String): Bitmap? {
             return try {
-                val connection = URL(urlString).openConnection() as HttpURLConnection
-                connection.connectTimeout = 3000
-                connection.readTimeout = 3000
-                connection.doInput = true
-                connection.connect()
-                connection.inputStream.use { stream ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
-                    BitmapFactory.decodeStream(stream, null, opts)
-                }
+                val bytes = ArtworkBytesCache.fetch(urlString, 3000, 3000) ?: return null
+                val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
             } catch (e: Throwable) {
                 Log.w(TAG, "downloadBitmap failed: ${e.message}")
                 null

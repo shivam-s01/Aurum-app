@@ -1068,7 +1068,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // own PRIORITY_FORWARD_WINDOW floor (AurumAudioEngine.kt) so "Next"
   // still feels instant, without speculatively warming songs further out.
   static const int _prewarmWindow = 5;
-  static const int _prewarmWindowDataSaver = 1;
+  // 0 = no Dart/Worker prewarm at all under Data Saver. The native engine
+  // already resolves the next song itself (ensureNextResolved), so this was a
+  // second, duplicate network resolve of the very same song.
+  static const int _prewarmWindowDataSaver = 0;
 
   void _prewarmUpcoming(int fromIndex) {
     final q = _queue;
