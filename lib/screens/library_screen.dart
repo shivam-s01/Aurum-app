@@ -26,7 +26,6 @@ import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/aurum_image_cache.dart';
-import '../services/audio_prefs.dart' show AudioPrefs;
 import '../widgets/aurum_glass.dart';
 import '../widgets/aurum_wide_thumb.dart';
 import '../widgets/aurum_equalizer_bars.dart';
@@ -4573,21 +4572,14 @@ Color _playlistPosterColor(String id) {
   return HSLColor.fromAHSL(1.0, (h % 360).toDouble(), 0.58, 0.42).toColor();
 }
 
-/// Sharper source for the full-bleed header. upgradeForFullPlayer() lifts
-/// list-sized YouTube art to 600px; a phone-wide header wants more, so
-/// googleusercontent-hosted covers go to 1200px (the decode budget
-/// AurumArtwork already uses for size:infinity). Data-saver keeps whatever
-/// upgradeForFullPlayer decided.
+/// Source for the full-bleed header — the same upgradeForFullPlayer() 600px
+/// source MixScreen and AlbumScreen use for their headers. (This used to
+/// request a 1200px version on top of the list thumbnail: ~4x the download,
+/// decode and RAM, and on slower devices the sharper layer only landed a few
+/// seconds after the screen opened and faded in over the blurry thumbnail.)
 String _playlistHeaderArtUrl(String url) {
   if (url.isEmpty) return url;
-  final up = AurumArtwork.upgradeForFullPlayer(url);
-  if (AudioPrefs.dataSaverActiveNotifier.value) return up;
-  if (!(up.contains('googleusercontent') || up.contains('ggpht'))) return up;
-  final m = RegExp(r'=w(\d+)-h(\d+)').firstMatch(up);
-  if (m != null && int.parse(m.group(1)!) < 1000) {
-    return up.replaceFirst(m.group(0)!, '=w1200-h1200');
-  }
-  return up;
+  return AurumArtwork.upgradeForFullPlayer(url);
 }
 
 String _playlistCreatedLine(DateTime created) {
@@ -5662,10 +5654,8 @@ class _PlaylistHeader extends StatelessWidget {
   }
 }
 
-/// Sharp full-bleed cover. ONE decode (size:infinity → 1200px budget), no
-/// blur. The already-cached list thumbnail sits underneath so the header is
-/// never an empty placeholder while the sharper source streams in, and a
-/// cover change cross-fades instead of popping.
+/// Full-bleed cover: ONE image layer, ONE decode, no blur (same as the Mix
+/// and Album headers). A cover change cross-fades instead of popping.
 class _PlaylistHeaderArt extends StatelessWidget {
   final String url;
   const _PlaylistHeaderArt({required this.url});
@@ -5673,7 +5663,6 @@ class _PlaylistHeaderArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hi = _playlistHeaderArtUrl(url);
-    final underlay = hi != url && url.startsWith('http');
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 320),
       layoutBuilder: (current, previous) => Stack(
@@ -5685,13 +5674,6 @@ class _PlaylistHeaderArt extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (underlay)
-              AurumArtwork(
-                url: url,
-                size: double.infinity,
-                borderRadius: 0,
-                fadeIn: false,
-              ),
             AurumArtwork(
               url: hi,
               size: double.infinity,

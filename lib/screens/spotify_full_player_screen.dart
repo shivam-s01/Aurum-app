@@ -1087,19 +1087,21 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
   Future<void> _load() async {
     final song = widget.player.currentSong;
     if (song == null) return;
+    // Record which song this load is FOR before awaiting, so build() can see
+    // a newer song arrive while this fetch is still in flight, and a late
+    // response for an older song is dropped instead of being shown.
+    _loadedForSongId = song.id;
     try {
       final result = await widget.player.fetchSyncedLyrics();
-      if (!mounted) return;
+      if (!mounted || _loadedForSongId != song.id) return;
       setState(() {
         _result = result;
-        _loadedForSongId = song.id;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _loadedForSongId != song.id) return;
       setState(() {
         _result = null;
-        _loadedForSongId = song.id;
         _loading = false;
       });
     }
@@ -1113,9 +1115,11 @@ class _LyricsPreviewCardState extends State<_LyricsPreviewCard> {
         _loadedForSongId != song.id) {
       _loading = true;
       _result = null;
-      _loadedForSongId = null;
+      _loadedForSongId = song.id;
       // Re-check for the new song without blocking this build.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
     }
 
     final result = _result;
@@ -1269,10 +1273,9 @@ class _LivePeekLinesState extends State<_LivePeekLines> {
 
   @override
   Widget build(BuildContext context) {
-    final position =
-        context.select<PlayerProvider, Duration>((p) => p.position);
     final lines = widget.result.synced!;
-    final active = widget.result.activeIndexFor(position);
+    final active = context.select<PlayerProvider, int>(
+        (p) => widget.result.activeIndexFor(p.position));
 
     if (active != _lastActive) {
       _lastActive = active;
@@ -1352,7 +1355,10 @@ class _ArtistsSectionState extends State<_ArtistsSection> {
     caseSensitive: false,
   );
 
-  late final List<String> _names = _splitNames(widget.song.artist);
+  // Always derived from the CURRENT song. This was `late final`, which froze
+  // the list to whichever song opened the player first, so the Artists card
+  // never changed when the song changed.
+  List<String> get _names => _splitNames(widget.song.artist);
 
   List<String> _splitNames(String raw) {
     final parts = raw
@@ -1472,7 +1478,7 @@ class _SingleArtistCardState extends State<_SingleArtistCard> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted) {
+      if (mounted && wanted == widget.artistName) {
         setState(() {
           _resolvedId = widget.knownArtistId;
           _loading = false;

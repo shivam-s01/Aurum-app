@@ -37,6 +37,7 @@
 import 'services/analytics_service.dart';
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
@@ -108,6 +109,9 @@ final RouteObserver<ModalRoute<void>> aurumRouteObserver =
 /// silent blank/grey box. Referenced by name (e.g. home_screen.dart's
 /// _ErrorBoundary) to restore this exact builder after a local override.
 Widget aurumDebugErrorWidgetBuilder(FlutterErrorDetails details) {
+  // Release: never show raw exception text to users. The error is already
+  // written to the on-device diagnostic log via FlutterError.onError.
+  if (kReleaseMode) return const SizedBox.shrink();
   return Material(
     color: const Color(0xFF7A0000),
     child: Padding(

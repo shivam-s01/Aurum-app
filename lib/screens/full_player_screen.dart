@@ -3446,8 +3446,8 @@ class _SyncedLineTicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final position = context.select<PlayerProvider, Duration>((p) => p.position);
-    final idx = result.activeIndexFor(position);
+    final idx = context.select<PlayerProvider, int>(
+        (p) => result.activeIndexFor(p.position));
     final lineText =
         (idx >= 0 && idx < result.synced!.length) ? result.synced![idx].text : '';
     final showText = lineText.trim().isNotEmpty;
@@ -6244,7 +6244,9 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView>
                             // flash on and go static, it keeps gently
                             // living while it's the focus, exactly the
                             // "not dead" quality being asked for.
+                            if (glowOpacity > 0.001)
                             Positioned.fill(
+                              child: RepaintBoundary(
                               child: Opacity(
                                 opacity: glowOpacity,
                                 child: AnimatedBuilder(
@@ -6291,11 +6293,13 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView>
                                   },
                                 ),
                               ),
+                              ),
                             ),
                             Padding(
                               padding: const EdgeInsets.symmetric(
                                   vertical: 11, horizontal: 14),
                               child: ImageFiltered(
+                                enabled: blurSigma > 0.05,
                                 imageFilter: ImageFilter.blur(
                                   sigmaX: blurSigma,
                                   sigmaY: blurSigma,

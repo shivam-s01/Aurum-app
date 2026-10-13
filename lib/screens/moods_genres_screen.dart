@@ -471,6 +471,7 @@ class _CategoryItemCard extends StatelessWidget {
                 imageUrl: item.artworkUrl,
                 width: 130,
                 height: 130,
+                memCacheWidth: 400,
                 fit: BoxFit.cover,
                 placeholder: (_, __) => Container(
                   width: 130,

@@ -845,6 +845,7 @@ class _ArtistPickerGrid extends StatelessWidget {
                           : CachedNetworkImage(
                               cacheManager: AurumImageCache(),
                               imageUrl: artist.imageUrl,
+                              memCacheWidth: 240,
                               fit: BoxFit.cover,
                               placeholder: (_, __) =>
                                   Container(color: AurumTheme.bgCardOf(context)),

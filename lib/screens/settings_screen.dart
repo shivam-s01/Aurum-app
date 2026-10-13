@@ -494,6 +494,7 @@ class _Avatar extends StatelessWidget {
       child: CachedNetworkImage(
         cacheManager: AurumImageCache(),
         imageUrl: url!,
+        memCacheWidth: 256,
         fit: BoxFit.cover,
         placeholder: (_, __) => fallback(),
         errorWidget: (_, __, ___) => fallback(),
