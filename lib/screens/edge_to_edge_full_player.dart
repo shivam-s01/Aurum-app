@@ -1357,8 +1357,7 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                   ),
                 ),
                 if (widget.song.artworkUrl.isNotEmpty)
-                  RepaintBoundary(
-                  child: Opacity(
+                  Opacity(
                     opacity: 0.35,
                     child: ImageFiltered(
                       imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
@@ -1374,7 +1373,6 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                         isBlurredBackground: true,
                       ),
                     ),
-                  ),
                   ),
                 // Darkening scrim so lyrics text stays legible regardless
                 // of how bright the blurred artwork underneath is.
