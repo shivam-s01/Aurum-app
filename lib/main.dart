@@ -686,24 +686,25 @@ class AurumApp extends StatelessWidget {
           // available (Android 12+); on any other platform/OS version it
           // silently behaves like the normal Dark theme instead of leaving
           // the user on a broken/blank theme.
+          // A color theme (Ocean/Forest/Sunset/Midnight/Aurora) is independent
+          // of Dark/Light/AMOLED/System: each has its own light and dark
+          // palette. Dynamic (Material You) is the only thing that overrides
+          // it — effectivePreset is `none` while Dynamic is genuinely active.
+          final preset = themeProvider.effectivePreset;
           final baseLight = (themeProvider.isDynamic && lightDynamic != null)
               ? AurumTheme.dynamicTheme(lightDynamic)
-              : AurumTheme.lightTheme;
-          // A named color preset (Ocean/Forest/Sunset/Midnight/Aurora) is a
-          // full top-level theme choice on its own — ThemeProvider.
-          // setColorPreset() already forces _mode to `dark` the instant a
-          // preset is picked (turning off Dynamic/AMOLED/Light/System in
-          // the process), so by the time we get here isDynamic and
-          // isAmoled are already false whenever a preset is active. This
-          // branch order just makes that explicit: preset takes priority,
-          // then dynamic, then AMOLED, then plain dark.
-          final baseDark = themeProvider.colorPreset != AurumColorPreset.none
-              ? AurumTheme.presetTheme(themeProvider.colorPreset)
-              : (themeProvider.isDynamic && darkDynamic != null)
-                  ? AurumTheme.dynamicTheme(darkDynamic)
-                  : (themeProvider.isAmoled
-                      ? AurumTheme.amoledTheme
-                      : AurumTheme.darkTheme);
+              : (preset != AurumColorPreset.none
+                  ? AurumTheme.presetTheme(preset, brightness: Brightness.light)
+                  : AurumTheme.lightTheme);
+          final baseDark = (themeProvider.isDynamic && darkDynamic != null)
+              ? AurumTheme.dynamicTheme(darkDynamic)
+              : (themeProvider.isAmoled
+                  ? (preset != AurumColorPreset.none
+                      ? AurumTheme.amoledPresetTheme(preset)
+                      : AurumTheme.amoledTheme)
+                  : (preset != AurumColorPreset.none
+                      ? AurumTheme.presetTheme(preset)
+                      : AurumTheme.darkTheme));
 
           // FIX ("home page font playlist mai kaam nahi kar raha"): also
           // apply the font family across every TextStyle in textTheme, not

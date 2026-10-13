@@ -31,7 +31,19 @@ import '../theme/aurum_theme.dart';
 ///      no extra APK weight, no per-frame cost.
 class AurumStageBackdrop extends StatelessWidget {
   final double height;
-  const AurumStageBackdrop({super.key, this.height = 260});
+
+  /// When given, the whole stage scrolls away WITH the page (1:1, like
+  /// Spotify's top glow) instead of staying pinned behind the content.
+  /// Pinned art behind scrolling cards is what made the top look awkward,
+  /// especially in light mode where list content slides over a coloured
+  /// patch. Cost: one Transform per scroll frame — the stage itself sits in
+  /// a RepaintBoundary, so nothing inside it is repainted while scrolling.
+  final ScrollController? scrollController;
+  const AurumStageBackdrop({
+    super.key,
+    this.height = 260,
+    this.scrollController,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -65,12 +77,12 @@ class AurumStageBackdrop extends StatelessWidget {
     // in light mode than in dark mode rather than reusing one curve for
     // both. Home feed CONTENT is untouched by this — purely the backdrop
     // visual behind it.
-    final glowOpacity = isLight ? 0.07 : 0.20;
+    final glowOpacity = isLight ? 0.06 : 0.14;
     final glowStops = isLight
         ? const [0.0, 0.22, 0.48, 0.72, 1.0]
         : const [0.0, 0.30, 0.58, 0.80, 1.0];
 
-    return RepaintBoundary(
+    final stage = RepaintBoundary(
       child: SizedBox(
         height: height,
         width: double.infinity,
@@ -97,16 +109,55 @@ class AurumStageBackdrop extends StatelessWidget {
                 ),
               ),
             ),
-            // ── Baked blurred artwork (the actual Echo-style photo wash) ──
-            if (song != null && song.artworkUrl.isNotEmpty)
-              _BakedBlurStage(
-                key: ValueKey('${song.id}_${song.artworkUrl}'),
-                song: song,
-                isLight: isLight,
+            // ── Theme bloom: two soft, off-centre pools of the active theme's
+            // own accent colours (top-left accent, top-right light accent).
+            // They are what makes the top of Home read as part of the chosen
+            // colour theme in BOTH modes — gentler in light so it stays a
+            // clean pastel wash, richer in dark. Static, inside the same
+            // RepaintBoundary, so zero per-frame cost. ──
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(-0.9, -1.2),
+                  radius: 1.15,
+                  colors: [
+                    AurumTheme.accentOf(context)
+                        .withOpacity(isLight ? 0.13 : 0.24),
+                    AurumTheme.accentOf(context).withOpacity(0.0),
+                  ],
+                ),
               ),
-            // ── Grain texture — the ingredient that stops this from
-            // reading as a flat gradient. Multiplied on top, cheap tile. ──
-            const _GrainOverlay(),
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(1.0, -1.1),
+                  radius: 0.95,
+                  colors: [
+                    AurumTheme.accentLightOf(context)
+                        .withOpacity(isLight ? 0.10 : 0.14),
+                    AurumTheme.accentLightOf(context).withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+            // ── Baked blurred artwork (the actual Echo-style photo wash) ──
+            // LIGHT MODE: the art is only a soft pastel hint (40% strength)
+            // — at full strength a saturated cover became a hard coloured
+            // blob on the white page. Dark mode keeps the full-strength wash.
+            if (song != null && song.artworkUrl.isNotEmpty)
+              Opacity(
+                opacity: isLight ? 0.34 : 0.92,
+                child: _BakedBlurStage(
+                  key: ValueKey('${song.id}_${song.artworkUrl}'),
+                  song: song,
+                  isLight: isLight,
+                ),
+              ),
+            // ── Grain texture — gives dark mode its tactile "material"
+            // feel. Skipped in light mode: overlay-blended noise on a
+            // near-white page only reads as dirty speckle. ──
+            if (!isLight) const _GrainOverlay(),
             // ── Readability scrim: fades this stage into the flat page
             // background underneath the scroll content. Same multi-stop
             // easing as the base gradient above — a single 0→0.55 jump
@@ -125,13 +176,33 @@ class AurumStageBackdrop extends StatelessWidget {
                     pageBg.withOpacity(0.78),
                     pageBg,
                   ],
-                  stops: const [0.0, 0.55, 0.72, 0.86, 1.0],
+                  // Light mode dissolves into the page earlier, so no
+                  // coloured band is ever left near the first row.
+                  stops: isLight
+                      ? const [0.0, 0.40, 0.62, 0.82, 1.0]
+                      : const [0.0, 0.55, 0.72, 0.86, 1.0],
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+
+    final ctrl = scrollController;
+    if (ctrl == null) return stage;
+    return AnimatedBuilder(
+      animation: ctrl,
+      child: stage,
+      builder: (context, child) {
+        var dy = 0.0;
+        if (ctrl.hasClients) {
+          // Only follows downward scrolling; overscroll bounce keeps the
+          // stage pinned so no empty band opens above it.
+          dy = -ctrl.position.pixels.clamp(0.0, height);
+        }
+        return Transform.translate(offset: Offset(0, dy), child: child);
+      },
     );
   }
 }

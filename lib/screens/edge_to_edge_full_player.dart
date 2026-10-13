@@ -50,6 +50,8 @@ import '../utils/route_drag_dismiss.dart';
 import '../utils/aurum_sheet.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/premium_gate.dart';
+import '../utils/aurum_transitions.dart';
+import 'artist_screen.dart';
 import 'full_player_screen.dart'
     show showAurumFullPlayerOptionsSheet, showSleepTimerForSong, showSongInfoDialog, AurumLyricsPage;
 import 'settings_player_screen.dart' show SleepTimerService;
@@ -631,14 +633,18 @@ class _TitleRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    song.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.75),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _openArtistFromPlayer(context, song),
+                    child: Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.75),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
@@ -2478,4 +2484,33 @@ class _QueueModeButtonState extends State<_QueueModeButton>
       ),
     );
   }
+}
+
+
+/// Tap on the artist name in the player -> that artist's page. Uses the
+/// song's own channel id when known (instant), otherwise ArtistScreen
+/// resolves the first credited artist by name.
+void _openArtistFromPlayer(BuildContext context, Song song) {
+  final raw = song.artist.trim();
+  if (raw.isEmpty) return;
+  // Local files with no tag: there is no real artist to open.
+  final lower = raw.toLowerCase();
+  if (lower == 'unknown' || lower == '<unknown>' || lower == 'unknown artist') {
+    return;
+  }
+  final first = raw
+      .split(RegExp(r'\s*(?:,|&|;|\bfeat\.?\s|\bft\.?\s)\s*',
+          caseSensitive: false))
+      .first
+      .trim();
+  final name = first.isEmpty ? raw : first;
+  final channel = song.artistChannelId;
+  AurumHaptics.selection();
+  AurumDepthRoute.to(
+    context,
+    ArtistScreen(
+      artistId: (channel != null && channel.isNotEmpty) ? 'yt_$channel' : null,
+      artistName: name,
+    ),
+  );
 }

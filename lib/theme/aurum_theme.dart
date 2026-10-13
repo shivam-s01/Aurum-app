@@ -13,32 +13,72 @@ class _DynamicMarker extends ThemeExtension<_DynamicMarker> {
   _DynamicMarker lerp(ThemeExtension<_DynamicMarker>? other, double t) => this;
 }
 
-/// FIX — carries a color preset's own muted/secondary text tone into the
-/// theme so textMutedOf()/textSecondaryOf() can use it. Previously those
-/// two helpers only ever branched on brightness/dynamic, so every preset
-/// (Ocean, Sunset, etc.) silently fell back to the fixed dark-grey
-/// constants — low contrast against a preset's differently-hued
-/// background. Stashed as an extension the same way _DynamicMarker is,
-/// so it's only present when a real preset is active.
-class _PresetTextMarker extends ThemeExtension<_PresetTextMarker> {
-  final Color textMuted;
-  const _PresetTextMarker(this.textMuted);
+/// Carries the active color preset's own tones into the ThemeData so the
+/// context-aware helpers (textMutedOf, textSecondaryOf, bgSurfaceOf,
+/// bgElevatedOf, accentLightOf, accentDarkOf) can resolve to the PRESET's
+/// palette instead of the fixed violet/grey constants. Without this, every
+/// gradient (accentDark -> accent -> accentLight) and every chip/surface
+/// under a preset silently mixed in the default violet. Only present when a
+/// real preset is active (never in Material You / dynamic mode).
+/// The nullable tones are left null for AMOLED+preset, where only the accent
+/// is themed and the neutral black surfaces stay untouched.
+class _PresetMarker extends ThemeExtension<_PresetMarker> {
+  final Color accentLight;
+  final Color accentDark;
+  final Color? textMuted;
+  final Color? textSecondary;
+  final Color? bgSurface;
+  final Color? bgElevated;
+  const _PresetMarker({
+    required this.accentLight,
+    required this.accentDark,
+    this.textMuted,
+    this.textSecondary,
+    this.bgSurface,
+    this.bgElevated,
+  });
+
   @override
-  _PresetTextMarker copyWith({Color? textMuted}) =>
-      _PresetTextMarker(textMuted ?? this.textMuted);
+  _PresetMarker copyWith({
+    Color? accentLight,
+    Color? accentDark,
+    Color? textMuted,
+    Color? textSecondary,
+    Color? bgSurface,
+    Color? bgElevated,
+  }) =>
+      _PresetMarker(
+        accentLight: accentLight ?? this.accentLight,
+        accentDark: accentDark ?? this.accentDark,
+        textMuted: textMuted ?? this.textMuted,
+        textSecondary: textSecondary ?? this.textSecondary,
+        bgSurface: bgSurface ?? this.bgSurface,
+        bgElevated: bgElevated ?? this.bgElevated,
+      );
+
+  static Color? _l(Color? a, Color? b, double t) =>
+      (a != null && b != null) ? Color.lerp(a, b, t) : (b ?? a);
+
   @override
-  _PresetTextMarker lerp(ThemeExtension<_PresetTextMarker>? other, double t) =>
-      other is _PresetTextMarker
-          ? _PresetTextMarker(Color.lerp(textMuted, other.textMuted, t)!)
-          : this;
+  _PresetMarker lerp(ThemeExtension<_PresetMarker>? other, double t) {
+    if (other is! _PresetMarker) return this;
+    return _PresetMarker(
+      accentLight: Color.lerp(accentLight, other.accentLight, t)!,
+      accentDark: Color.lerp(accentDark, other.accentDark, t)!,
+      textMuted: _l(textMuted, other.textMuted, t),
+      textSecondary: _l(textSecondary, other.textSecondary, t),
+      bgSurface: _l(bgSurface, other.bgSurface, t),
+      bgElevated: _l(bgElevated, other.bgElevated, t),
+    );
+  }
 }
 
-/// Named full-palette color themes — ported from Astra Browser's
-/// AstraThemeCatalog (accent/background/surface/surfaceVariant tuples).
-/// `none` means "no preset" — the app keeps its normal fixed-purple
-/// dark/AMOLED/light palette exactly as before. Every other value swaps
-/// bg/bgCard/bgSurface/text/accent together as one matched set, the same
-/// way Astra's AstraColorScheme does, instead of only changing the accent.
+/// Named full-palette color themes (Ocean / Forest / Sunset / Midnight /
+/// Aurora). `none` means "no preset" — the app keeps its normal fixed-violet
+/// Aurum palette. A preset is independent of the Dark / Light / AMOLED /
+/// System choice: every preset ships a hand-tuned DARK palette and a
+/// hand-tuned LIGHT palette, and the one matching the active brightness is
+/// used. Dynamic (Material You) is the only mode that switches presets off.
 enum AurumColorPreset {
   none,
   ocean,
@@ -48,127 +88,216 @@ enum AurumColorPreset {
   aurora,
 }
 
+/// One complete tonal set for one brightness.
+class AurumPresetPalette {
+  final Color accent;
+  final Color accentLight;
+  final Color accentDark;
+  final Color background;
+  final Color surface; // cards
+  final Color elevated;
+  final Color surfaceVariant; // chips / inputs
+  final Color onBackground;
+  final Color textSecondary;
+  final Color textMuted;
+  final Color divider;
+
+  const AurumPresetPalette({
+    required this.accent,
+    required this.accentLight,
+    required this.accentDark,
+    required this.background,
+    required this.surface,
+    required this.elevated,
+    required this.surfaceVariant,
+    required this.onBackground,
+    required this.textSecondary,
+    required this.textMuted,
+    required this.divider,
+  });
+}
+
 class AurumColorPresetData {
   final String displayName;
   final String subtitle;
-  final Color accent;
-  final Color accentLight;
-  final Color background;
-  final Color surface;
-  final Color surfaceVariant;
-  final Color onBackground;
-  final Color divider;
-  // FIX — "Settings labels barely visible on every preset": textMutedOf()/
-  // textSecondaryOf() never had a preset-aware branch at all, so every
-  // subtitle/icon under a color preset silently fell back to the fixed
-  // darkTextSecondary/darkTextMuted grey constants, which have poor
-  // contrast against a preset's own (differently-hued, differently-lit)
-  // background. Each preset now carries its own pre-tuned muted tone —
-  // same hue family as onBackground, but pulled down in lightness/
-  // saturation so it reads as a clearly secondary (not primary, not
-  // invisible) text color against that preset's own background.
-  final Color textMuted;
+  final AurumPresetPalette dark;
+  final AurumPresetPalette light;
 
   const AurumColorPresetData({
     required this.displayName,
     required this.subtitle,
-    required this.accent,
-    required this.accentLight,
-    required this.background,
-    required this.surface,
-    required this.surfaceVariant,
-    required this.onBackground,
-    required this.divider,
-    required this.textMuted,
+    required this.dark,
+    required this.light,
   });
+
+  AurumPresetPalette paletteFor(Brightness b) =>
+      b == Brightness.dark ? dark : light;
+
+  /// Swatch / accent colour for the given brightness.
+  Color accentFor(Brightness b) => paletteFor(b).accent;
+  Color accentLightFor(Brightness b) => paletteFor(b).accentLight;
+
+  /// Kept for older call sites: the dark-mode accent.
+  Color get accent => dark.accent;
 }
 
 class AurumColorPresetCatalog {
-  // Values carried over 1:1 from Astra's AstraThemeCatalog (Ocean, Forest,
-  // Sunset, Midnight, Aurora) — accent/background/surface/surfaceVariant
-  // map onto Aurum's accent/bg/bgCard/bgSurface respectively.
+  // Every palette below was generated from one hue per theme with stepped
+  // lightness tiers (bg < card < elevated < variant), and checked for
+  // contrast: body text >= 15:1, muted text >= 5.4:1 on both bg and card,
+  // accent >= 4.3:1 against its own page, and a readable on-accent colour.
+  // Sunset is deliberately a plum dusk with a coral accent (NOT an orange
+  // wash), Forest a deep pine with a fresh mint accent.
   static const Map<AurumColorPreset, AurumColorPresetData> presets = {
     AurumColorPreset.ocean: AurumColorPresetData(
       displayName: 'Ocean',
       subtitle: 'Deep sea blues',
-      accent: Color(0xFF00B4D8),
-      accentLight: Color(0xFF5CD5EC),
-      background: Color(0xFF071A2B),
-      surface: Color(0xFF0D2A44),
-      surfaceVariant: Color(0xFF123A5C),
-      onBackground: Color(0xFFE3F3FA),
-      divider: Color(0xFF1B4A70),
-      // Same hue as onBackground, pulled to ~65% lightness / ~35% sat so
-      // it reads as clearly secondary against the 9.8%-lightness bg.
-      textMuted: Color(0xFF9FB9CB),
+      dark: AurumPresetPalette(
+        accent: Color(0xFF22B8E0),
+        accentLight: Color(0xFF7DD8F0),
+        accentDark: Color(0xFF0C7FA8),
+        background: Color(0xFF0C141A),
+        surface: Color(0xFF111E27),
+        elevated: Color(0xFF172733),
+        surfaceVariant: Color(0xFF1D313F),
+        onBackground: Color(0xFFE6EEF4),
+        textSecondary: Color(0xFFB6C4CD),
+        textMuted: Color(0xFF9AABB7),
+        divider: Color(0xFF253B4B),
+      ),
+      light: AurumPresetPalette(
+        accent: Color(0xFF0B7BA6),
+        accentLight: Color(0xFF3CB4DC),
+        accentDark: Color(0xFF075F82),
+        background: Color(0xFFF1F5F9),
+        surface: Color(0xFFFCFDFD),
+        elevated: Color(0xFFEAF1F5),
+        surfaceVariant: Color(0xFFE3ECF3),
+        onBackground: Color(0xFF131B20),
+        textSecondary: Color(0xFF3F4950),
+        textMuted: Color(0xFF58626A),
+        divider: Color(0xFFD3E0E9),
+      ),
     ),
     AurumColorPreset.forest: AurumColorPresetData(
       displayName: 'Forest',
-      subtitle: 'Deep greens',
-      accent: Color(0xFF52B788),
-      accentLight: Color(0xFF8FD6AE),
-      background: Color(0xFF0E1B14),
-      surface: Color(0xFF16281E),
-      surfaceVariant: Color(0xFF1E3528),
-      onBackground: Color(0xFFE4F1E8),
-      divider: Color(0xFF294634),
-      textMuted: Color(0xFFA0B8A8),
+      subtitle: 'Pine & moss',
+      dark: AurumPresetPalette(
+        accent: Color(0xFF5BC48F),
+        accentLight: Color(0xFF9ADDB8),
+        accentDark: Color(0xFF2F8A5E),
+        background: Color(0xFF0F1813),
+        surface: Color(0xFF15231C),
+        elevated: Color(0xFF1C2E26),
+        surfaceVariant: Color(0xFF23392F),
+        onBackground: Color(0xFFE9F1ED),
+        textSecondary: Color(0xFFBBC9C2),
+        textMuted: Color(0xFF9FB1A9),
+        divider: Color(0xFF2C4439),
+      ),
+      light: AurumPresetPalette(
+        accent: Color(0xFF2A7A54),
+        accentLight: Color(0xFF4FAE80),
+        accentDark: Color(0xFF1D5C3E),
+        background: Color(0xFFF3F7F5),
+        surface: Color(0xFFFCFDFC),
+        elevated: Color(0xFFEDF3F0),
+        surfaceVariant: Color(0xFFE6EFEB),
+        onBackground: Color(0xFF161D1A),
+        textSecondary: Color(0xFF434C48),
+        textMuted: Color(0xFF5C6661),
+        divider: Color(0xFFD8E4DE),
+      ),
     ),
     AurumColorPreset.sunset: AurumColorPresetData(
       displayName: 'Sunset',
-      subtitle: 'Warm oranges',
-      // FIX — "sunset bahut heavy hai": accent was the lightest/most
-      // saturated of all 5 presets (L=64.5% vs Ocean 42%/Forest 52%/
-      // Aurora 56%) and onBackground was the most saturated text color
-      // in the whole catalog (S=78% vs the 30-70% band every other
-      // preset sits in) — that combination is what read as "heavy"/loud
-      // next to Ocean/Forest/Midnight/Aurora. Both pulled back into the
-      // same band the other 4 presets already use, same hue preserved.
-      accent: Color(0xFFE8623F),
-      accentLight: Color(0xFFFF9C82),
-      // NOTE: Astra's own Sunset preset is a LIGHT theme (cream bg, dark
-      // text) — safe there because Astra always renders it through its own
-      // light ThemeData branch. Aurum's color-theme picker only ever
-      // applies a preset inside the dark/AMOLED slot (see _dark()/
-      // _amoled() below); reusing Astra's light values as-is here would
-      // have put light-cream backgrounds with near-white text/icons
-      // (onPrimary/onBackground both resolve off `bg`) under a
-      // `brightness: Brightness.dark` ThemeData — text and system status
-      // bar icons would render unreadable-light-on-light. Re-tuned to a
-      // deep warm-dark background that keeps the same orange accent hue
-      // and "warm" feel, dark-safe like every other preset here.
-      background: Color(0xFF1F1410),
-      surface: Color(0xFF2B1D16),
-      surfaceVariant: Color(0xFF3A2A1F),
-      // Desaturated from the original 0xFFFBE9DE (S=78%) down to the
-      // ~45-55% band Ocean/Aurora sit in, same warm hue kept.
-      onBackground: Color(0xFFECD9CC),
-      divider: Color(0xFF4A3628),
-      textMuted: Color(0xFFC2A48F),
+      subtitle: 'Dusk plum & coral',
+      dark: AurumPresetPalette(
+        accent: Color(0xFFF0765A),
+        accentLight: Color(0xFFFFB08F),
+        accentDark: Color(0xFFC2456E),
+        background: Color(0xFF180E12),
+        surface: Color(0xFF24141A),
+        elevated: Color(0xFF2F1B22),
+        surfaceVariant: Color(0xFF3A222B),
+        onBackground: Color(0xFFF2E8EC),
+        textSecondary: Color(0xFFCABAC0),
+        textMuted: Color(0xFFB39EA6),
+        divider: Color(0xFF462B35),
+      ),
+      light: AurumPresetPalette(
+        accent: Color(0xFFC9482F),
+        accentLight: Color(0xFFEE8566),
+        accentDark: Color(0xFFA8365A),
+        background: Color(0xFFFAF0F4),
+        surface: Color(0xFFFDFCFC),
+        elevated: Color(0xFFF6E9EE),
+        surfaceVariant: Color(0xFFF4E1E8),
+        onBackground: Color(0xFF211218),
+        textSecondary: Color(0xFF523D45),
+        textMuted: Color(0xFF6B565E),
+        divider: Color(0xFFEBD1DA),
+      ),
     ),
     AurumColorPreset.midnight: AurumColorPresetData(
       displayName: 'Midnight',
       subtitle: 'Deep violet',
-      accent: Color(0xFF9D7BFF),
-      accentLight: Color(0xFFBFA8FF),
-      background: Color(0xFF0B0B17),
-      surface: Color(0xFF131325),
-      surfaceVariant: Color(0xFF1B1B33),
-      onBackground: Color(0xFFE7E5F5),
-      divider: Color(0xFF262647),
-      textMuted: Color(0xFFA4A2C0),
+      dark: AurumPresetPalette(
+        accent: Color(0xFF9D7BFF),
+        accentLight: Color(0xFFC0AAFF),
+        accentDark: Color(0xFF7152D6),
+        background: Color(0xFF0F0D19),
+        surface: Color(0xFF171325),
+        elevated: Color(0xFF1E1931),
+        surfaceVariant: Color(0xFF251F3D),
+        onBackground: Color(0xFFEAE7F3),
+        textSecondary: Color(0xFFBCB8CC),
+        textMuted: Color(0xFFA19CB5),
+        divider: Color(0xFF2E2848),
+      ),
+      light: AurumPresetPalette(
+        accent: Color(0xFF6544D6),
+        accentLight: Color(0xFF9378F0),
+        accentDark: Color(0xFF4B30AE),
+        background: Color(0xFFF3F1F9),
+        surface: Color(0xFFFCFCFD),
+        elevated: Color(0xFFEDEBF5),
+        surfaceVariant: Color(0xFFE6E3F2),
+        onBackground: Color(0xFF16141F),
+        textSecondary: Color(0xFF433F4F),
+        textMuted: Color(0xFF5C5969),
+        divider: Color(0xFFD8D4E8),
+      ),
     ),
     AurumColorPreset.aurora: AurumColorPresetData(
       displayName: 'Aurora',
       subtitle: 'Teal glow',
-      accent: Color(0xFF3FE0C5),
-      accentLight: Color(0xFF7EF0DC),
-      background: Color(0xFF0A1420),
-      surface: Color(0xFF10202F),
-      surfaceVariant: Color(0xFF163044),
-      onBackground: Color(0xFFE1F7F2),
-      divider: Color(0xFF1E3C52),
-      textMuted: Color(0xFF9BC4BC),
+      dark: AurumPresetPalette(
+        accent: Color(0xFF3FE0C5),
+        accentLight: Color(0xFF86F2E0),
+        accentDark: Color(0xFF1AA891),
+        background: Color(0xFF0C181B),
+        surface: Color(0xFF112327),
+        elevated: Color(0xFF162F34),
+        surfaceVariant: Color(0xFF1C3A40),
+        onBackground: Color(0xFFE6F2F4),
+        textSecondary: Color(0xFFB6CACE),
+        textMuted: Color(0xFF99B2B8),
+        divider: Color(0xFF24454C),
+      ),
+      light: AurumPresetPalette(
+        accent: Color(0xFF0B7F70),
+        accentLight: Color(0xFF2FB5A0),
+        accentDark: Color(0xFF075C51),
+        background: Color(0xFFF1F7F9),
+        surface: Color(0xFFFCFDFD),
+        elevated: Color(0xFFEAF3F5),
+        surfaceVariant: Color(0xFFE3F0F3),
+        onBackground: Color(0xFF131E20),
+        textSecondary: Color(0xFF3F4D50),
+        textMuted: Color(0xFF58676A),
+        divider: Color(0xFFD3E5E9),
+      ),
     ),
   };
 
@@ -278,69 +407,76 @@ class AurumTheme {
   );
 
   // ── Theme Builders ──
-  // `preset` is only accepted by the dark builder (via presetTheme() below)
-  // — light theme, AMOLED, and dynamic (Material You) never take one: light
-  // and dynamic already have their own complete, independently tuned
-  // palettes a preset swap would fight, and AMOLED's whole identity is a
-  // true-black background a preset would undermine. A color preset is
-  // always its own full top-level theme choice (see ThemeProvider.
-  // setColorPreset), so it only ever needs the one dark entry point.
+  // Dark and Light each accept a color preset (every preset ships a dark and
+  // a light palette). AMOLED accepts one for its accent only — its true-black
+  // surfaces never change. Dynamic (Material You) never takes a preset: it is
+  // its own wallpaper-derived palette, and color themes are switched off
+  // while it is active (see ThemeProvider.effectivePreset).
   static ThemeData get theme      => _dark();
   static ThemeData get darkTheme  => _dark();
   static ThemeData get amoledTheme => _amoled();
   static ThemeData get lightTheme => _light();
 
-  /// The named color theme (Ocean/Forest/Sunset/Midnight/Aurora) as a
-  /// full, standalone dark-styled theme — this is what main.dart renders
-  /// whenever ThemeProvider.colorPreset is anything but `none`. A preset is
-  /// always a complete top-level theme choice on its own (see
-  /// ThemeProvider.setColorPreset), never layered on top of AMOLED — so
-  /// there is no separate AMOLED+preset variant to worry about.
-  static ThemeData presetTheme(AurumColorPreset preset) => _dark(preset: preset);
+  /// The named color theme (Ocean/Forest/Sunset/Midnight/Aurora) in the
+  /// requested brightness. Each preset has its own hand-tuned dark AND light
+  /// palette, so a user on Light mode gets the light version of the theme
+  /// they picked — not a dark theme forced on them.
+  static ThemeData presetTheme(AurumColorPreset preset,
+          {Brightness brightness = Brightness.dark}) =>
+      brightness == Brightness.dark
+          ? _dark(preset: preset)
+          : _light(preset: preset);
+
+  /// AMOLED keeps its true-black surfaces; a preset only recolours the
+  /// accent (and the accent-derived gradient tones) on top of it.
+  static ThemeData amoledPresetTheme(AurumColorPreset preset) =>
+      _amoled(preset: preset);
 
   static ThemeData _dark({AurumColorPreset preset = AurumColorPreset.none}) {
-    final p = AurumColorPresetCatalog.forId(preset);
+    final p = AurumColorPresetCatalog.forId(preset)?.dark;
     return _build(
       brightness: Brightness.dark,
       bg: p?.background ?? darkBg,
       bgCard: p?.surface ?? darkBgCard,
       bgSurface: p?.surfaceVariant ?? darkBgSurface,
       textPrimary: p?.onBackground ?? darkTextPrimary,
-      // FIX — was hardcoded to the fixed darkTextMuted grey even when a
-      // preset was active; now uses the preset's own tuned muted tone
-      // (see AurumColorPresetData.textMuted) so subtitle/icon contrast
-      // stays consistent with that preset's background, not the fixed
-      // dark palette's.
       textMuted: p?.textMuted ?? darkTextMuted,
       divider: p?.divider ?? darkDivider,
       navBar: p?.surface ?? darkBgCard,
-      presetAccent: p?.accent,
-      presetAccentLight: p?.accentLight,
-      presetTextMuted: p?.textMuted,
+      preset: p,
     );
   }
 
-  static ThemeData _amoled() => _build(
-    brightness: Brightness.dark,
-    bg: amoledBg,
-    bgCard: amoledBgCard,
-    bgSurface: amoledBgSurface,
-    textPrimary: darkTextPrimary,
-    textMuted: darkTextMuted,
-    divider: amoledDivider,
-    navBar: amoledBgCard,
-  );
+  static ThemeData _amoled({AurumColorPreset preset = AurumColorPreset.none}) {
+    final p = AurumColorPresetCatalog.forId(preset)?.dark;
+    return _build(
+      brightness: Brightness.dark,
+      bg: amoledBg,
+      bgCard: amoledBgCard,
+      bgSurface: amoledBgSurface,
+      textPrimary: darkTextPrimary,
+      textMuted: darkTextMuted,
+      divider: amoledDivider,
+      navBar: amoledBgCard,
+      preset: p,
+      presetAccentOnly: true,
+    );
+  }
 
-  static ThemeData _light() => _build(
-    brightness: Brightness.light,
-    bg: lightBg,
-    bgCard: lightBgCard,
-    bgSurface: lightBgSurface,
-    textPrimary: lightTextPrimary,
-    textMuted: lightTextMuted,
-    divider: lightDivider,
-    navBar: lightBgCard,
-  );
+  static ThemeData _light({AurumColorPreset preset = AurumColorPreset.none}) {
+    final p = AurumColorPresetCatalog.forId(preset)?.light;
+    return _build(
+      brightness: Brightness.light,
+      bg: p?.background ?? lightBg,
+      bgCard: p?.surface ?? lightBgCard,
+      bgSurface: p?.surfaceVariant ?? lightBgSurface,
+      textPrimary: p?.onBackground ?? lightTextPrimary,
+      textMuted: p?.textMuted ?? lightTextMuted,
+      divider: p?.divider ?? lightDivider,
+      navBar: p?.surface ?? lightBgCard,
+      preset: p,
+    );
+  }
 
   /// Material You / "wallpaper theme" builder — derives every surface from
   /// the system's dynamic ColorScheme (harvested from the device wallpaper
@@ -482,9 +618,8 @@ class AurumTheme {
     required Color divider,
     required Color navBar,
     ColorScheme? dynamicScheme,
-    Color? presetAccent,
-    Color? presetAccentLight,
-    Color? presetTextMuted,
+    AurumPresetPalette? preset,
+    bool presetAccentOnly = false,
   }) {
     final isDark = brightness == Brightness.dark;
     // When a real Material You scheme is supplied, its own primary/secondary
@@ -494,8 +629,8 @@ class AurumTheme {
     // preset's own accent flows through every widget that already reads
     // colorScheme.primary/accentOf(context) — no separate accent plumbing
     // needed anywhere else in the app.
-    final primary   = dynamicScheme?.primary ?? presetAccent ?? accent;
-    final secondary = dynamicScheme?.secondary ?? presetAccentLight ?? accentLight;
+    final primary   = dynamicScheme?.primary ?? preset?.accent ?? accent;
+    final secondary = dynamicScheme?.secondary ?? preset?.accentLight ?? accentLight;
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -657,13 +792,25 @@ class AurumTheme {
       // generic icons (anything not explicitly colored by a widget)
       // never picked up the wallpaper hue the rest of the screen did.
       iconTheme: IconThemeData(
-        color: dynamicScheme != null ? textMuted : (isDark ? darkTextSecondary : lightTextSecondary),
+        color: dynamicScheme != null
+            ? textMuted
+            : (preset != null && !presetAccentOnly
+                ? preset.textSecondary
+                : (isDark ? darkTextSecondary : lightTextSecondary)),
       ),
       dividerColor: divider,
       cardColor: bgCard,
       extensions: [
         if (dynamicScheme != null) const _DynamicMarker(),
-        if (presetTextMuted != null) _PresetTextMarker(presetTextMuted),
+        if (preset != null && dynamicScheme == null)
+          _PresetMarker(
+            accentLight: preset.accentLight,
+            accentDark: preset.accentDark,
+            textMuted: presetAccentOnly ? null : preset.textMuted,
+            textSecondary: presetAccentOnly ? null : preset.textSecondary,
+            bgSurface: presetAccentOnly ? null : preset.surfaceVariant,
+            bgElevated: presetAccentOnly ? null : preset.elevated,
+          ),
       ],
     );
   }
@@ -684,8 +831,9 @@ class AurumTheme {
     // regardless of its own background hue — low contrast on presets like
     // Sunset. Reuse the preset's tuned textMuted tone (close enough to a
     // "secondary" weight) when one is active.
-    final presetMuted = Theme.of(context).extension<_PresetTextMarker>()?.textMuted;
-    if (presetMuted != null) return presetMuted;
+    final presetSecondary =
+        Theme.of(context).extension<_PresetMarker>()?.textSecondary;
+    if (presetSecondary != null) return presetSecondary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkTextSecondary : lightTextSecondary;
   }
@@ -696,7 +844,7 @@ class AurumTheme {
     // subtitle (which all call textMutedOf) fell back to the fixed
     // darkTextMuted grey under every color preset. Check the preset
     // marker first, same pattern as the existing dynamic-mode check below.
-    final presetMuted = Theme.of(context).extension<_PresetTextMarker>()?.textMuted;
+    final presetMuted = Theme.of(context).extension<_PresetMarker>()?.textMuted;
     if (presetMuted != null) return presetMuted;
     // Dynamic (Material You) schemes carry a real onSurfaceVariant tone
     // derived from the wallpaper — use it instead of the fixed static
@@ -711,12 +859,18 @@ class AurumTheme {
       Theme.of(context).dividerColor;
 
   static Color bgElevatedOf(BuildContext context) {
+    final presetElevated =
+        Theme.of(context).extension<_PresetMarker>()?.bgElevated;
+    if (presetElevated != null) return presetElevated;
     if (_isDynamic(context)) return Theme.of(context).colorScheme.surfaceContainerHighest;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkBgElevated : lightBgElevated;
   }
 
   static Color bgSurfaceOf(BuildContext context) {
+    final presetSurface =
+        Theme.of(context).extension<_PresetMarker>()?.bgSurface;
+    if (presetSurface != null) return presetSurface;
     if (_isDynamic(context)) return Theme.of(context).colorScheme.surfaceContainerHigh;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkBgSurface : lightBgSurface;
@@ -741,10 +895,13 @@ class AurumTheme {
   /// Material You secondary color when Dynamic Color mode is active,
   /// otherwise the fixed accentLight constant. Use alongside accentOf()
   /// wherever a gradient/lerp needs a light-tone companion to the accent.
-  static Color accentLightOf(BuildContext context) =>
-      Theme.of(context).extension<_DynamicMarker>() != null
-          ? Theme.of(context).colorScheme.secondary
-          : accentLight;
+  static Color accentLightOf(BuildContext context) {
+    final theme = Theme.of(context);
+    if (theme.extension<_DynamicMarker>() != null) {
+      return theme.colorScheme.secondary;
+    }
+    return theme.extension<_PresetMarker>()?.accentLight ?? accentLight;
+  }
 
   /// Darker accent variant for the current theme — derived from the
   /// active ColorScheme's primary when Dynamic Color mode is active
@@ -752,6 +909,8 @@ class AurumTheme {
   /// "dark" tier the way the fixed palette does), otherwise the fixed
   /// accentDark constant.
   static Color accentDarkOf(BuildContext context) {
+    final presetDark = Theme.of(context).extension<_PresetMarker>()?.accentDark;
+    if (presetDark != null) return presetDark;
     if (Theme.of(context).extension<_DynamicMarker>() == null) return accentDark;
     final hsl = HSLColor.fromColor(Theme.of(context).colorScheme.primary);
     return hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();

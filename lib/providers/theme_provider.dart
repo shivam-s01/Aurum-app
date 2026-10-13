@@ -48,17 +48,16 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.accent;
   // Named full-palette color theme (Ocean/Forest/Sunset/Midnight/Aurora).
-  // `none` (default) = no preset active, app renders the normal
-  // dark/AMOLED/light/dynamic palette exactly as before.
+  // `none` = the default Aurum violet palette.
   //
-  // Picking a real preset is a FULL top-level theme switch, not a modifier
-  // on top of whatever mode was active — see setColorPreset() below. So
-  // once a preset is active, _mode is always AurumThemeMode.dark (presets
-  // are always rendered dark-styled) and _colorPreset just picks which
-  // dark palette. Selecting Dark/Light/AMOLED/System/Dynamic from the
-  // THEME list above always clears the preset back to `none` the same way
-  // (see setMode() below) — the two lists behave as one single top-level
-  // choice, exactly like Astra's own theme picker.
+  // The color theme is INDEPENDENT of the Dark/Light/AMOLED/System choice:
+  // every preset has its own dark and light palette and the one matching the
+  // active brightness is used, so a user on Light gets the light version of
+  // the theme they picked. Dynamic (Material You) is the one exception — it
+  // is its own wallpaper-derived palette, so while it is selected the color
+  // themes are OFF (the saved choice is kept and comes back when the user
+  // leaves Dynamic). Picking a color theme while Dynamic is on switches
+  // Dynamic off (to System, so Light/Dark still follow the device).
   AurumColorPreset _colorPreset = AurumColorPreset.midnight;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Waveform';
@@ -85,14 +84,41 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// is active, its accent wins here too, so the whole app (including
   /// those widgets) reads as one consistent color theme. `none` falls back
   /// to the user's own accentColor selection exactly as before.
-  Color get accentColor => _colorPreset == AurumColorPreset.none
-      ? _accentColor
-      : (AurumColorPresetCatalog.forId(_colorPreset)?.accent ?? _accentColor);
+  Color get accentColor {
+    final preset = effectivePreset;
+    if (preset == AurumColorPreset.none) return _accentColor;
+    final data = AurumColorPresetCatalog.forId(preset);
+    if (data == null) return _accentColor;
+    return data.accentFor(_resolvedBrightness);
+  }
+
+  /// Brightness this provider resolves to right now (same answer
+  /// themeMode gives MaterialApp; `system` follows the OS).
+  Brightness get _resolvedBrightness {
+    switch (themeMode) {
+      case ThemeMode.dark:
+        return Brightness.dark;
+      case ThemeMode.light:
+        return Brightness.light;
+      case ThemeMode.system:
+        return WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    }
+  }
 
   /// Currently selected named color theme (Ocean/Forest/Sunset/Midnight/
   /// Aurora), or `none` if none is active. Selecting one is a full
   /// top-level theme switch — see setColorPreset() below.
   AurumColorPreset get colorPreset => _colorPreset;
+
+  /// True while Dynamic Color (Material You) is genuinely driving the theme —
+  /// color themes are switched off during this.
+  bool get dynamicOverridesPreset =>
+      _mode == AurumThemeMode.dynamic && _dynamicDark != null;
+
+  /// The color theme that is actually applied right now: the saved choice,
+  /// except `none` while Dynamic Color is in control.
+  AurumColorPreset get effectivePreset =>
+      dynamicOverridesPreset ? AurumColorPreset.none : _colorPreset;
 
   /// 'Primary' (default, white) | 'White' | 'Accent' — drives the color
   /// of the main play/pause button on the full player screen.
@@ -323,34 +349,26 @@ class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> setMode(AurumThemeMode mode) async {
     _mode = mode;
-    // Picking Dark/Light/AMOLED/System/Dynamic from the THEME list is a
-    // top-level choice, same as picking a color preset below — the two
-    // lists are mutually exclusive, so choosing one always clears the
-    // other back to its default.
-    _colorPreset = AurumColorPreset.none;
+    // The color theme is independent of the mode, so it is NOT cleared here.
+    // Choosing Dynamic simply switches color themes off while it is active
+    // (see effectivePreset); the saved choice returns when the user leaves it.
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setString(_key, mode.name);
-    await p.setString(_colorPresetKey, AurumColorPreset.none.name);
   }
 
-  /// Selecting a named color theme (Ocean/Forest/Sunset/Midnight/Aurora) is
-  /// a full top-level theme switch, exactly like picking Dark/Light/AMOLED/
-  /// System/Dynamic from the THEME list above — not a modifier layered on
-  /// whatever was active before. So this always forces _mode to `dark`
-  /// (presets render through the dark palette slot; see AurumTheme._dark())
-  /// regardless of what was selected previously — including automatically
-  /// turning OFF Dynamic Color mode if that was active, since a live
-  /// wallpaper-derived scheme and a fixed named preset can't both be the
-  /// theme at once. Picking `none` here (the "None" option in the presets
-  /// list) simply returns to the plain Dark theme.
+  /// Selects a named color theme. Works with Dark, Light, AMOLED and System
+  /// (each uses the matching dark/light palette). If Dynamic Color was on it
+  /// is switched off — a wallpaper palette and a fixed color theme cannot
+  /// both be the theme — falling back to System so Light/Dark still follow
+  /// the device.
   Future<void> setColorPreset(AurumColorPreset preset) async {
     _colorPreset = preset;
-    _mode = AurumThemeMode.dark;
+    if (_mode == AurumThemeMode.dynamic) _mode = AurumThemeMode.system;
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setString(_colorPresetKey, preset.name);
-    await p.setString(_key, AurumThemeMode.dark.name);
+    await p.setString(_key, _mode.name);
   }
 
   Future<void> setPlayerButtonColorMode(String mode) async {

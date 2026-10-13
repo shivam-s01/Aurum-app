@@ -631,19 +631,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // HomeScreen (inside SplashScreen's `child`) is constructed.
     final lib = context.read<LibraryProvider>();
     if (!lib.hasLoaded) lib.load();
-    HomeFeedCache.isArtistsFresh().then((fresh) async {
+    // Cold start never touches the network for the artist strip: it is no
+    // longer rendered on Home, so only the cached copy is restored (no
+    // background fetch — data comes only from pull-to-refresh).
+    HomeFeedCache.isArtistsFresh().then((fresh) {
       if (!mounted) return;
-      if (fresh) {
-        // main()'s prefetch may have saved the cache between the hydrate
-        // read above and this check — re-hydrate so the strip never stays
-        // empty in that narrow window.
-        if (_homeArtists.isEmpty) _hydrateFromCache();
-        return;
-      }
-      if (await HomeFeedCache.coldAttemptedRecently('artists')) return;
-      await HomeFeedCache.markColdAttempt('artists');
-      if (!mounted) return;
-      _loadArtists();
+      if (fresh && _homeArtists.isEmpty) _hydrateFromCache();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
 
@@ -740,6 +733,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _loadArtists() async {
     // Reset per-load so a pull-to-refresh (this function is also called
     // from the pull-to-refresh handler below) gets its own fresh
@@ -1075,7 +1069,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // ── Top stage backdrop: Echo Nightly-style baked blur + grain.
           // Replaces the old flat palette-color glow. ──
-          const AurumStageBackdrop(),
+          AurumStageBackdrop(scrollController: _scrollCtrl),
 
           // ── Main scroll content ──
           // Reverted to Flutter's stock RefreshIndicator — the custom
@@ -1306,7 +1300,41 @@ class _HomeScreenState extends State<HomeScreen> {
       floating: true,
       snap: true,
       elevation: 0,
+      scrolledUnderElevation: 0,
       titleSpacing: 12,
+      // TOP-BAR VISIBILITY FIX: this bar is transparent and floats/snaps
+      // back in on any upward scroll, i.e. right on top of whatever shelf
+      // thumbnails are under it. A grey icon on an arbitrary cover simply
+      // vanished. At the very top the bar stays fully transparent (the
+      // stage glow shows through); once the page has scrolled, a page-
+      // coloured scrim fades in behind it, with a soft lower edge so no
+      // hard band is visible.
+      flexibleSpace: AnimatedBuilder(
+        animation: _scrollCtrl,
+        builder: (context, _) {
+          var t = 0.0;
+          if (_scrollCtrl.hasClients) {
+            t = (_scrollCtrl.position.pixels / 48.0).clamp(0.0, 1.0);
+          }
+          final bg = AurumTheme.bgOf(context);
+          return IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    bg.withOpacity(0.96 * t),
+                    bg.withOpacity(0.96 * t),
+                    bg.withOpacity(0.0),
+                  ],
+                  stops: const [0.0, 0.88, 1.0],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
@@ -1423,13 +1451,15 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-        IconButton(
-          icon: Icon(Icons.settings_outlined,
-              color: AurumTheme.textSecondaryOf(context)),
-          // Same AurumDepthRoute switch as library_screen.dart's matching
-          // settings button — see that fix comment for the full reasoning.
-          // Everything downstream of Settings (Player/Appearance/Language/
-          // Storage/Notifications/Privacy/About/Premium) now matches too.
+        // Same AurumDepthRoute switch as library_screen.dart's matching
+        // settings button — see that fix comment for the full reasoning.
+        // Everything downstream of Settings (Player/Appearance/Language/
+        // Storage/Notifications/Privacy/About/Premium) now matches too.
+        // Drawn on its own translucent chip with a primary-colour icon, so
+        // it stays readable on ANY thumbnail/backdrop (dark or light art).
+        _TopBarIconButton(
+          icon: Icons.settings_outlined,
+          tooltip: 'Settings',
           onPressed: () => AurumDepthRoute.to(context, const SettingsScreen()),
         ),
         const _ProfileAvatarButton(),
@@ -2277,6 +2307,48 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile Avatar Button
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Top-bar icon button that is always legible: a translucent page-coloured
+/// disc + hairline ring behind a full-contrast icon, so it never blends into
+/// the artwork/thumbnail underneath.
+class _TopBarIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  const _TopBarIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = AurumTheme.textPrimaryOf(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: AurumTheme.bgCardOf(context).withOpacity(isDark ? 0.62 : 0.85),
+          border: Border.all(color: fg.withOpacity(0.10), width: 0.8),
+        ),
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          tooltip: tooltip,
+          icon: Icon(icon, size: 21, color: fg),
+          onPressed: () {
+            AurumHaptics.selection();
+            onPressed();
+          },
+        ),
+      ),
+    );
+  }
+}
 
 class _ProfileAvatarButton extends StatelessWidget {
   const _ProfileAvatarButton();
@@ -4438,15 +4510,35 @@ class _QuickPicksSectionState extends State<_QuickPicksSection> {
         children: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Text(
-              AppLocalizations.of(context)!.homeQuickPicks,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.3,
-              ),
+            // Same accent-tick header as every shelf title below, so the
+            // very first section on Home matches the rest of the page
+            // instead of being the one plain-text heading.
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    gradient: AurumTheme.accentGradientOf(context),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    AppLocalizations.of(context)!.homeQuickPicks,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -5642,6 +5734,18 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
   Future<void> _open() async {
     if (_resolving) return;
     AurumHaptics.selection();
+    // Artist cards (channel id) open the artist page — they used to fall
+    // through to the playlist resolver below, which can't load a channel.
+    if (widget.item.isArtist) {
+      AurumDepthRoute.to(
+        context,
+        ArtistScreen(
+          artistId: 'yt_${widget.item.browseId}',
+          artistName: widget.item.title,
+        ),
+      );
+      return;
+    }
     setState(() => _resolving = true);
     // PERF FIX ("playlist pe click karne pe pehle loading leta hai" —
     // 2026-09-06): this used to await resolveHomeShelfPlaylist's full
@@ -5723,8 +5827,11 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                       imageUrl: c.artworkUrl,
                       cacheManager: AurumImageCache(),
                       fit: BoxFit.cover,
-                      memCacheWidth: 260,
-                      memCacheHeight: 260,
+                      // 172dp card: 260px was only ~1.5x (soft on dense
+                      // screens); 380px is ~2.2x — crisp, still small
+                      // enough for low-end RAM. Width only, so aspect
+                      // ratio is preserved.
+                      memCacheWidth: 380,
                       placeholder: (_, __) =>
                           Container(color: AurumTheme.bgCardOf(context)),
                       errorWidget: (_, __, ___) =>

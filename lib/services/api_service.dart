@@ -251,6 +251,12 @@ class HomeShelfItem {
   final bool isAlbum;
 
   final bool isRadioMix;
+
+  /// True when this card is an artist/channel (browseId 'UC...'), not a
+  /// playlist or album. Moods & Genres pages (esp. language ones like
+  /// Tamil) carry artist cards, and those must open the artist page —
+  /// treating them as playlists is why tapping an artist did nothing.
+  final bool isArtist;
   const HomeShelfItem({
     required this.browseId,
     required this.title,
@@ -258,6 +264,7 @@ class HomeShelfItem {
     required this.artworkUrl,
     required this.isAlbum,
     this.isRadioMix = false,
+    this.isArtist = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -267,6 +274,7 @@ class HomeShelfItem {
         'artworkUrl': artworkUrl,
         'isAlbum': isAlbum,
         'isRadioMix': isRadioMix,
+        'isArtist': isArtist,
       };
 
   factory HomeShelfItem.fromJson(Map<String, dynamic> json) => HomeShelfItem(
@@ -276,6 +284,7 @@ class HomeShelfItem {
         artworkUrl: (json['artworkUrl'] ?? '').toString(),
         isAlbum: json['isAlbum'] == true,
         isRadioMix: json['isRadioMix'] == true,
+        isArtist: json['isArtist'] == true,
       );
 }
 
@@ -3102,6 +3111,9 @@ class ApiService {
             artworkUrl: it.artworkUrl,
             isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
             isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
+            isArtist: it.pageType == 'MUSIC_PAGE_TYPE_ARTIST' ||
+                it.pageType == 'MUSIC_PAGE_TYPE_USER_CHANNEL' ||
+                (it.pageType.isEmpty && it.browseId.startsWith('UC')),
           ));
         }
         if (parsed.isEmpty) continue;
@@ -3419,6 +3431,81 @@ class ApiService {
         .toList();
   }
 
+  // Collects every shelf-like renderer in DOCUMENT ORDER. Language/genre
+  // pages (Tamil, Punjabi, ...) mix carousels of playlists/albums/artists
+  // with plain song-list shelves; reading only musicCarouselShelfRenderer
+  // silently dropped every song list, leaving those categories empty.
+  static void _collectShelfRenderers(
+      dynamic node, List<MapEntry<String, Map<String, dynamic>>> out) {
+    if (node is Map) {
+      for (final key in const [
+        'musicCarouselShelfRenderer',
+        'musicShelfRenderer',
+        'musicPlaylistShelfRenderer',
+      ]) {
+        final m = node[key];
+        if (m is Map) out.add(MapEntry(key, Map<String, dynamic>.from(m)));
+      }
+      for (final v in node.values) {
+        _collectShelfRenderers(v, out);
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        _collectShelfRenderers(v, out);
+      }
+    }
+  }
+
+  // A carousel card that is a playable song/video (watchEndpoint) instead
+  // of a browse page — _parseHomeTwoRowItem rejects these (no
+  // browseEndpoint), which is the other reason sections went missing.
+  static Song? _parseTwoRowSong(Map<String, dynamic> item) {
+    final r = item['musicTwoRowItemRenderer'];
+    if (r is! Map) return null;
+    final titleRuns = (r['title']?['runs'] as List?) ?? const [];
+    if (titleRuns.isEmpty) return null;
+    final title = _cleanHomeText((titleRuns.first['text'] ?? '').toString());
+    if (title.isEmpty) return null;
+    var videoId = (titleRuns.first['navigationEndpoint']?['watchEndpoint']
+                ?['videoId'] ??
+            '')
+        .toString();
+    if (videoId.isEmpty) {
+      videoId =
+          (r['navigationEndpoint']?['watchEndpoint']?['videoId'] ?? '')
+              .toString();
+    }
+    if (videoId.isEmpty) return null;
+
+    final subtitleRuns = (r['subtitle']?['runs'] as List?) ?? const [];
+    var artist = '';
+    for (final run in subtitleRuns) {
+      final t = (run['text'] ?? '').toString().trim();
+      final l = t.toLowerCase();
+      if (t.isEmpty || t == '•') continue;
+      if (l == 'song' || l == 'video') continue;
+      if (l.contains('views') || l.contains('plays')) continue;
+      artist = _cleanHomeText(t);
+      break;
+    }
+
+    final thumbs = (r['thumbnailRenderer']?['musicThumbnailRenderer']
+            ?['thumbnail']?['thumbnails'] as List?) ??
+        const [];
+    var artworkUrl = '';
+    if (thumbs.isNotEmpty) artworkUrl = (thumbs.last['url'] ?? '').toString();
+    if (artworkUrl.isEmpty) return null;
+
+    return Song(
+      id: videoId,
+      title: title,
+      artist: artist,
+      album: '',
+      artworkUrl: _hqArtworkGeneric(artworkUrl),
+      source: SongSource.youtube,
+    );
+  }
+
   static Future<List<HomeShelf>> fetchMoodGenreCategory(
     String browseId,
     String params, {
@@ -3428,33 +3515,74 @@ class ApiService {
     if (data == null) return const [];
     try {
       final shelves = <HomeShelf>[];
-      for (final shelf in _findRenderers(data, 'musicCarouselShelfRenderer')) {
-        final titleRuns = (shelf['header']
-                    ?['musicCarouselShelfBasicHeaderRenderer']?['title']
-                ?['runs'] as List?) ??
-            const [];
-        final shelfTitle = titleRuns.isNotEmpty
-            ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
-            : '';
-        if (shelfTitle.isEmpty) continue;
+      final found = <MapEntry<String, Map<String, dynamic>>>[];
+      _collectShelfRenderers(data, found);
 
-        final items = (shelf['contents'] as List?) ?? const [];
+      for (final entry in found) {
+        final kind = entry.key;
+        final shelf = entry.value;
+
+        String shelfTitle;
+        if (kind == 'musicCarouselShelfRenderer') {
+          final titleRuns = (shelf['header']
+                      ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                  ?['runs'] as List?) ??
+              const [];
+          shelfTitle = titleRuns.isNotEmpty
+              ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
+              : '';
+        } else {
+          final titleRuns = (shelf['title']?['runs'] as List?) ?? const [];
+          shelfTitle = titleRuns.isNotEmpty
+              ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
+              : '';
+        }
+        if (shelfTitle.isEmpty) {
+          shelfTitle = kind == 'musicCarouselShelfRenderer' ? 'More' : 'Songs';
+        }
+
+        final rows = (shelf['contents'] as List?) ?? const [];
         final parsed = <HomeShelfItem>[];
-        for (final raw in items) {
+        final songs = <Song>[];
+        for (final raw in rows) {
           if (raw is! Map<String, dynamic>) continue;
+          if (raw['musicResponsiveListItemRenderer'] is Map) {
+            final song = _parseHomeShelfSongRow(raw);
+            if (song != null) songs.add(song);
+            continue;
+          }
           final it = _parseHomeTwoRowItem(raw);
-          if (it == null || it.artworkUrl.isEmpty) continue;
-          parsed.add(HomeShelfItem(
-            browseId: it.browseId,
-            title: it.title,
-            subtitle: it.subtitle,
-            artworkUrl: it.artworkUrl,
-            isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
-            isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
+          if (it != null) {
+            if (it.artworkUrl.isEmpty) continue;
+            final isArtist =
+                it.pageType == 'MUSIC_PAGE_TYPE_ARTIST' ||
+                    it.pageType == 'MUSIC_PAGE_TYPE_USER_CHANNEL' ||
+                    (it.pageType.isEmpty && it.browseId.startsWith('UC'));
+            parsed.add(HomeShelfItem(
+              browseId: it.browseId,
+              title: it.title,
+              subtitle: it.subtitle,
+              artworkUrl: it.artworkUrl,
+              isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+              isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
+              isArtist: isArtist,
+            ));
+            continue;
+          }
+          final song = _parseTwoRowSong(raw);
+          if (song != null) songs.add(song);
+        }
+        if (parsed.isNotEmpty) {
+          shelves.add(HomeShelf(title: shelfTitle, items: parsed));
+        }
+        if (songs.isNotEmpty) {
+          shelves.add(HomeShelf(
+            title: shelfTitle,
+            items: const [],
+            isList: true,
+            songs: songs,
           ));
         }
-        if (parsed.isEmpty) continue;
-        shelves.add(HomeShelf(title: shelfTitle, items: parsed));
       }
 
       if (shelves.isEmpty) {
@@ -3472,6 +3600,8 @@ class ApiService {
               artworkUrl: it.artworkUrl,
               isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
               isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
+              isArtist: it.pageType == 'MUSIC_PAGE_TYPE_ARTIST' ||
+                  it.browseId.startsWith('UC'),
             ));
           }
         }

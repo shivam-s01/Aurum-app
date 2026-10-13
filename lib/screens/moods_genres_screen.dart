@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
@@ -27,6 +28,9 @@ import '../widgets/faded_horizontal_list.dart';
 import 'album_screen.dart';
 import 'mix_screen.dart';
 import '../services/aurum_image_cache.dart';
+import '../providers/player_provider.dart';
+import '../widgets/aurum_artwork.dart';
+import 'artist_screen.dart';
 
 // Neutral fallback tile colors, cycled only when InnerTube genuinely sends
 // no `solid` color for a tile (see MoodGenreCategory.color's doc comment) —
@@ -310,10 +314,19 @@ class _MoodGenreDetailScreenState extends State<MoodGenreDetailScreen> {
   }
 
   Future<void> _load() async {
-    final shelves = await ApiService.fetchMoodGenreCategory(
+    var shelves = await ApiService.fetchMoodGenreCategory(
       widget.category.browseId,
       widget.category.params,
     );
+    // One patient retry: an 8s timeout / transient miss used to show
+    // "Couldn't load" for categories that actually have content.
+    if (shelves.isEmpty && mounted) {
+      shelves = await ApiService.fetchMoodGenreCategory(
+        widget.category.browseId,
+        widget.category.params,
+        timeout: const Duration(seconds: 15),
+      );
+    }
     if (!mounted) return;
     setState(() {
       _shelves = shelves;
@@ -323,6 +336,18 @@ class _MoodGenreDetailScreenState extends State<MoodGenreDetailScreen> {
 
   Future<void> _openItem(HomeShelfItem item) async {
     AurumHaptics.selection();
+    if (item.isArtist) {
+      // Artist cards carry a channel id (UC...), not a playlist id — they
+      // used to fall through to MixScreen below, which can't load one.
+      AurumDepthRoute.to(
+        context,
+        ArtistScreen(
+          artistId: 'yt_${item.browseId}',
+          artistName: item.title,
+        ),
+      );
+      return;
+    }
     if (item.isAlbum) {
       AurumDepthRoute.to(
         context,
@@ -411,6 +436,7 @@ class _CategoryShelfRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (shelf.isList) return _CategorySongList(shelf: shelf);
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
       child: Column(
@@ -465,7 +491,7 @@ class _CategoryItemCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(item.isArtist ? 65 : 8),
               child: CachedNetworkImage(
                 cacheManager: AurumImageCache(),
                 imageUrl: item.artworkUrl,
@@ -511,6 +537,85 @@ class _CategoryItemCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+// Plain song list for shelves that are playable songs/videos rather than
+// playlist/album cards (common on language pages such as Tamil).
+class _CategorySongList extends StatelessWidget {
+  final HomeShelf shelf;
+  const _CategorySongList({required this.shelf});
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = shelf.songs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            shelf.title,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < songs.length; i++)
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                AurumHaptics.selection();
+                context
+                    .read<PlayerProvider>()
+                    .playSong(songs[i], queue: songs, index: i);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    AurumArtwork(
+                      url: songs[i].artworkUrl,
+                      size: 52,
+                      borderRadius: 8,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            songs[i].title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (songs[i].artist.isNotEmpty)
+                            Text(
+                              songs[i].artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AurumTheme.textSecondaryOf(context),
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

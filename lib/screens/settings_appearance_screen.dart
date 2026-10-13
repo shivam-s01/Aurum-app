@@ -754,17 +754,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ? l10n.saColorThemeNoneDesc
           : AurumColorPresetCatalog.forId(preset)!.subtitle;
 
-  /// The preset that should read as "currently active" — `none` only
-  /// counts while the app is genuinely on the plain Dark theme (mode ==
-  /// dark AND no preset); on every other mode (Light/AMOLED/System/
-  /// Dynamic) no preset concept applies, so this returns null rather than
-  /// falsely showing "None" as selected there.
-  AurumColorPreset? _activeColorPreset(ThemeProvider tp) {
-    if (tp.colorPreset == AurumColorPreset.none) {
-      return tp.mode == AurumThemeMode.dark ? AurumColorPreset.none : null;
-    }
-    return tp.colorPreset;
-  }
+  /// The preset that should read as "currently active". Color themes work
+  /// with Dark / Light / AMOLED / System; `null` only while Dynamic Color is
+  /// genuinely in control (color themes are off then).
+  AurumColorPreset? _activeColorPreset(ThemeProvider tp) =>
+      tp.dynamicOverridesPreset ? null : tp.colorPreset;
 
   /// iOS-style hero summary row — ONE card showing only the current
   /// selection (no horizontal strip, no scrolling), the way iOS Settings
@@ -778,12 +772,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   /// screen already uses so it doesn't look like a one-off insert.
   Widget _colorThemeHeroRow(BuildContext context, AppLocalizations l10n) {
     final tp = context.watch<ThemeProvider>();
-    final active = _activeColorPreset(tp) ?? AurumColorPreset.none;
-    final data = AurumColorPresetCatalog.forId(active);
+    final activeOrNull = _activeColorPreset(tp);
+    final dynamicOn = activeOrNull == null;
+    final active = activeOrNull ?? tp.colorPreset;
+    final brightness = Theme.of(context).brightness;
+    final data = dynamicOn ? null : AurumColorPresetCatalog.forId(active);
     return _card(context, child: AurumPressable(
       onTap: () {
         AurumHaptics.selection();
-        _showColorThemeSheet(context, l10n, initial: active);
+        _showColorThemeSheet(context, l10n, initial: active, dynamicOn: dynamicOn);
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -793,13 +790,14 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               width: 40, height: 40,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: data?.accent ?? AurumTheme.bgOf(context),
+                color: data?.accentFor(brightness) ?? AurumTheme.bgOf(context),
                 border: data == null
                     ? Border.all(color: AurumTheme.dividerOf(context))
                     : null,
               ),
               child: data == null
-                  ? Icon(Icons.block_rounded, size: 18, color: AurumTheme.textMutedOf(context))
+                  ? Icon(dynamicOn ? Icons.wallpaper_rounded : Icons.block_rounded,
+                      size: 18, color: AurumTheme.textMutedOf(context))
                   : null,
             ),
             const SizedBox(width: 14),
@@ -807,13 +805,16 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_colorPresetLabel(l10n, active),
+                  Text(dynamicOn ? 'Off' : _colorPresetLabel(l10n, active),
                       style: TextStyle(
                         color: AurumTheme.textPrimaryOf(context),
                         fontSize: 15, fontWeight: FontWeight.w600,
                       )),
                   const SizedBox(height: 2),
-                  Text(_colorPresetSubtitle(l10n, active),
+                  Text(
+                      dynamicOn
+                          ? 'Dynamic Color is on. Pick a color theme to switch it off.'
+                          : _colorPresetSubtitle(l10n, active),
                       style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
                 ],
               ),
@@ -838,9 +839,13 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     BuildContext context,
     AppLocalizations l10n, {
     required AurumColorPreset initial,
+    bool dynamicOn = false,
   }) async {
     final tp = context.read<ThemeProvider>();
     var sheetSelected = initial;
+    // Nothing is applied unless the user actually picks a swatch — so just
+    // opening the sheet and pressing Done never silently turns Dynamic off.
+    var touched = false;
 
     await showAurumModalBottomSheet<void>(
       context: context,
@@ -910,7 +915,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                                 // updates the sheet's own local
                                 // sheetSelected state.
                                 onPressed: () {
-                                  tp.setColorPreset(sheetSelected);
+                                  if (touched) tp.setColorPreset(sheetSelected);
                                   Navigator.of(sheetContext).pop();
                                 },
                                 style: TextButton.styleFrom(
@@ -943,10 +948,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                               for (final preset in _colorPresetOrder)
                                 _colorSwatchOption(
                                   context, l10n, preset,
-                                  selected: sheetSelected == preset,
+                                  selected: touched || !dynamicOn
+                                      ? sheetSelected == preset
+                                      : false,
                                   onTap: () {
                                     AurumHaptics.selection();
-                                    setSheetState(() => sheetSelected = preset);
+                                    setSheetState(() {
+                                      sheetSelected = preset;
+                                      touched = true;
+                                    });
                                   },
                                 ),
                             ],
@@ -978,6 +988,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     required VoidCallback onTap,
   }) {
     final data = AurumColorPresetCatalog.forId(preset);
+    final brightness = Theme.of(context).brightness;
     return SizedBox(
       width: 84,
       child: AurumPressable(
@@ -996,7 +1007,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: data?.accent ?? AurumTheme.bgOf(context),
+                  color: data?.accentFor(brightness) ?? AurumTheme.bgOf(context),
                   border: data == null
                       ? Border.all(color: AurumTheme.dividerOf(context))
                       : null,
@@ -1095,17 +1106,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   }
 
   Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode, {bool disabled = false}) {
-    // A color preset (Ocean/Forest/etc.) is a full top-level theme choice
-    // that internally sets _mode to `dark` (see ThemeProvider.
-    // setColorPreset) — without this extra check, the "Dark" tile here
-    // would show selected AT THE SAME TIME as a preset tile below it,
-    // which reads as two different, contradictory selections on one
-    // screen. Only count Dark as genuinely selected when no preset is
-    // active; every other mode tile is unaffected since presets always
-    // force _mode to dark specifically.
-    final selected = tp.mode == mode &&
-        !disabled &&
-        (mode != AurumThemeMode.dark || tp.colorPreset == AurumColorPreset.none);
+    // Color themes are independent of the mode (each has a dark and a light
+    // palette), so the mode tile is simply selected when it is the mode.
+    final selected = tp.mode == mode && !disabled;
     return ListTile(
       onTap: disabled ? null : () { AurumHaptics.selection(); tp.setMode(mode); },
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
