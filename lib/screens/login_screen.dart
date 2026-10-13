@@ -1,18 +1,23 @@
 // =============================================================================
 // FILE: lib/screens/login_screen.dart
 // PROJECT: Astra Music
-// DESCRIPTION: Spotify-style full-screen login gate.
-//   ✅ Animated entrance (fade + slide + gold glow pulse on logo)
-//   ✅ "Continue with Google" — the ONLY way in, shown explicitly
-//   ✅ Loading state while Supabase/Google round-trip happens
-//   ✅ Inline error (no silent fail, no auto-retry)
-//   ✅ On success: syncs cloud data, then pops back to caller
+// DESCRIPTION: Sign-in screen — redesigned.
+//   • Soft accent glows (top-left / bottom-right) over the themed background
+//   • Big gradient app tile, large "Sign in" title, centered subtitle
+//   • Three benefit cards that reveal one after another
+//   • Full-width gradient "Continue with Google" pill (dark text — readable on
+//     every accent), Google "G" in a white badge, busy loader state
+//   • Inline error (no silent fail), friendly "sign-in is optional" footnote
+//   • One short entrance animation only (no looping effects) — light on
+//     low-end phones, and off entirely when animations are disabled
+//   • Fully theme-aware (Light / Dark / AMOLED / dynamic colour)
+//   • Behaviour unchanged: on success → sync cloud data → pop(true);
+//     back / cancel → pop(false)
 // =============================================================================
 
 import '../services/analytics_service.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -24,6 +29,9 @@ import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
+import '../widgets/aurum_pressable.dart';
+import '../widgets/google_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -35,9 +43,10 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double> _fade;
-  late final Animation<Offset> _slide;
   late final Animation<double> _glow;
+  late final Animation<double> _hero;
+  late final List<Animation<double>> _cards;
+  late final Animation<double> _bottom;
 
   bool _busy = false;
   String? _error;
@@ -48,13 +57,16 @@ class _LoginScreenState extends State<LoginScreen>
     AnalyticsService.instance.logScreen('Login');
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1100),
+      duration: AurumMotion.durationOrZero(const Duration(milliseconds: 1300)),
     );
-    _fade = CurvedAnimation(parent: _ctrl, curve: const Interval(0, 0.6, curve: Curves.easeOut));
-    _slide = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _ctrl, curve: const Interval(0.1, 0.7, curve: Curves.easeOutCubic)));
-    _glow = Tween<double>(begin: 0.0, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: const Interval(0.3, 1.0, curve: Curves.easeOut)));
+    Animation<double> seg(double a, double b) => CurvedAnimation(
+          parent: _ctrl,
+          curve: Interval(a, b, curve: Curves.easeOutCubic),
+        );
+    _glow = seg(0.0, 0.7);
+    _hero = seg(0.05, 0.50);
+    _cards = [seg(0.28, 0.64), seg(0.36, 0.72), seg(0.44, 0.80)];
+    _bottom = seg(0.58, 1.0);
     _ctrl.forward();
   }
 
@@ -67,7 +79,10 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _continueWithGoogle() async {
     if (_busy) return;
     AurumHaptics.medium();
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
 
     final auth = context.read<AuthProvider>();
     final ok = await auth.signInWithGoogle();
@@ -92,152 +107,295 @@ class _LoginScreenState extends State<LoginScreen>
 
     setState(() {
       _busy = false;
-      _error = auth.lastError; // null if user just cancelled the picker
+      _error = auth.lastError; // null if the user just cancelled the picker
     });
+  }
+
+  Widget _reveal(Animation<double> a, Widget child, {Offset from = const Offset(0, 0.06)}) {
+    return FadeTransition(
+      opacity: a,
+      child: SlideTransition(
+        position: Tween<Offset>(begin: from, end: Offset.zero).animate(a),
+        child: child,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final accent = AurumTheme.accentOf(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final benefits = <(IconData, String)>[
+      (Icons.cloud_sync_rounded, l10n.loginBenefitSyncDevices),
+      (Icons.devices_rounded, l10n.loginBenefitResumeWhereLeft),
+      (Icons.shield_rounded, l10n.loginBenefitLibrarySafe),
+    ];
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: Stack(
         children: [
-          // Ambient gold glow, top-anchored — premium depth instead of flat black.
+          // Ambient glows — fade in once, then stay still.
           Positioned(
-            top: -120, left: -80,
-            child: AnimatedBuilder(
-              animation: _glow,
-              builder: (_, __) => Container(
-                width: 360, height: 360,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AurumTheme.accentOf(context).withOpacity(0.18 * _glow.value),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
+            top: -140,
+            left: -110,
+            child: FadeTransition(
+              opacity: _glow,
+              child: _Glow(color: accent, size: 420, opacity: isDark ? 0.30 : 0.22),
+            ),
+          ),
+          Positioned(
+            bottom: -170,
+            right: -140,
+            child: FadeTransition(
+              opacity: _glow,
+              child: _Glow(color: accent, size: 400, opacity: isDark ? 0.14 : 0.10),
             ),
           ),
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                      child: Column(
-                        children: [
-                          SizedBox(height: constraints.maxHeight * 0.07),
-                          FadeTransition(
-                    opacity: _fade,
-                    child: SlideTransition(
-                      position: _slide,
-                      child: Column(
-                        children: [
-                          AnimatedBuilder(
-                            animation: _glow,
-                            builder: (_, __) => Container(
-                              width: 88, height: 88,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [AurumTheme.accentLightOf(context), AurumTheme.accentDarkOf(context)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AurumTheme.accentOf(context).withOpacity(0.45 * _glow.value),
-                                    blurRadius: 28,
-                                    spreadRadius: 4,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(Icons.music_note_rounded,
-                                  color: Colors.black, size: 42),
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          Text(
-                            'Astra',
-                            style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 32,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.loginSyncSubtitle,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: AurumTheme.textSecondaryOf(context),
-                              fontSize: 14.5,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 30),
-                          const _BenefitsList(),
-                        ],
+            child: Column(
+              children: [
+                // ── Back ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: AurumPressable(
+                      onTap: _busy ? null : () => Navigator.of(context).pop(false),
+                      scaleAmount: 0.9,
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        child: Icon(Icons.arrow_back_rounded,
+                            size: 26, color: AurumTheme.textPrimaryOf(context)),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 40),
-                  FadeTransition(
-                    opacity: _fade,
-                    child: Column(
+                ),
+
+                // ── Hero + benefits (scrolls on very small screens) ──
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, c) => SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: c.maxHeight),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _reveal(
+                              _hero,
+                              Column(
+                                children: [
+                                  _AppTile(accent: accent),
+                                  const SizedBox(height: 28),
+                                  Text(
+                                    l10n.prSignIn,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AurumTheme.textPrimaryOf(context),
+                                      fontSize: 38,
+                                      height: 1.05,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    l10n.loginSyncSubtitle,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AurumTheme.textSecondaryOf(context),
+                                      fontSize: 15.5,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 34),
+                            for (var i = 0; i < benefits.length; i++)
+                              Padding(
+                                padding: EdgeInsets.only(bottom: i == benefits.length - 1 ? 0 : 12),
+                                child: _reveal(
+                                  _cards[i],
+                                  _BenefitCard(icon: benefits[i].$1, label: benefits[i].$2),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // ── Action area ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+                  child: _reveal(
+                    _bottom,
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_error != null) ...[
+                        if (_error != null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            margin: const EdgeInsets.only(bottom: 16),
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                            margin: const EdgeInsets.only(bottom: 14),
                             decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.red.withOpacity(0.25)),
+                              color: Colors.red.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.red.withOpacity(0.28)),
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.error_outline_rounded, color: Colors.red.shade300, size: 18),
-                                const SizedBox(width: 8),
+                                Icon(Icons.error_outline_rounded,
+                                    color: Colors.red.shade300, size: 18),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
                                     _error!,
-                                    style: TextStyle(color: Colors.red.shade300, fontSize: 12.5),
+                                    style: TextStyle(
+                                        color: Colors.red.shade300, fontSize: 12.5, height: 1.3),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
                         _GoogleContinueButton(busy: _busy, onTap: _continueWithGoogle),
-                        const SizedBox(height: 18),
-                        TextButton(
-                          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
-                          child: Text(
-                            l10n.loginMaybeLater,
-                            style: TextStyle(
-                              color: AurumTheme.textMutedOf(context),
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
-                            ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.loginOptionalNote,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AurumTheme.textMutedOf(context),
+                            fontSize: 12.5,
+                            height: 1.35,
                           ),
                         ),
                       ],
                     ),
+                    from: const Offset(0, 0.10),
                   ),
-                  const SizedBox(height: 28),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Soft radial accent glow.
+class _Glow extends StatelessWidget {
+  final Color color;
+  final double size;
+  final double opacity;
+  const _Glow({required this.color, required this.size, required this.opacity});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [color.withOpacity(opacity), Colors.transparent],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rounded-square gradient tile with a soft glow — the screen's anchor.
+class _AppTile extends StatelessWidget {
+  final Color accent;
+  const _AppTile({required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(32),
+        gradient: AurumTheme.accentGradientOf(context),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withOpacity(0.42),
+            blurRadius: 36,
+            spreadRadius: 1,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Subtle top sheen for depth.
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(32),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.center,
+                  colors: [Colors.white.withOpacity(0.22), Colors.transparent],
+                ),
+              ),
+            ),
+          ),
+          const Icon(Icons.cloud_sync_rounded, color: Colors.black87, size: 48),
+        ],
+      ),
+    );
+  }
+}
+
+class _BenefitCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _BenefitCard({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13),
+              color: accent.withOpacity(0.14),
+            ),
+            child: Icon(icon, size: 21, color: accent),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 14.5,
+                height: 1.3,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -247,91 +405,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 }
 
-/// Animated, staggered list of sign-in benefits — each row fades + slides
-/// in slightly after the previous one for a premium "reveal" feel.
-class _BenefitsList extends StatefulWidget {
-  const _BenefitsList();
-  @override
-  State<_BenefitsList> createState() => _BenefitsListState();
-}
-
-class _BenefitsListState extends State<_BenefitsList> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-
-  static List<(IconData, String)> _items(AppLocalizations l10n) => [
-    (Icons.cloud_sync_rounded, l10n.loginBenefitSyncDevices),
-    (Icons.history_rounded, l10n.loginBenefitResumeWhereLeft),
-    (Icons.lock_outline_rounded, l10n.loginBenefitLibrarySafe),
-    (Icons.person_outline_rounded, l10n.loginBenefitPersonalizedProfile),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500 + 4 * 120),
-    )..forward();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final items = _items(l10n);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: List.generate(items.length, (i) {
-        final start = (i * 0.15).clamp(0.0, 0.7);
-        final end = (start + 0.5).clamp(0.0, 1.0);
-        final anim = CurvedAnimation(
-          parent: _ctrl,
-          curve: Interval(start, end, curve: Curves.easeOutCubic),
-        );
-        final (icon, label) = items[i];
-        return FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(begin: const Offset(-0.06, 0), end: Offset.zero).animate(anim),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 7),
-              child: Row(
-                children: [
-                  Container(
-                    width: 30, height: 30,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AurumTheme.accentOf(context).withOpacity(0.12),
-                    ),
-                    child: Icon(icon, size: 16, color: AurumTheme.accentLightOf(context)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context).withOpacity(0.85),
-                        fontSize: 13.5,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-}
-
-/// "Continue with Google" — white pill, Google "G" mark, busy spinner state.
+/// "Continue with Google" — gradient pill, white G badge, busy loader.
 class _GoogleContinueButton extends StatelessWidget {
   final bool busy;
   final VoidCallback onTap;
@@ -339,158 +413,59 @@ class _GoogleContinueButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // FIX ("pill dikh hi nahi raha" on light/dynamic backgrounds): pure
-    // white fill with elevation:0 and no border is invisible the moment
-    // the scaffold behind it is also near-white (light theme, or the
-    // enriched dynamic-light bg which sits at 0.99 lightness) — nothing
-    // separates the button edge from the page. Google's own official
-    // Sign-In button never relies on elevation for this exact reason; it
-    // always ships a fixed 1px border (#747775) regardless of what's
-    // behind it. Adding that border here makes the pill read the same
-    // way on every background instead of only on dark ones.
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        elevation: 0,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF747775), width: 1),
-          ),
-          child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: busy ? null : onTap,
-          child: Center(
-            child: busy
-                ? const SizedBox(
-                    width: 22, height: 22,
-                    child: Center(child: AurumM3Loader(width: 22, height: 2.5)),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const _GoogleMark(size: 20),
-                      const SizedBox(width: 12),
-                      Text(
-                        AppLocalizations.of(context)!.loginContinueWithGoogle,
-                        style: TextStyle(
-                          color: Colors.black.withOpacity(0.87),
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w600,
-                        ),
+    final accent = AurumTheme.accentOf(context);
+    return AurumPressable(
+      onTap: busy ? null : onTap,
+      haptic: false,
+      scaleAmount: 0.975,
+      child: Container(
+        width: double.infinity,
+        height: 58,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(30),
+          gradient: AurumTheme.accentGradientOf(context),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withOpacity(0.38),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Center(
+          child: busy
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Center(child: AurumM3Loader(width: 24, height: 2.5)),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
                       ),
-                    ],
-                  ),
-          ),
-          ),
+                      child: const GoogleLogo(size: 18),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      AppLocalizations.of(context)!.loginContinueWithGoogle,
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
   }
-}
-
-/// Minimal 4-color Google "G" mark, hand-painted (no asset dependency).
-class _GoogleMark extends StatelessWidget {
-  final double size;
-  const _GoogleMark({required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: CustomPaint(painter: _GMarkPainter()),
-    );
-  }
-}
-
-/// Faithful redraw of the official Google "G" mark using real path
-/// geometry (not approximated arcs), scaled from a 48x48 source grid —
-/// this is the standard shape used in Google's own Sign-In buttons.
-class _GMarkPainter extends CustomPainter {
-  static const _blue = Color(0xFF4285F4);
-  static const _green = Color(0xFF34A853);
-  static const _yellow = Color(0xFFFBBC05);
-  static const _red = Color(0xFFEA4335);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scale = size.width / 48.0;
-    canvas.save();
-    canvas.scale(scale, scale);
-
-    final paint = Paint()..style = PaintingStyle.fill;
-
-    // Blue: right-side body + crossbar (the piece that makes it a "G").
-    paint.color = _blue;
-    canvas.drawPath(
-      Path()
-        ..moveTo(45.12, 24.5)
-        ..cubicTo(45.12, 22.98, 44.98, 21.52, 44.72, 20.1)
-        ..lineTo(24, 20.1)
-        ..lineTo(24, 28.36)
-        ..lineTo(35.86, 28.36)
-        ..cubicTo(35.34, 31.18, 33.74, 33.56, 31.32, 35.16)
-        ..lineTo(31.32, 40.62)
-        ..lineTo(38.48, 40.62)
-        ..cubicTo(42.66, 36.76, 45.12, 31.16, 45.12, 24.5)
-        ..close(),
-      paint,
-    );
-
-    // Green: bottom curve.
-    paint.color = _green;
-    canvas.drawPath(
-      Path()
-        ..moveTo(24, 46)
-        ..cubicTo(29.88, 46, 34.82, 44.06, 38.48, 40.62)
-        ..lineTo(31.32, 35.16)
-        ..cubicTo(29.36, 36.46, 26.86, 37.22, 24, 37.22)
-        ..cubicTo(18.32, 37.22, 13.5, 33.36, 11.78, 28.14)
-        ..lineTo(4.4, 28.14)
-        ..lineTo(4.4, 33.78)
-        ..cubicTo(8.04, 41.02, 15.42, 46, 24, 46)
-        ..close(),
-      paint,
-    );
-
-    // Yellow: bottom-left curve.
-    paint.color = _yellow;
-    canvas.drawPath(
-      Path()
-        ..moveTo(11.78, 28.14)
-        ..cubicTo(11.32, 26.84, 11.06, 25.44, 11.06, 24)
-        ..cubicTo(11.06, 22.56, 11.32, 21.16, 11.78, 19.86)
-        ..lineTo(11.78, 14.22)
-        ..lineTo(4.4, 14.22)
-        ..cubicTo(2.86, 17.24, 2, 20.62, 2, 24)
-        ..cubicTo(2, 27.38, 2.86, 30.76, 4.4, 33.78)
-        ..lineTo(11.78, 28.14)
-        ..close(),
-      paint,
-    );
-
-    // Red: top curve.
-    paint.color = _red;
-    canvas.drawPath(
-      Path()
-        ..moveTo(24, 10.78)
-        ..cubicTo(27.16, 10.78, 29.98, 11.86, 32.2, 13.98)
-        ..lineTo(38.62, 7.56)
-        ..cubicTo(34.8, 3.98, 29.88, 2, 24, 2)
-        ..cubicTo(15.42, 2, 8.04, 6.98, 4.4, 14.22)
-        ..lineTo(11.78, 19.86)
-        ..cubicTo(13.5, 14.64, 18.32, 10.78, 24, 10.78)
-        ..close(),
-      paint,
-    );
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
