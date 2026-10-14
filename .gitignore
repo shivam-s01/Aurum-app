@@ -11,3 +11,9 @@ build/
 # pass it at build time with --dart-define-from-file=secrets.env
 # (see BUILD.md).
 secrets.env
+
+# Signing secrets — never commit (CI writes these at build time)
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
+*.jks

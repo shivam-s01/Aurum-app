@@ -5,9 +5,15 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Naya push aaye to purani chal rahi build cancel ho jaye (queue me atakna band)
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: write  # needed so the "Create Release" step can publish the built APK as a GitHub release
 
@@ -41,12 +47,14 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+          cache: gradle
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.0'
           channel: 'stable'
+          cache: true
 
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
@@ -54,9 +62,6 @@ jobs:
       - name: Write key.properties
         run: |
           printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=aurum-release.jks\n' > android/key.properties
-
-      - name: Flutter clean (prevent stale build artifacts)
-        run: flutter clean
 
       - name: Get dependencies
         run: flutter pub get
@@ -271,6 +276,7 @@ jobs:
         with:
           name: astra-music-release
           path: build/app/outputs/flutter-apk/astra-music-arm64-v8a-release.apk
+          retention-days: 1
 
       - name: Create Release
         # Gate removed (per explicit request): every successful push to
@@ -450,7 +456,10 @@ jobs:
   # trigger) so it can never block or slow down the real APK pipeline; if
   # this job fails, the APK build is unaffected.
   web-preview:
+    # Sirf manual run pe — har push pe chalane se artifact quota bhar raha tha
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: write

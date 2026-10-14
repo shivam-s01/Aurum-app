@@ -20,6 +20,11 @@ if (keystorePropertiesFile.exists()) {
     }
 }
 
+// CI sirf arm64 build karta hai (-Ptarget-platform=android-arm64): tab native
+// code + APK sirf us ek ABI ke liye bante hain, 3x kam kaam.
+def ciArm64Only = (project.findProperty('target-platform') == 'android-arm64')
+def appAbis = ciArm64Only ? ["arm64-v8a"] : ["armeabi-v7a", "arm64-v8a", "x86_64"]
+
 android {
     namespace "com.aurum.music"
     compileSdk flutter.compileSdkVersion
@@ -60,7 +65,7 @@ android {
         ndk {
             // Matches the abi splits below — no point building native
             // code for architectures the app never ships.
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+            abiFilters(*appAbis)
         }
     }
 
@@ -91,8 +96,8 @@ android {
         abi {
             enable true
             reset()
-            include "armeabi-v7a", "arm64-v8a", "x86_64"
-            universalApk true
+            include(*appAbis)
+            universalApk (appAbis.size() > 1)
         }
     }
 
