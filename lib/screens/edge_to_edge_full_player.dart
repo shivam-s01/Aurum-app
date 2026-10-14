@@ -1477,7 +1477,7 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
                           // fetch/sync/scroll/highlight/glow behavior comes
                           // along for free and stays in sync between both
                           // full-player layouts automatically.
-                          const Expanded(child: AurumLyricsPage()),
+                          const Expanded(child: AurumLyricsPage(onDarkBackdrop: true)),
                         ],
                       ),
                     ),

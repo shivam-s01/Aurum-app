@@ -102,7 +102,7 @@ class SyncService {
         'id': pl.id,
         'user_id': _uid,
         'data': pl.toJson(),
-        'updated_at': pl.updatedAt.toIso8601String(),
+        'updated_at': pl.updatedAt.toUtc().toIso8601String(),
       });
     } catch (e) {
       if (kDebugMode) debugPrint('[SyncService] pushPlaylist error: $e');
@@ -269,34 +269,59 @@ class SyncService {
     final remoteRows =
         await _client.from('playlists').select().eq('user_id', uid);
 
-    final remoteById = <String, Map<String, dynamic>>{
-      for (final row in remoteRows) row['id'] as String: row,
-    };
-
     final localById = {for (final p in provider.playlists) p.id: p};
 
-    // Pull: remote newer or missing locally -> apply locally
+    // The row's own `updated_at` column can't be trusted for comparison:
+    // older app versions sent a zone-less local time that Postgres read as
+    // UTC, so for users ahead of UTC (India +5:30 etc.) every server row
+    // looked hours "newer" and silently overwrote local changes (custom
+    // order, pins...) on every launch/resume — plus forced a full rebuild
+    // of every playlist each time. The playlist's own `data.updatedAt`
+    // is in the same clock as the local copy, so compare that instead.
+    DateTime stampOf(Map<String, dynamic> row, Map<String, dynamic> data) {
+      final inner = data['updatedAt'];
+      if (inner is String) {
+        final t = DateTime.tryParse(inner);
+        if (t != null) return t;
+      }
+      return DateTime.parse(row['updated_at'] as String);
+    }
+
+    // Pull: remote newer or missing locally -> apply locally (one batch).
+    final toPull = <AurumPlaylist>[];
+    final remoteStamp = <String, DateTime>{};
     for (final row in remoteRows) {
-      final id = row['id'] as String;
-      final remoteUpdatedAt = DateTime.parse(row['updated_at'] as String);
-      final local = localById[id];
-      if (local == null || remoteUpdatedAt.isAfter(local.updatedAt)) {
+      // One corrupt/null row must never abort the whole sync. A skipped row
+      // has no remoteStamp, so the push loop below re-uploads the good
+      // local copy (self-heals the bad server row).
+      try {
+        final id = row['id'] as String;
         final data = Map<String, dynamic>.from(row['data'] as Map);
-        await provider.upsertFromRemote(AurumPlaylist.fromJson(data));
+        final remoteUpdatedAt = stampOf(row, data);
+        remoteStamp[id] = remoteUpdatedAt;
+        final local = localById[id];
+        if (local == null || remoteUpdatedAt.isAfter(local.updatedAt)) {
+          toPull.add(AurumPlaylist.fromJson(data));
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[SyncService] bad playlist row skipped: $e');
       }
     }
+    if (toPull.isNotEmpty) {
+      await provider.upsertManyFromRemote(toPull);
+    }
+    final pulledIds = {for (final p in toPull) p.id};
 
     // Push: local newer or missing remotely -> upload
     for (final local in provider.playlists) {
-      final remote = remoteById[local.id];
-      final remoteUpdatedAt =
-          remote != null ? DateTime.parse(remote['updated_at'] as String) : null;
-      if (remote == null || local.updatedAt.isAfter(remoteUpdatedAt!)) {
+      if (pulledIds.contains(local.id)) continue;
+      final remoteUpdatedAt = remoteStamp[local.id];
+      if (remoteUpdatedAt == null || local.updatedAt.isAfter(remoteUpdatedAt)) {
         await _client.from('playlists').upsert({
           'id': local.id,
           'user_id': uid,
           'data': local.toJson(),
-          'updated_at': local.updatedAt.toIso8601String(),
+          'updated_at': local.updatedAt.toUtc().toIso8601String(),
         });
       }
     }

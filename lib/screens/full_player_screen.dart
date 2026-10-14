@@ -3043,38 +3043,35 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                     Opacity(
                       opacity: (1 - artOpacity).clamp(0.0, 1.0),
                       child: Builder(builder: (context) {
-                        final isLight =
-                            Theme.of(context).brightness == Brightness.light;
-                        return Stack(fit: StackFit.expand, children: [
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(radius),
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  widget.bg1,
-                                  widget.bg2,
-                                  widget.bg3,
-                                  widget.bg4,
-                                ],
-                              ),
+                        // FIX ("lyrics ka background awkward lagta hai" +
+                        // "light mode me lyrics black"): in light mode
+                        // bg1..bg4 are deliberately LIGHT tints (luma >=
+                        // 0.55, made for dark text), and this panel then
+                        // added a white wash on top — so the lyrics screen
+                        // became a pale patch sitting on the dark
+                        // blurred-artwork player, and the old theme-based
+                        // text colour (black) only made it worse. The
+                        // lyrics screen is now ALWAYS a deep, artwork-
+                        // tinted dark surface (same recipe as dark mode,
+                        // no white wash) with white lyrics on it, in both
+                        // themes — the same look every music app uses for
+                        // lyrics. In dark mode the colours are already
+                        // dark, so ensureContrastSafe leaves them as is.
+                        return DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(radius),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                ensureContrastSafe(widget.bg1, isLight: false),
+                                ensureContrastSafe(widget.bg2, isLight: false),
+                                ensureContrastSafe(widget.bg3, isLight: false),
+                                ensureContrastSafe(widget.bg4, isLight: false),
+                              ],
                             ),
                           ),
-                          // Same small, uniform white lift _buildLight
-                          // applies to the whole player background — kept
-                          // identical here so the panel never reads as a
-                          // differently-tuned patch of the screen.
-                          if (isLight)
-                            IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(radius),
-                                  color: const Color.fromRGBO(255, 255, 255, 0.14),
-                                ),
-                              ),
-                            ),
-                        ]);
+                        );
                       }),
                     ),
                     // Outgoing thumbnail/artwork — eases outward and
@@ -3142,7 +3139,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                                   borderRadius: BorderRadius.circular(2),
                                 ),
                               ),
-                              const Expanded(child: AurumLyricsPage()),
+                              const Expanded(child: AurumLyricsPage(onDarkBackdrop: true)),
                             ],
                           ),
                         ),
@@ -5748,7 +5745,15 @@ class _QueueQuickActionsSheet extends StatelessWidget {
 // Lyrics Page
 // ─────────────────────────────────────────────────────────────────────────────
 class AurumLyricsPage extends StatefulWidget {
-  const AurumLyricsPage({super.key});
+  /// FIX ("light mode me lyrics black dikhte hain"): the text colour used to
+  /// follow the APP theme only. The immersive lyrics screens (full player,
+  /// Spotify-style player, edge-to-edge player) always sit on a dark
+  /// backdrop, even in light mode, so black lyrics ended up on dark. Those
+  /// callers now pass [onDarkBackdrop] = true and get white lyrics; the
+  /// Up Next / Lyrics / Info sheet (which really turns light in light
+  /// mode) keeps the default and follows the theme.
+  final bool onDarkBackdrop;
+  const AurumLyricsPage({super.key, this.onDarkBackdrop = false});
 
   @override
   State<AurumLyricsPage> createState() => _LyricsPageState();
@@ -5917,7 +5922,8 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     }
 
     final l10n = AppLocalizations.of(context)!;
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isLight = !widget.onDarkBackdrop &&
+        Theme.of(context).brightness == Brightness.light;
     final mutedIcon =
         isLight ? AurumTheme.lightTextMuted.withAlpha(80) : Colors.white.withAlpha(25);
     final primaryMuted =
@@ -5979,6 +5985,7 @@ class _LyricsPageState extends State<AurumLyricsPage> {
         listKey: _listKey,
         lineKeyFor: _keyFor,
         onPositionChanged: _onPositionChanged,
+        isLight: isLight,
       );
     } else {
       final rawPlain = _result!.plain ?? '';
@@ -6067,6 +6074,9 @@ class _SyncedLyricsView extends StatefulWidget {
   final GlobalKey Function(int index) lineKeyFor;
   final void Function(Duration) onPositionChanged;
 
+  /// Whether the lyrics sit on a light backdrop (dark text) or a dark one
+  /// (white text). Decided by the caller, not by the app theme.
+  final bool isLight;
   const _SyncedLyricsView({
     super.key,
     required this.lines,
@@ -6075,6 +6085,7 @@ class _SyncedLyricsView extends StatefulWidget {
     required this.listKey,
     required this.lineKeyFor,
     required this.onPositionChanged,
+    required this.isLight,
   });
 
   @override
@@ -6108,7 +6119,7 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView>
     final scrollController = widget.scrollController;
     final listKey = widget.listKey;
     final lineKeyFor = widget.lineKeyFor;
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isLight = widget.isLight;
 
     return ValueListenableBuilder<LyricsStyle>(
       valueListenable: AudioPrefs.lyricsStyleNotifier,

@@ -50,6 +50,13 @@ class AurumPlaylist {
   // locally-created playlists are never synced, so this defaults to false.
   bool isYtSynced;
 
+  // PIN-TO-TOP: a pinned playlist always renders above every unpinned one,
+  // in every sort mode and tag filter, and survives restarts + cloud sync
+  // (it is stored in toJson like every other field). Most recently pinned
+  // goes first among the pinned ones.
+  bool isPinned;
+  DateTime? pinnedAt;
+
   AurumPlaylist({
     required this.id,
     required this.name,
@@ -61,6 +68,8 @@ class AurumPlaylist {
     this.sortOrder = 0,
     List<String>? tags,
     this.isYtSynced = false,
+    this.isPinned = false,
+    this.pinnedAt,
   })  : songs = songs ?? [],
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now(),
@@ -105,12 +114,18 @@ class AurumPlaylist {
         'name': name,
         'description': description,
         'songs': songs.map((s) => s.toJson()).toList(),
-        'createdAt': createdAt.toIso8601String(),
-        'updatedAt': updatedAt.toIso8601String(),
+        // UTC ('...Z') on purpose: a zone-less local string used to be read
+        // by Supabase as UTC, which made every playlist look "newer" on the
+        // server for users ahead of UTC (e.g. India, +5:30) — so each sync
+        // overwrote the local order with the stale server copy.
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        'updatedAt': updatedAt.toUtc().toIso8601String(),
         'customCoverPath': customCoverPath,
         'sortOrder': sortOrder,
         'tags': tags,
         'isYtSynced': isYtSynced,
+        'isPinned': isPinned,
+        'pinnedAt': pinnedAt?.toUtc().toIso8601String(),
       };
 
   factory AurumPlaylist.fromJson(Map<String, dynamic> json) {
@@ -137,6 +152,10 @@ class AurumPlaylist {
           .map((e) => e.toString())
           .toList(),
       isYtSynced: (json['isYtSynced'] as bool?) ?? false,
+      isPinned: (json['isPinned'] as bool?) ?? false,
+      pinnedAt: json['pinnedAt'] is String
+          ? DateTime.tryParse(json['pinnedAt'] as String)
+          : null,
     );
   }
 }
@@ -310,20 +329,45 @@ class PlaylistProvider extends ChangeNotifier {
   /// sorted by name/date would just get overwritten the next time that
   /// sort re-runs.
   Future<void> reorderPlaylist(int oldIndex, int newIndex) async {
-    final ordered = customOrdered();
-    if (oldIndex < 0 || oldIndex >= ordered.length) return;
-    if (oldIndex < newIndex) newIndex -= 1;
-    final moved = ordered.removeAt(oldIndex);
-    ordered.insert(newIndex, moved);
+    // Indices come from the visible list, which is pinned-first. Pinned
+    // playlists are never moved and never get a new sortOrder (so after an
+    // unpin they fall back to roughly where they were); only the unpinned
+    // tail is re-ranked.
+    final all = customOrdered();
+    final pinnedCount = all.where((p) => p.isPinned).length;
+    if (oldIndex < pinnedCount || oldIndex >= all.length) return;
+    final ordered = all.sublist(pinnedCount);
+    final from = oldIndex - pinnedCount;
+    var to = newIndex - pinnedCount;
+    if (to < 0) to = 0;
+    if (from < to) to -= 1;
+    if (to >= ordered.length) to = ordered.length - 1;
+    if (to < 0) return;
+    final moved = ordered.removeAt(from);
+    ordered.insert(to, moved);
+    // Only the playlists whose position actually changed are re-saved —
+    // and they get a fresh updatedAt and are pushed to the cloud too, so
+    // the next sync can never "restore" the old order from the server
+    // (that was the "reorder resets after reopening" bug).
+    final now = DateTime.now();
+    final changed = <AurumPlaylist>[];
     for (var i = 0; i < ordered.length; i++) {
-      ordered[i].sortOrder = i;
+      if (ordered[i].sortOrder != i) {
+        ordered[i].sortOrder = i;
+        ordered[i].updatedAt = now;
+        changed.add(ordered[i]);
+      }
     }
     // Same fire-and-forget-then-notify ordering as reorderSong above, for
     // the same drag-proxy-teardown reason.
-    for (final pl in ordered) {
-      unawaited(_persistLocalOnly(pl));
-    }
+    // UI first, saving after: serializing a playlist (toJson over every
+    // song) runs synchronously, so doing it BEFORE notifyListeners delayed
+    // the very frame the list needs to settle. Notify now, then save each
+    // playlist in its own event so no single frame carries all the work.
     notifyListeners();
+    for (final pl in changed) {
+      unawaited(Future(() => _persist(pl)));
+    }
   }
 
   /// Playlists sorted by their manual sortOrder (ascending). This is the
@@ -331,8 +375,69 @@ class PlaylistProvider extends ChangeNotifier {
   /// into when "Custom order" is the active sort mode.
   List<AurumPlaylist> customOrdered() {
     final list = List<AurumPlaylist>.from(_playlists);
-    list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-    return list;
+    // Deterministic: ties (old playlists that all have sortOrder 0) fall
+    // back to newest-first, then id — Dart's sort is not stable, so
+    // without this the order of tied rows could shuffle between launches.
+    list.sort((a, b) {
+      final c = a.sortOrder.compareTo(b.sortOrder);
+      if (c != 0) return c;
+      final d = b.createdAt.compareTo(a.createdAt);
+      if (d != 0) return d;
+      return a.id.compareTo(b.id);
+    });
+    return pinnedFirst(list);
+  }
+
+  /// Stable partition: pinned playlists (latest pinned first) on top,
+  /// everything else keeps the order it came in. Used by every sort mode.
+  static List<AurumPlaylist> pinnedFirst(List<AurumPlaylist> input) {
+    final pinned = input.where((p) => p.isPinned).toList()
+      ..sort((a, b) => (b.pinnedAt ?? b.createdAt)
+          .compareTo(a.pinnedAt ?? a.createdAt));
+    if (pinned.isEmpty) return List<AurumPlaylist>.from(input);
+    final rest = input.where((p) => !p.isPinned);
+    return [...pinned, ...rest];
+  }
+
+  // ── Pin to top ────────────────────────────────────────────────────────────
+
+  List<AurumPlaylist> get pinnedPlaylists =>
+      pinnedFirst(_playlists).where((p) => p.isPinned).toList();
+
+  Future<void> setPinned(String playlistId, bool pinned) async {
+    final pl = _findById(playlistId);
+    if (pl == null || pl.isPinned == pinned) return;
+    pl.isPinned = pinned;
+    pl.pinnedAt = pinned ? DateTime.now() : null;
+    pl.updatedAt = DateTime.now();
+    notifyListeners();
+    unawaited(Future(() => _persist(pl)));
+  }
+
+  /// Pins the playlist whose name matches [query] (case-insensitive).
+  /// Exact match wins; otherwise a single partial match is used. Several
+  /// partial matches -> [PinResult.ambiguous] so the UI can ask for the
+  /// full name instead of pinning the wrong one.
+  Future<PinResult> pinByName(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const PinResult(PinStatus.notFound);
+    AurumPlaylist? target;
+    for (final p in _playlists) {
+      if (p.name.trim().toLowerCase() == q) {
+        target = p;
+        break;
+      }
+    }
+    if (target == null) {
+      final partial =
+          _playlists.where((p) => p.name.toLowerCase().contains(q)).toList();
+      if (partial.isEmpty) return const PinResult(PinStatus.notFound);
+      if (partial.length > 1) return const PinResult(PinStatus.ambiguous);
+      target = partial.first;
+    }
+    if (target.isPinned) return PinResult(PinStatus.alreadyPinned, target);
+    await setPinned(target.id, true);
+    return PinResult(PinStatus.pinned, target);
   }
 
   int _nextSortOrder() => _playlists.isEmpty
@@ -584,6 +689,23 @@ class PlaylistProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Batch version of [upsertFromRemote]: ONE disk write batch, ONE sort and
+  /// ONE notifyListeners for the whole sync pull. (Before, every pulled
+  /// playlist triggered its own rebuild of the whole Playlists screen — on
+  /// a cold start that was N full-list rebuilds back-to-back = the lag.)
+  Future<void> upsertManyFromRemote(List<AurumPlaylist> incoming) async {
+    if (incoming.isEmpty) return;
+    for (final pl in incoming) {
+      final existing = _findById(pl.id);
+      if (existing != null) _playlists.remove(existing);
+      _playlists.add(pl);
+    }
+    _sortByUpdated();
+    final box = _box ?? await _boxReady.future;
+    await box.putAll({for (final pl in incoming) pl.id: pl.toJson()});
+    notifyListeners();
+  }
+
   String _generateId() =>
       'pl_${DateTime.now().millisecondsSinceEpoch}_${_playlists.length}';
 
@@ -594,4 +716,12 @@ class PlaylistProvider extends ChangeNotifier {
     _playlists = [];
     notifyListeners();
   }
+}
+
+enum PinStatus { pinned, alreadyPinned, notFound, ambiguous }
+
+class PinResult {
+  final PinStatus status;
+  final AurumPlaylist? playlist;
+  const PinResult(this.status, [this.playlist]);
 }

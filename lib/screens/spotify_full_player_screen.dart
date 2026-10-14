@@ -419,7 +419,7 @@ class _LyricsPageWrapper extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const Expanded(child: AurumLyricsPage()),
+                    const Expanded(child: AurumLyricsPage(onDarkBackdrop: true)),
                   ],
                 ),
               ),

@@ -34,6 +34,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
@@ -2726,7 +2727,8 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
     final heroTitle = !hasRecent
         ? AppLocalizations.of(context)!.libraryYourLibrary
         : (recent.first.album.isNotEmpty ? recent.first.album : recent.first.title);
-    final previewPlaylists = playlists.playlists.take(2).toList();
+    final previewPlaylists =
+        PlaylistProvider.pinnedFirst(playlists.playlists).take(2).toList();
     // Same de-dupe/validity filter the Artists tab itself applies to
     // FollowedArtistsProvider.followed, so this preview row never shows a
     // malformed/duplicate entry the real tab would have hidden anyway.
@@ -3126,7 +3128,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
       case _PlaylistSort.custom:
         break;
     }
-    return list;
+    return PlaylistProvider.pinnedFirst(list);
   }
 
   @override
@@ -3171,9 +3173,11 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                       onChanged: (g) => setState(() => _gridView = g),
                     ),
                     const SizedBox(width: 8),
-                    _ToolbarIconButton(
-                      icon: Icons.cloud_download_outlined,
-                      onTap: () => _showImportPlaylistDialog(context),
+                    _ImportCoachAnchor(
+                      child: _ToolbarIconButton(
+                        icon: Icons.cloud_download_outlined,
+                        onTap: () => _showImportPlaylistDialog(context),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     _ToolbarIconButton(
@@ -3252,6 +3256,13 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                 sliver: SliverReorderableList(
                   itemCount: visible.length,
                   onReorder: (oldIndex, newIndex) {
+                    // Pinned playlists always sit on top and are not
+                    // draggable; unpinned ones can't be dropped above them
+                    // (it would just snap back).
+                    final pinnedCount =
+                        visible.where((p) => p.isPinned).length;
+                    if (oldIndex < pinnedCount) return;
+                    if (newIndex < pinnedCount) newIndex = pinnedCount;
                     AurumHaptics.medium();
                     pp.reorderPlaylist(oldIndex, newIndex);
                   },
@@ -3259,7 +3270,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                     key: ValueKey(visible[i].id),
                     playlist: visible[i],
                     index: i,
-                    reorderable: true,
+                    reorderable: !visible[i].isPinned,
                   ),
                 ),
               )
@@ -3696,7 +3707,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
       case _PlaylistSort.custom:
         break;
     }
-    return list;
+    return PlaylistProvider.pinnedFirst(list);
   }
 
   @override
@@ -3765,9 +3776,11 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                         onChanged: (g) => setState(() => _gridView = g),
                       ),
                       const SizedBox(width: 8),
-                      _ToolbarIconButton(
-                        icon: Icons.cloud_download_outlined,
-                        onTap: () => _showImportPlaylistDialog(context),
+                      _ImportCoachAnchor(
+                        child: _ToolbarIconButton(
+                          icon: Icons.cloud_download_outlined,
+                          onTap: () => _showImportPlaylistDialog(context),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       _ToolbarIconButton(
@@ -3843,6 +3856,13 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                 SliverReorderableList(
                   itemCount: visible.length,
                   onReorder: (oldIndex, newIndex) {
+                    // Pinned playlists always sit on top and are not
+                    // draggable; unpinned ones can't be dropped above them
+                    // (it would just snap back).
+                    final pinnedCount =
+                        visible.where((p) => p.isPinned).length;
+                    if (oldIndex < pinnedCount) return;
+                    if (newIndex < pinnedCount) newIndex = pinnedCount;
                     AurumHaptics.medium();
                     pp.reorderPlaylist(oldIndex, newIndex);
                   },
@@ -3850,7 +3870,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                     key: ValueKey(visible[i].id),
                     playlist: visible[i],
                     index: i,
-                    reorderable: true,
+                    reorderable: !visible[i].isPinned,
                   ),
                 )
               else
@@ -4141,17 +4161,13 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
   // sibling rows changing, provider updates) — identical to the pattern
   // PlaylistColorCover (aurum_cover_color.dart) already uses correctly
   // for this exact same cache.
-  @override
-  void initState() {
-    super.initState();
-    _warmCover();
-  }
-
-  @override
-  void didUpdateWidget(_PlaylistListRow old) {
-    super.didUpdateWidget(old);
-    if (old.playlist.coverArt != widget.playlist.coverArt) _warmCover();
-  }
+  // COLD-START LAG FIX: the palette warm-up used to run for EVERY playlist
+  // row the moment the list built (initState). Each warm() downloads +
+  // decodes the cover a second time (the row's own image already loads it)
+  // — on a cold start with many playlists that is dozens of extra network
+  // fetches and image decodes competing with the first frames of this very
+  // screen. The palette is only needed by the detail screen, so it is now
+  // warmed on tap, right before the route opens.
 
   void _warmCover() {
     final coverArt = widget.playlist.coverArt;
@@ -4166,10 +4182,13 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
     final index = widget.index;
     final reorderable = widget.reorderable;
     final row = AurumPressable(
-      onTap: () => AurumDepthRoute.to(
-        context,
-        PlaylistDetailScreen(playlistId: playlist.id),
-      ),
+      onTap: () {
+        _warmCover();
+        AurumDepthRoute.to(
+          context,
+          PlaylistDetailScreen(playlistId: playlist.id),
+        );
+      },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         padding: const EdgeInsets.all(12),
@@ -4212,13 +4231,24 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w700)),
+                  Row(
+                    children: [
+                      if (playlist.isPinned) ...[
+                        Icon(Icons.push_pin_rounded,
+                            size: 14, color: AurumTheme.accentOf(context)),
+                        const SizedBox(width: 5),
+                      ],
+                      Expanded(
+                        child: Text(playlist.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: AurumTheme.textPrimaryOf(context),
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -4299,6 +4329,21 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
         child: Wrap(
           children: [
             ListTile(
+              leading: Icon(
+                  playlist.isPinned
+                      ? Icons.push_pin_rounded
+                      : Icons.push_pin_outlined,
+                  color: AurumTheme.accentOf(context)),
+              title: Text(playlist.isPinned ? 'Unpin from top' : 'Pin to top',
+                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+              onTap: () {
+                final pp = context.read<PlaylistProvider>();
+                Navigator.pop(sheetContext);
+                AurumHaptics.medium();
+                pp.setPinned(playlist.id, !playlist.isPinned);
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
               title: Text(AppLocalizations.of(context)!.commonRename, style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
@@ -4335,17 +4380,8 @@ class _PlaylistGridTileState extends State<_PlaylistGridTile> {
   // into initState/didUpdateWidget, gated on the cover URL actually
   // changing, so each playlist's cover extraction is only ever
   // requested once per URL.
-  @override
-  void initState() {
-    super.initState();
-    _warmCover();
-  }
-
-  @override
-  void didUpdateWidget(_PlaylistGridTile old) {
-    super.didUpdateWidget(old);
-    if (old.playlist.coverArt != widget.playlist.coverArt) _warmCover();
-  }
+  // (Cold-start lag fix — see _PlaylistListRowState: warm on tap, not for
+  // every tile when the grid builds.)
 
   void _warmCover() {
     final coverArt = widget.playlist.coverArt;
@@ -4358,10 +4394,13 @@ class _PlaylistGridTileState extends State<_PlaylistGridTile> {
   Widget build(BuildContext context) {
     final playlist = widget.playlist;
     return AurumPressable(
-      onTap: () => AurumDepthRoute.to(
-        context,
-        PlaylistDetailScreen(playlistId: playlist.id),
-      ),
+      onTap: () {
+        _warmCover();
+        AurumDepthRoute.to(
+          context,
+          PlaylistDetailScreen(playlistId: playlist.id),
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4381,6 +4420,20 @@ class _PlaylistGridTileState extends State<_PlaylistGridTile> {
                         )
                       : AurumArtwork(
                           url: playlist.coverArt!, size: 200, borderRadius: 16),
+                  if (playlist.isPinned)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.55),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.push_pin_rounded,
+                            color: Colors.white, size: 13),
+                      ),
+                    ),
                   Positioned(
                     right: 8,
                     bottom: 8,
@@ -4440,6 +4493,7 @@ class _ManageTagsSheet extends StatefulWidget {
 
 class _ManageTagsSheetState extends State<_ManageTagsSheet> {
   final _controller = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
@@ -4447,91 +4501,465 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
     super.dispose();
   }
 
+  // Confirm (✓): the typed playlist name gets pinned to the very top of the
+  // Playlists list and stays there in every sort mode, across restarts and
+  // devices. (This field used to be a no-op.)
+  Future<void> _confirmPin() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    final res = await widget.pp.pinByName(text);
+    if (!mounted) return;
+    switch (res.status) {
+      case PinStatus.pinned:
+        AurumHaptics.medium();
+        FocusScope.of(context).unfocus();
+        Navigator.of(context).pop();
+        break;
+      case PinStatus.alreadyPinned:
+        setState(() => _error = 'Already pinned to the top');
+        break;
+      case PinStatus.ambiguous:
+        setState(() => _error = 'More than one match — type the full name');
+        break;
+      case PinStatus.notFound:
+        setState(() => _error = 'No playlist found with that name');
+        break;
+    }
+  }
+
+  Future<void> _pinPlaylist(AurumPlaylist pl) async {
+    AurumHaptics.medium();
+    await widget.pp.setPinned(pl.id, true);
+    if (!mounted) return;
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tags = widget.pp.allTags;
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(AppLocalizations.of(context)!.libraryManageTags,
-                style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 16),
-            if (tags.isEmpty)
-              Text(AppLocalizations.of(context)!.libraryNoTagsYet,
-                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13.5))
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tag in tags)
-                    Chip(
-                      label: Text(tag,
-                          style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
-                      backgroundColor: AurumTheme.bgSurfaceOf(context),
-                      deleteIcon: const Icon(Icons.close_rounded, size: 16),
-                      onDeleted: () => widget.pp.deleteTagEverywhere(tag),
-                    ),
-                ],
+    final muted = AurumTheme.textMutedOf(context);
+    final primary = AurumTheme.textPrimaryOf(context);
+    final accent = AurumTheme.accentOf(context);
+    return AnimatedBuilder(
+      animation: widget.pp,
+      builder: (context, _) {
+        final tags = widget.pp.allTags;
+        final pinned = widget.pp.pinnedPlaylists;
+        final q = _controller.text.trim().toLowerCase();
+        final suggestions = q.isEmpty
+            ? const <AurumPlaylist>[]
+            : widget.pp.playlists
+                .where((p) => !p.isPinned && p.name.toLowerCase().contains(q))
+                .take(4)
+                .toList();
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: SafeArea(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+              decoration: BoxDecoration(
+                color: AurumTheme.bgCardOf(context),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
               ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
-                    decoration: InputDecoration(
-                      hintText: AppLocalizations.of(context)!.libraryNewTagName,
-                      hintStyle: TextStyle(color: AurumTheme.textMutedOf(context)),
-                      filled: true,
-                      fillColor: AurumTheme.bgSurfaceOf(context),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(AppLocalizations.of(context)!.libraryManageTags,
+                        style: TextStyle(
+                            color: primary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800)),
+                    if (tags.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final tag in tags)
+                            Chip(
+                              label: Text(tag, style: TextStyle(color: primary)),
+                              backgroundColor: AurumTheme.bgSurfaceOf(context),
+                              deleteIcon:
+                                  const Icon(Icons.close_rounded, size: 16),
+                              onDeleted: () =>
+                                  widget.pp.deleteTagEverywhere(tag),
+                            ),
+                        ],
                       ),
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Icon(Icons.push_pin_rounded, size: 16, color: accent),
+                        const SizedBox(width: 6),
+                        Text('Pin to top',
+                            style: TextStyle(
+                                color: primary,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700)),
+                      ],
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Material(
-                  color: AurumTheme.accentOf(context),
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () {
-                      // Tags are attached to individual playlists via each
-                      // playlist's own edit sheet — this field exists here
-                      // only for renaming/removing tags globally per the
-                      // reference screenshot's "Manage Tags" affordance.
-                      // Creating a brand-new (unattached) tag has nothing
-                      // to attach to yet, so this is a no-op until at least
-                      // one playlist carries it.
-                      _controller.clear();
-                      FocusScope.of(context).unfocus();
-                    },
-                    child: const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: Icon(Icons.check_rounded, color: Colors.white, size: 20),
+                    const SizedBox(height: 4),
+                    Text(
+                        'Type a playlist name and confirm — it stays at the top, always.',
+                        style: TextStyle(color: muted, fontSize: 12.5)),
+                    if (pinned.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final pl in pinned)
+                            Chip(
+                              avatar: Icon(Icons.push_pin_rounded,
+                                  size: 14, color: accent),
+                              label: Text(pl.name,
+                                  style: TextStyle(color: primary)),
+                              backgroundColor: AurumTheme.bgSurfaceOf(context),
+                              deleteIcon:
+                                  const Icon(Icons.close_rounded, size: 16),
+                              onDeleted: () =>
+                                  widget.pp.setPinned(pl.id, false),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            style: TextStyle(color: primary),
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _confirmPin(),
+                            onChanged: (_) => setState(() => _error = null),
+                            decoration: InputDecoration(
+                              hintText: 'Playlist name',
+                              hintStyle: TextStyle(color: muted),
+                              filled: true,
+                              fillColor: AurumTheme.bgSurfaceOf(context),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Material(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: _confirmPin,
+                            child: const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: Icon(Icons.check_rounded,
+                                  color: Colors.white, size: 20),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_error!,
+                          style: const TextStyle(
+                              color: Colors.redAccent, fontSize: 12.5)),
+                    ],
+                    if (suggestions.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final pl in suggestions)
+                            ActionChip(
+                              label: Text(pl.name,
+                                  style: TextStyle(color: primary)),
+                              backgroundColor: AurumTheme.bgSurfaceOf(context),
+                              onPressed: () => _pinPlaylist(pl),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
             ),
-          ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// IMPORT-PLAYLIST COACH MARK
+//
+// One-time, tiny tooltip under the toolbar's import button the first time a
+// person opens the Playlists screen, so they discover that playlists can be
+// imported from Spotify / YouTube. Design rules (20k active users, nothing
+// may feel pushy or glitchy):
+//   • shown ONCE per install (flag saved the moment it appears)
+//   • appears ~1s after the screen settled, never during the first frames
+//   • no dimming, no blocking: any touch anywhere removes it INSTANTLY and
+//     the touch still goes through to whatever was tapped
+//   • auto-hides after 8s, and is skipped if the button isn't on screen or
+//     another screen/sheet is on top
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _ImportCoachAnchor extends StatefulWidget {
+  final Widget child;
+  const _ImportCoachAnchor({required this.child});
+
+  @override
+  State<_ImportCoachAnchor> createState() => _ImportCoachAnchorState();
+}
+
+class _ImportCoachAnchorState extends State<_ImportCoachAnchor> {
+  static const _prefKey = 'import_playlist_tip_seen_v1';
+  static bool _showing = false; // never two at once
+  final GlobalKey _anchorKey = GlobalKey();
+  OverlayEntry? _entry;
+  Timer? _autoHide;
+  bool _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShow());
+  }
+
+  Future<void> _maybeShow() async {
+    if (_showing) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_prefKey) == true) return;
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (_disposed || !mounted || _showing) return;
+
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
+      final box = _anchorKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      final topLeft = box.localToGlobal(Offset.zero);
+      final rect = topLeft & box.size;
+      final screen = MediaQuery.of(context).size;
+      if (rect.top < 0 || rect.bottom > screen.height - 80) return;
+      if (rect.left < 0 || rect.right > screen.width) return;
+      // Really visible? A hit-test at the button's centre only reaches it
+      // when it is painted on the active tab and nothing (another tab of
+      // the IndexedStack, a sheet, a dialog) is on top of it.
+      final hit = HitTestResult();
+      WidgetsBinding.instance
+          .hitTestInView(hit, rect.center, View.of(context).viewId);
+      if (!hit.path.any((e) => identical(e.target, box))) return;
+
+      final overlay = Overlay.of(context);
+      _showing = true;
+      await prefs.setBool(_prefKey, true);
+      if (_disposed || !mounted) {
+        _showing = false;
+        return;
+      }
+      _entry = OverlayEntry(
+        builder: (ctx) => _ImportCoachOverlay(
+          anchor: rect,
+          onDismiss: _dismiss,
+        ),
+      );
+      overlay.insert(_entry!);
+      _autoHide = Timer(const Duration(seconds: 8), _dismiss);
+    } catch (_) {
+      // A tip is never worth an error — just skip it.
+      _showing = false;
+    }
+  }
+
+  void _dismiss() {
+    _autoHide?.cancel();
+    _autoHide = null;
+    final e = _entry;
+    _entry = null;
+    if (e != null) {
+      try {
+        e.remove();
+      } catch (_) {}
+      _showing = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _dismiss();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      KeyedSubtree(key: _anchorKey, child: widget.child);
+}
+
+class _ImportCoachOverlay extends StatelessWidget {
+  final Rect anchor;
+  final VoidCallback onDismiss;
+  const _ImportCoachOverlay({required this.anchor, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = MediaQuery.of(context).size;
+    const cardW = 252.0;
+    const margin = 16.0;
+    final accent = AurumTheme.accentOf(context);
+    final cx = anchor.center.dx;
+    final left = (cx + cardW / 2 + margin > screen.width)
+        ? screen.width - cardW - margin
+        : (cx - cardW / 2).clamp(margin, screen.width);
+    final arrowLeft = (cx - left - 7).clamp(18.0, cardW - 32);
+    final top = anchor.bottom + 12;
+
+    return Listener(
+      // translucent: a touch anywhere removes the tip at once AND still
+      // reaches the widget underneath — nothing ever gets blocked.
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => onDismiss(),
+      child: Material(
+        type: MaterialType.transparency,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration:
+              AurumMotion.durationOrZero(const Duration(milliseconds: 320)),
+          curve: Curves.easeOutCubic,
+          builder: (context, t, child) => Opacity(
+            opacity: t,
+            child: Transform.translate(
+                offset: Offset(0, (1 - t) * 8), child: child),
+          ),
+          child: Stack(
+            children: [
+              // soft ring around the button
+              Positioned(
+                left: anchor.left - 4,
+                top: anchor.top - 4,
+                width: anchor.width + 8,
+                height: anchor.height + 8,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: accent.withOpacity(0.55), width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                            color: accent.withOpacity(0.28), blurRadius: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: left.toDouble(),
+                top: top,
+                width: cardW,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 6),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.bgCardOf(context),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: accent.withOpacity(0.28)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.22),
+                            blurRadius: 22,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: accent.withOpacity(0.16),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.cloud_download_rounded,
+                                color: accent, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Import playlist',
+                                    style: TextStyle(
+                                        color:
+                                            AurumTheme.textPrimaryOf(context),
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 2),
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      const TextSpan(
+                                          text:
+                                              'Spotify, YouTube & more — just in sec '),
+                                      WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: Icon(Icons.bolt_rounded,
+                                            size: 15, color: accent),
+                                      ),
+                                    ],
+                                  ),
+                                  style: TextStyle(
+                                      color: AurumTheme.textMutedOf(context),
+                                      fontSize: 12.5,
+                                      height: 1.25),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      left: arrowLeft.toDouble(),
+                      top: 0,
+                      child: Transform.rotate(
+                        angle: 0.785398,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: AurumTheme.bgCardOf(context),
+                            border: Border(
+                              top: BorderSide(color: accent.withOpacity(0.28)),
+                              left: BorderSide(color: accent.withOpacity(0.28)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
