@@ -32,6 +32,7 @@ import '../widgets/aurum_equalizer_bars.dart';
 import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
