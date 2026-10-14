@@ -1373,6 +1373,15 @@ class _SearchScreenState extends State<SearchScreen>
     List<SearchPlaylistResult> results;
     try {
       results = await ApiService.fetchFeaturedPlaylistsForSearch();
+      // Network blip / empty shelf: ek retry, phir typed query ke playlists
+      // dikha do — "No featured playlists found" kabhi dead-end na bane.
+      if (results.isEmpty) {
+        results = await ApiService.fetchFeaturedPlaylistsForSearch();
+      }
+      if (results.isEmpty) {
+        final q = _controller.text.trim();
+        if (q.isNotEmpty) results = await ApiService.searchPlaylists(q);
+      }
     } catch (_) {
       if (mounted) setState(() => _featuredPlaylistsLoading = false);
       return;
@@ -1425,7 +1434,9 @@ class _SearchScreenState extends State<SearchScreen>
             artworkUrl: playlist.artworkUrl,
             emoji: '',
             songs: const [],
-            autoLoadMore: () => ApiService.fetchYtPlaylistSongs(playlist.id),
+            // Progressive: pehle ~100 songs jaldi, baaki peeche se judte hain.
+            autoLoadStream: () =>
+                ApiService.streamCommunityPlaylistSongs(playlist.id),
           ),
         );
       },

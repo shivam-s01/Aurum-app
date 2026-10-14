@@ -174,18 +174,49 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
   List<String> get _artists {
     final raw = widget.song.artist;
     if (raw.trim().isEmpty || raw == 'Unknown') return const [];
-    return raw
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+    // Sirf safe separators pe split: ',', ' feat. ', ' ft. ', ' / ' (spaces ke
+    // saath). "AC/DC" ya "Ft Island" jaise naam tootte nahi.
+    // '&' wale naam ko poora bhi rakhte hain (band: "Simon & Garfunkel") —
+    // aur sirf jab channel id nahi hai tab parts bhi dete hain (duo credit:
+    // "A & B"). Channel id ho to YT ne ek hi artist diya hai, split nahi.
+    final seen = <String>{};
+    final out = <String>[];
+    void add(String s) {
+      final v = s
+          .replaceAll(RegExp(r'\s*-\s*topic$', caseSensitive: false), '')
+          .trim();
+      if (v.isNotEmpty && seen.add(v.toLowerCase())) out.add(v);
+    }
+
+    final parts = raw.split(RegExp(
+        r'\s*,\s*|\s+(?:feat|ft)\.?\s+|\s+/\s+',
+        caseSensitive: false));
+    for (final p in parts) {
+      add(p);
+    }
+    final hasChannel = (widget.song.artistChannelId ?? '').trim().isNotEmpty;
+    if (!hasChannel) {
+      for (final p in parts) {
+        if (RegExp(r'\s&\s').hasMatch(p)) {
+          for (final sub in p.split(RegExp(r'\s+&\s+'))) {
+            add(sub);
+          }
+        }
+      }
+    }
+    return out;
   }
 
   void _openArtist() {
     final names = _artists;
     if (names.isEmpty) return;
+    // Navigator sheet band hone se PEHLE capture — sheet pop hone ke baad
+    // list tile ka context stale ho sakta hai (Mix screen me list live
+    // update hoti hai), tab push chup-chaap fail hota tha. Album wala flow
+    // already aise hi karta hai.
+    final nav = Navigator.of(widget.rootContext);
     if (names.length == 1) {
-      _pushArtist(names.first);
+      _pushArtist(names.first, nav: nav);
       return;
     }
     // Several artists → let the user pick one (still SimpMusic-flat list).
@@ -206,7 +237,7 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
                 label: n,
                 onTap: () {
                   Navigator.of(sheetCtx).pop();
-                  _pushArtist(n, alreadyClosed: true);
+                  _pushArtist(n, alreadyClosed: true, nav: nav);
                 },
               ),
           ],
@@ -215,15 +246,15 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
     );
   }
 
-  void _pushArtist(String name, {bool alreadyClosed = false}) {
+  void _pushArtist(String name,
+      {bool alreadyClosed = false, NavigatorState? nav}) {
     final song = widget.song;
+    final navigator = nav ?? Navigator.of(widget.rootContext);
     final isPrimary = _artists.isNotEmpty && _artists.first == name;
-    final fastId = (isPrimary && song.artistChannelId != null)
-        ? 'yt_${song.artistChannelId}'
-        : null;
+    final channelId = song.artistChannelId?.trim() ?? '';
+    final fastId = (isPrimary && channelId.isNotEmpty) ? 'yt_$channelId' : null;
     if (!alreadyClosed) _close();
-    Navigator.push(
-      widget.rootContext,
+    navigator.push(
       AurumDepthRoute(
         builder: (_) => ArtistScreen(artistId: fastId, artistName: name),
       ),

@@ -84,6 +84,10 @@ class MixScreen extends StatefulWidget {
   // before.
   final Future<List<Song>> Function()? autoLoadMore;
 
+  /// Progressive variant: songs batch-by-batch aate hain (pehla batch jaldi,
+  /// baaki peeche se append). Badi playlists pe poori list ka wait nahi.
+  final Stream<List<Song>> Function()? autoLoadStream;
+
   const MixScreen({
     super.key,
     required this.mixId,
@@ -95,6 +99,7 @@ class MixScreen extends StatefulWidget {
     this.refreshSeed,
     this.description,
     this.autoLoadMore,
+    this.autoLoadStream,
   });
 
   @override
@@ -191,7 +196,8 @@ class _MixScreenState extends State<MixScreen>
   // case; every other existing caller passes a real, already-populated
   // `songs` list and autoLoadMore null or "top-up only," so this stays
   // false for all of them exactly as before this fix.
-  late bool _awaitingFirstLoad = widget.songs.isEmpty && widget.autoLoadMore != null;
+  late bool _awaitingFirstLoad = widget.songs.isEmpty &&
+      (widget.autoLoadMore != null || widget.autoLoadStream != null);
 
   @override
   void initState() {
@@ -213,22 +219,80 @@ class _MixScreenState extends State<MixScreen>
     // it resolves, same "no error surfaced, list just stays as-is on
     // failure" rule _onRefresh follows for the same reason (a background
     // top-up failing isn't something worth interrupting the user for).
-    final autoLoadMore = widget.autoLoadMore;
-    if (autoLoadMore != null) {
-      autoLoadMore().then((more) {
-        if (!mounted) return;
-        setState(() {
-          _songs = [..._songs, ...more];
-          _awaitingFirstLoad = false;
-        });
-      }).catchError((_) {
-        if (mounted) setState(() => _awaitingFirstLoad = false);
-      });
+    _runAutoLoad();
+  }
+
+  // True only when the first-load fetch failed / came back empty, so the
+  // empty state can offer a Retry instead of a dead-end "No songs found".
+  bool _loadFailed = false;
+
+  StreamSubscription<List<Song>>? _streamSub;
+
+  void _runAutoLoad() {
+    final streamFactory = widget.autoLoadStream;
+    if (streamFactory != null) {
+      _streamSub?.cancel();
+      _streamSub = streamFactory().listen(
+        (batch) {
+          if (!mounted || batch.isEmpty) return;
+          setState(() {
+            final have = _songs.map((s) => s.id).toSet();
+            _songs = [..._songs, ...batch.where((s) => have.add(s.id))];
+            _awaitingFirstLoad = false;
+            _loadFailed = false;
+          });
+        },
+        onError: (_) {
+          if (!mounted) return;
+          setState(() {
+            _awaitingFirstLoad = false;
+            _loadFailed = _songs.isEmpty;
+          });
+        },
+        onDone: () {
+          if (!mounted) return;
+          setState(() {
+            _awaitingFirstLoad = false;
+            _loadFailed = _songs.isEmpty;
+          });
+        },
+        cancelOnError: true,
+      );
+      return;
     }
+    final autoLoadMore = widget.autoLoadMore;
+    if (autoLoadMore == null) return;
+    autoLoadMore().then((more) {
+      if (!mounted) return;
+      setState(() {
+        if (more.isNotEmpty) {
+          final have = _songs.map((s) => s.id).toSet();
+          _songs = [..._songs, ...more.where((s) => !have.contains(s.id))];
+        }
+        _awaitingFirstLoad = false;
+        _loadFailed = _songs.isEmpty;
+      });
+    }).catchError((_) {
+      if (mounted) {
+        setState(() {
+          _awaitingFirstLoad = false;
+          _loadFailed = _songs.isEmpty;
+        });
+      }
+    });
+  }
+
+  void _retryAutoLoad() {
+    setState(() {
+      _awaitingFirstLoad = true;
+      _loadFailed = false;
+    });
+    _runAutoLoad();
   }
 
   @override
   void dispose() {
+    _streamSub?.cancel();
     _glowController.dispose();
     super.dispose();
   }
@@ -722,9 +786,24 @@ class _MixScreenState extends State<MixScreen>
                       // Still waiting on the first real fetch — spinner, not
                       // the "nothing found" message.
                       ? const CircularProgressIndicator()
-                      : Text(l10n.albumNoSongsFound,
-                          style: TextStyle(
-                              color: AurumTheme.textMutedOf(context))),
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(l10n.albumNoSongsFound,
+                                style: TextStyle(
+                                    color: AurumTheme.textMutedOf(context))),
+                            if (_loadFailed &&
+                                (widget.autoLoadMore != null ||
+                                    widget.autoLoadStream != null)) ...[
+                              const SizedBox(height: 14),
+                              TextButton.icon(
+                                onPressed: _retryAutoLoad,
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: Text(l10n.commonRetry),
+                              ),
+                            ],
+                          ],
+                        ),
                 ),
               ),
             )

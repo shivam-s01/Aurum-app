@@ -104,6 +104,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
     });
     try {
       String? id = widget.artistId;
+      // Khaali / bina channel wali id ('yt_') ko "id nahi hai" maano aur naam
+      // se resolve karo — pehle ye seedha fail hoke "Couldn't load" deti thi.
+      if (id != null && (id.trim().isEmpty || id.trim() == 'yt_')) id = null;
       id ??= await ApiService.resolveArtistId(widget.artistName);
       if (!mounted) return;
       // FIX ("Couldn't load Hwasa" — a Saavn backend is disabled

@@ -189,8 +189,28 @@ class _AlbumScreenState extends State<AlbumScreen>
     // official YT Music album page uses. Saavn albums and any failure case
     // both come back with an empty headerArtworkUrl, so the widget-provided
     // artwork keeps working exactly as before for them.
-    final result = await ApiService.fetchAlbumSongsWithArtwork(widget.albumId);
+    // Network error / khaali jawab pe ek baar auto-retry; phir bhi fail ho to
+    // spinner nahi, "No songs" + Retry dikhta hai (pehle exception aane par
+    // loader hamesha ghoomta rehta tha).
+    ({
+      List<Song> songs,
+      String headerArtworkUrl,
+      List<AlbumRelatedShelf> relatedShelves
+    })? fetched;
+    for (var attempt = 0; attempt < 2 && mounted; attempt++) {
+      try {
+        final r = await ApiService.fetchAlbumSongsWithArtwork(widget.albumId);
+        fetched = r;
+        if (r.songs.isNotEmpty) break;
+      } catch (_) {}
+      if (attempt == 0) await Future.delayed(const Duration(milliseconds: 600));
+    }
     if (!mounted) return;
+    if (fetched == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final result = fetched;
     final resolvedHeaderArt =
         result.headerArtworkUrl.isNotEmpty ? result.headerArtworkUrl : widget.artworkUrl;
     // FIX ("full player kabhi bina thumbnail ke na rahe"): a per-song
@@ -550,9 +570,23 @@ class _AlbumScreenState extends State<AlbumScreen>
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 56),
                   child: Center(
-                    child: Text(l10n.albumNoSongsFound,
-                        style:
-                            TextStyle(color: AurumTheme.textMutedOf(context))),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(l10n.albumNoSongsFound,
+                            style: TextStyle(
+                                color: AurumTheme.textMutedOf(context))),
+                        const SizedBox(height: 14),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() => _loading = true);
+                            _load();
+                          },
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: Text(l10n.commonRetry),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               )

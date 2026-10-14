@@ -44,7 +44,8 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/playlist_provider.dart';
-import '../services/api_service.dart' show ApiService, YtPlaylistImportException, YtPlaylistImportError;
+import '../services/api_service.dart' show ApiService;
+import '../services/playlist_import_service.dart';
 import '../models/artist.dart';
 import '../widgets/aurum_snack.dart';
 import '../providers/premium_provider.dart';
@@ -3171,6 +3172,11 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                     ),
                     const SizedBox(width: 8),
                     _ToolbarIconButton(
+                      icon: Icons.cloud_download_outlined,
+                      onTap: () => _showImportPlaylistDialog(context),
+                    ),
+                    const SizedBox(width: 8),
+                    _ToolbarIconButton(
                       icon: Icons.add_rounded,
                       filled: true,
                       onTap: () => _showCreateDialog(context),
@@ -3757,6 +3763,11 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                       _PlaylistViewToggle(
                         gridView: _gridView,
                         onChanged: (g) => setState(() => _gridView = g),
+                      ),
+                      const SizedBox(width: 8),
+                      _ToolbarIconButton(
+                        icon: Icons.cloud_download_outlined,
+                        onTap: () => _showImportPlaylistDialog(context),
                       ),
                       const SizedBox(width: 8),
                       _ToolbarIconButton(
@@ -6296,6 +6307,16 @@ class _EmptyPlaylists extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 14),
+            TextButton.icon(
+              onPressed: () => _showImportPlaylistDialog(context),
+              icon: Icon(Icons.cloud_download_outlined,
+                  size: 18, color: AurumTheme.accentOf(context)),
+              label: Text(l10n.libraryImportPlaylist,
+                  style: TextStyle(
+                      color: AurumTheme.accentOf(context),
+                      fontWeight: FontWeight.w700)),
+            ),
           ],
         ),
       ),
@@ -6425,156 +6446,420 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Import from YouTube Dialog
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Import Playlist Dialog (Spotify + YouTube)
+// ═══════════════════════════════════════════════════════════════════════════════
 //
-// Mirrors _CreatePlaylistDialog's structure/chrome exactly (same
-// AlertDialog shape, same gold-gradient action button, same
-// AurumFocusField keyboard-timing fix, same scrollable:true for
-// keyboard-safe resizing) so this reads as a native part of the app
-// rather than a bolted-on feature — the person creating a playlist and
-// the person importing one should see the same visual language.
-//
-// Three states surfaced inline, no separate error dialog/snackbar
-// needed for the common case:
-//   1. idle        — paste field + Import button
-//   2. importing    — button shows the same AurumM3Loader spinner
-//                     _CreatePlaylistDialog uses while creating
-//   3. error        — inline red helper text under the field explaining
-//                     what went wrong (invalid link vs. empty playlist),
-//                     field stays editable so the person can just fix
-//                     the pasted text and retry without reopening
-//                     anything.
-class _ImportYtPlaylistDialog extends StatefulWidget {
-  const _ImportYtPlaylistDialog();
+// One dialog for both services: paste a Spotify or YouTube / YouTube Music
+// playlist link and Astra detects which it is. Same chrome as
+// _CreatePlaylistDialog. Stages:
+//   idle     — paste field (+ Paste button, "Spotify/YouTube link detected")
+//   working  — progress bar: "Reading playlist…" then "Matching songs… 12/87"
+//   done     — only shown when something needs the person's attention
+//              (some songs not found / Spotify's 100-song cap). A clean
+//              import closes itself and opens the new playlist directly.
+// The playlist is saved the moment the import finishes, so closing the
+// summary never loses anything.
 
-  @override
-  State<_ImportYtPlaylistDialog> createState() =>
-      _ImportYtPlaylistDialogState();
+/// Entry point used by the "import" button on both Playlists screens.
+Future<void> _showImportPlaylistDialog(BuildContext context) async {
+  final l10n = AppLocalizations.of(context)!;
+  PremiumGate.guard(
+    context,
+    feature: l10n.libraryImportPlaylist,
+    description: l10n.libraryLoginToOrganizeDesc,
+    requiresLoginOnly: true,
+    onAllowed: () async {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ImportPlaylistDialog(hostContext: context),
+      );
+    },
+  );
 }
 
-class _ImportYtPlaylistDialogState extends State<_ImportYtPlaylistDialog> {
+enum _ImportStage { idle, working, done }
+
+class _ImportPlaylistDialog extends StatefulWidget {
+  /// Context of the screen that opened the dialog — still valid after the
+  /// dialog pops, so it's used for navigating to the new playlist.
+  final BuildContext hostContext;
+  const _ImportPlaylistDialog({required this.hostContext});
+
+  @override
+  State<_ImportPlaylistDialog> createState() => _ImportPlaylistDialogState();
+}
+
+class _ImportPlaylistDialogState extends State<_ImportPlaylistDialog> {
   final _linkCtrl = TextEditingController();
-  bool _importing = false;
+  _ImportStage _stage = _ImportStage.idle;
   String? _errorText;
+  PlaylistImportProgress? _progress;
+  PlaylistImportResult? _result;
+  String? _playlistId;
+  ImportCancelToken? _cancel;
+  PlaylistImportSource? _detected;
+
+  @override
+  void initState() {
+    super.initState();
+    _linkCtrl.addListener(_onLinkChanged);
+  }
 
   @override
   void dispose() {
+    _cancel?.cancel();
+    _linkCtrl.removeListener(_onLinkChanged);
     _linkCtrl.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return AlertDialog(
-      backgroundColor: AurumTheme.bgElevatedOf(context),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      scrollable: true,
-      title: Text(l10n.libraryImportFromYoutube,
-          style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontWeight: FontWeight.w800)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.libraryImportFromYoutubeDesc,
-            style: TextStyle(
-              color: AurumTheme.textMutedOf(context),
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 14),
-          AurumFocusField(
-            builder: (focusNode) => _AurumTextField(
-              controller: _linkCtrl,
-              focusNode: focusNode,
-              label: l10n.libraryYoutubePlaylistLinkLabel,
-            ),
-          ),
-          if (_errorText != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _errorText!,
-              style: const TextStyle(color: Colors.redAccent, fontSize: 12.5),
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: _importing ? null : () => Navigator.pop(context),
-          child: Text(l10n.commonCancel,
-              style: TextStyle(color: AurumTheme.textMutedOf(context))),
-        ),
-        AurumPressable(
-          onTap: _importing ? null : () => _import(l10n),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: AurumTheme.accentGradientOf(context),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: _importing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: Center(child: AurumM3Loader(width: 16, height: 2)))
-                : Text(l10n.commonImport,
-                    style: TextStyle(
-                        color: AurumTheme.bgOf(context),
-                        fontWeight: FontWeight.w700)),
-          ),
-        ),
-      ],
-    );
+  void _onLinkChanged() {
+    final d = PlaylistImportService.detect(_linkCtrl.text);
+    if (d != _detected || _errorText != null) {
+      setState(() {
+        _detected = d;
+        _errorText = null;
+      });
+    }
+  }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim();
+    if (text == null || text.isEmpty || !mounted) return;
+    _linkCtrl.text = text;
+    _linkCtrl.selection = TextSelection.collapsed(offset: text.length);
+  }
+
+  String _errorMessage(AppLocalizations l10n, PlaylistImportError e) {
+    switch (e) {
+      case PlaylistImportError.invalidLink:
+        return l10n.libraryImportInvalidLinkError;
+      case PlaylistImportError.unsupportedLink:
+        return l10n.libraryImportUnsupportedLinkError;
+      case PlaylistImportError.isMix:
+        return l10n.libraryYoutubeImportMixError;
+      case PlaylistImportError.notFound:
+        return l10n.libraryImportNotFoundError;
+      case PlaylistImportError.empty:
+        return l10n.libraryImportEmptyError;
+      case PlaylistImportError.network:
+        return l10n.libraryImportNetworkError;
+      case PlaylistImportError.noMatches:
+        return l10n.libraryImportNoMatchesError;
+      case PlaylistImportError.failed:
+        return l10n.libraryImportFailedError;
+    }
   }
 
   Future<void> _import(AppLocalizations l10n) async {
     final link = _linkCtrl.text.trim();
     if (link.isEmpty) {
-      setState(() => _errorText = l10n.libraryYoutubeLinkEmptyError);
+      setState(() => _errorText = l10n.libraryImportLinkEmptyError);
       return;
     }
+    FocusScope.of(context).unfocus();
+    final pp = context.read<PlaylistProvider>();
+    final host = widget.hostContext;
+    final cancel = ImportCancelToken();
     setState(() {
-      _importing = true;
+      _stage = _ImportStage.working;
       _errorText = null;
+      _cancel = cancel;
+      _progress =
+          const PlaylistImportProgress(phase: PlaylistImportPhase.reading);
     });
-    AurumPlaylist? playlist;
-    String errorMessage = l10n.libraryYoutubeImportFailedError;
+
     try {
-      playlist =
-          await context.read<PlaylistProvider>().importYtPlaylist(link);
-    } on YtPlaylistImportException catch (e) {
-      errorMessage = switch (e.reason) {
-        YtPlaylistImportError.invalidLink =>
-          l10n.libraryYoutubeImportInvalidLinkError,
-        YtPlaylistImportError.isMix => l10n.libraryYoutubeImportMixError,
-        YtPlaylistImportError.network =>
-          l10n.libraryYoutubeImportNetworkError,
-        YtPlaylistImportError.empty ||
-        YtPlaylistImportError.notFound =>
-          l10n.libraryYoutubeImportFailedError,
-      };
-      playlist = null;
-    } catch (_) {
-      playlist = null;
-    }
-    if (!mounted) return;
-    if (playlist == null) {
+      final result = await PlaylistImportService.importFromLink(
+        link,
+        cancel: cancel,
+        onProgress: (p) {
+          if (mounted && !cancel.isCancelled) setState(() => _progress = p);
+        },
+      );
+      if (!mounted || cancel.isCancelled) return;
+
+      final playlist = await pp.addImportedPlaylist(
+        name: result.name.isEmpty
+            ? l10n.libraryImportedPlaylistDefaultName
+            : result.name,
+        songs: result.songs,
+        youtubeSynced: result.source == PlaylistImportSource.youtube,
+      );
+      if (!mounted) return;
+
+      final clean = result.unmatched.isEmpty && !result.possiblyTruncated;
+      if (clean) {
+        Navigator.pop(context);
+        if (host.mounted) {
+          AurumSnack.show(host, l10n.libraryImportedCount(result.songs.length));
+          AurumDepthRoute.to(
+            host,
+            PlaylistDetailScreen(playlistId: playlist.id),
+          );
+        }
+        return;
+      }
       setState(() {
-        _importing = false;
-        _errorText = errorMessage;
+        _stage = _ImportStage.done;
+        _result = result;
+        _playlistId = playlist.id;
       });
-      return;
+    } on PlaylistImportCancelled {
+      // The Cancel button already put the dialog back to idle.
+    } on PlaylistImportException catch (e) {
+      if (!mounted || _cancel != cancel) return;
+      setState(() {
+        _stage = _ImportStage.idle;
+        _progress = null;
+        _errorText = _errorMessage(l10n, e.reason);
+      });
+    } catch (_) {
+      if (!mounted || _cancel != cancel) return;
+      setState(() {
+        _stage = _ImportStage.idle;
+        _progress = null;
+        _errorText = l10n.libraryImportFailedError;
+      });
     }
+  }
+
+  void _cancelImport() {
+    _cancel?.cancel();
+    setState(() {
+      _stage = _ImportStage.idle;
+      _progress = null;
+    });
+  }
+
+  void _openPlaylist() {
+    final id = _playlistId;
+    final host = widget.hostContext;
     Navigator.pop(context);
-    AurumDepthRoute.to(
-      context,
-      PlaylistDetailScreen(playlistId: playlist.id),
+    if (id != null && host.mounted) {
+      AurumDepthRoute.to(host, PlaylistDetailScreen(playlistId: id));
+    }
+  }
+
+  Widget _gradientButton(String label, VoidCallback? onTap) {
+    return AurumPressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: AurumTheme.accentGradientOf(context),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: AurumTheme.bgOf(context), fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final muted = AurumTheme.textMutedOf(context);
+    final title = _stage == _ImportStage.done
+        ? l10n.libraryImportDoneTitle
+        : l10n.libraryImportPlaylist;
+
+    late final Widget content;
+    late final List<Widget> actions;
+
+    switch (_stage) {
+      case _ImportStage.idle:
+        final detectedLabel = _detected == PlaylistImportSource.spotify
+            ? l10n.libraryImportDetectedSpotify
+            : _detected == PlaylistImportSource.youtube
+                ? l10n.libraryImportDetectedYoutube
+                : null;
+        content = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.libraryImportPlaylistDesc,
+              style: TextStyle(color: muted, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            AurumFocusField(
+              builder: (focusNode) => _AurumTextField(
+                controller: _linkCtrl,
+                focusNode: focusNode,
+                label: l10n.libraryImportLinkLabel,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (detectedLabel != null)
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle_rounded,
+                            size: 15, color: AurumTheme.accentOf(context)),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(detectedLabel,
+                              style: TextStyle(
+                                  color: AurumTheme.accentOf(context),
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  const Spacer(),
+                TextButton.icon(
+                  onPressed: _paste,
+                  icon: Icon(Icons.content_paste_rounded,
+                      size: 16, color: AurumTheme.accentOf(context)),
+                  label: Text(l10n.libraryImportPaste,
+                      style: TextStyle(
+                          color: AurumTheme.accentOf(context),
+                          fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                _errorText!,
+                style:
+                    const TextStyle(color: Colors.redAccent, fontSize: 12.5),
+              ),
+            ],
+          ],
+        );
+        actions = [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.commonCancel, style: TextStyle(color: muted)),
+          ),
+          _gradientButton(l10n.commonImport, () => _import(l10n)),
+        ];
+        break;
+
+      case _ImportStage.working:
+        final p = _progress;
+        final doneCount = p?.done ?? 0;
+        final totalCount = p?.total ?? 0;
+        final matching =
+            p?.phase == PlaylistImportPhase.matching && totalCount > 0;
+        content = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              matching
+                  ? l10n.libraryImportMatching(doneCount, totalCount)
+                  : l10n.libraryImportReading,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: matching
+                    ? (doneCount / totalCount).clamp(0.0, 1.0).toDouble()
+                    : null,
+                minHeight: 5,
+                color: AurumTheme.accentOf(context),
+                backgroundColor: muted.withOpacity(0.18),
+              ),
+            ),
+          ],
+        );
+        actions = [
+          TextButton(
+            onPressed: _cancelImport,
+            child: Text(l10n.commonCancel, style: TextStyle(color: muted)),
+          ),
+        ];
+        break;
+
+      case _ImportStage.done:
+        final r = _result!;
+        const maxShown = 40;
+        content = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.libraryImportDoneBody(r.songs.length, r.totalTracks),
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (r.possiblyTruncated) ...[
+              const SizedBox(height: 8),
+              Text(l10n.libraryImportTruncatedNote,
+                  style: TextStyle(color: muted, fontSize: 12.5, height: 1.4)),
+            ],
+            if (r.unmatched.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                l10n.libraryImportUnmatchedHeader(r.unmatched.length),
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              for (final t in r.unmatched.take(maxShown))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    t.artists.isEmpty ? t.title : '${t.title} — ${t.artistLine}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: muted, fontSize: 12.5),
+                  ),
+                ),
+              if (r.unmatched.length > maxShown)
+                Text(
+                  l10n.libraryImportUnmatchedMore(
+                      r.unmatched.length - maxShown),
+                  style: TextStyle(color: muted, fontSize: 12.5),
+                ),
+            ],
+          ],
+        );
+        actions = [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.commonClose, style: TextStyle(color: muted)),
+          ),
+          _gradientButton(l10n.libraryImportOpenPlaylist, _openPlaylist),
+        ];
+        break;
+    }
+
+    return PopScope(
+      canPop: _stage != _ImportStage.working,
+      child: AlertDialog(
+        backgroundColor: AurumTheme.bgElevatedOf(context),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        scrollable: true,
+        title: Text(title,
+            style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontWeight: FontWeight.w800)),
+        content: content,
+        actions: actions,
+      ),
     );
   }
 }

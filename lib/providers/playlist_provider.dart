@@ -502,6 +502,34 @@ class PlaylistProvider extends ChangeNotifier {
     return playlist;
   }
 
+  /// Saves an already-resolved import (see PlaylistImportService) as a new
+  /// local playlist. Songs are de-duplicated by id, original order kept.
+  /// [youtubeSynced] only drives the "YouTube synced" badge — Spotify imports
+  /// pass false.
+  Future<AurumPlaylist> addImportedPlaylist({
+    required String name,
+    required List<Song> songs,
+    bool youtubeSynced = false,
+  }) async {
+    final seen = <String>{};
+    final unique = <Song>[];
+    for (final s in songs) {
+      if (s.id.isNotEmpty && seen.add(s.id)) unique.add(s);
+    }
+    final playlist = AurumPlaylist(
+      id: _generateId(),
+      name: name.trim().isEmpty ? 'Imported Playlist' : name.trim(),
+      songs: unique,
+      sortOrder: _nextSortOrder(),
+      isYtSynced: youtubeSynced,
+    );
+    _playlists.insert(0, playlist);
+    await _persist(playlist);
+    AnalyticsService.instance.logPlaylistCreate(playlist.name);
+    notifyListeners();
+    return playlist;
+  }
+
   // ── Query ─────────────────────────────────────────────────────────────────
 
   AurumPlaylist? getById(String id) => _findById(id);

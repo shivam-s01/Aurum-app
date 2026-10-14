@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
-import 'dart:io' show HttpClient;
+import 'dart:io' show HttpClient, SocketException, HandshakeException;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -2888,7 +2888,11 @@ class ApiService {
           duration: duration,
           source: SongSource.youtube,
           viewCount: 1000000,
-          artistChannelId: resolvedChannelId,
+          // '' (home shelf playlists) ko channel id mat maano — warna
+          // "Go to artist" 'yt_' (khaali) id bhejta tha aur kabhi nahi khulta.
+          artistChannelId: resolvedChannelId.isNotEmpty
+              ? resolvedChannelId
+              : (artistRuns.isNotEmpty ? artistRuns.first.channelId : null),
         );
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         topSongs.add(song);
@@ -4716,11 +4720,18 @@ class ApiService {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return null;
 
-    if (!trimmed.contains('://') && !trimmed.contains('.')) return trimmed;
+    // Real YouTube playlist IDs are only letters/digits/_/- (PL..., OLAK5uy_...,
+    // UU..., RD... etc). Anything else is not an ID, so reject it here instead
+    // of sending junk text to YouTube and showing a confusing "not found".
+    final idShape = RegExp(r'^(?:LM|[A-Za-z0-9_-]{10,64})$');
+
+    if (!trimmed.contains('://') && !trimmed.contains('.')) {
+      return idShape.hasMatch(trimmed) ? trimmed : null;
+    }
     try {
       final uri = Uri.parse(trimmed);
-      final listParam = uri.queryParameters['list'];
-      if (listParam != null && listParam.isNotEmpty) return listParam;
+      final listParam = uri.queryParameters['list']?.trim();
+      if (listParam != null && idShape.hasMatch(listParam)) return listParam;
     } catch (_) {
 
     }
@@ -5624,14 +5635,23 @@ class ApiService {
     }
 
     final completer = Completer<List<Song>>();
-    var pending = 2;
+    var pending = 3;
     Object? lastError;
     List<Song> best = const [];
     Timer? grace;
+    // InnerTube path page-by-page yahan likhta hai — grace khatam hone par
+    // jo bhi ab tak aa chuka wo bhi count hota hai (partial result na khoye).
+    final innerTubeSink = <Song>[];
+    // InnerTube crawl poora (aakhri page tak) hua ya beech me ruk gaya?
+    var innerTubeComplete = false;
 
     void finish() {
       grace?.cancel();
-      if (!completer.isCompleted) completer.complete(best);
+      if (completer.isCompleted) return;
+      if (innerTubeSink.length > best.length) {
+        best = List<Song>.of(innerTubeSink);
+      }
+      completer.complete(best);
     }
 
     void settleIfBest(List<Song> songs, String source, {Object? error}) {
@@ -5645,15 +5665,31 @@ class ApiService {
       }
       if (best.isEmpty) return;
       _log('[fetchYtPlaylistSongs] first: $source (${songs.length})');
-      // Chhoti playlist (<90 songs) turant dikha do. Badi playlist ka pehla
-      // jawab aksar page-limit pe cut hota hai — doosre source ko max 3s
-      // do taaki zyada complete list mile.
-      if (best.length < 90 || best.length >= limit) {
+      // InnerTube ka jawab tab "complete" hai jab uska crawl aakhri page tak
+      // gaya (innerTubeComplete) — turant dikha do. Adhoora ho ya baaki sources
+      // ka pehla jawab ho to 4s grace do taaki poori list mile.
+      if ((source == 'innertube' && songs.isNotEmpty && innerTubeComplete) ||
+          best.length >= limit) {
         finish();
       } else {
-        grace ??= Timer(const Duration(seconds: 3), finish);
+        grace ??= Timer(const Duration(seconds: 4), finish);
       }
     }
+
+    unawaited(
+      _fetchYtPlaylistViaInnerTube(playlistId, limit,
+              sink: innerTubeSink,
+              cancelled: () => completer.isCompleted,
+              onEnd: (c) => innerTubeComplete = c)
+          .timeout(const Duration(seconds: 20), onTimeout: () => null)
+          .then(
+        (result) => settleIfBest(result ?? const [], 'innertube'),
+        onError: (e) {
+          _log('[fetchYtPlaylistSongs] innertube path error: $e');
+          settleIfBest(const [], 'innertube', error: e);
+        },
+      ),
+    );
 
     unawaited(
       _fetchYtPlaylistViaWorker(playlistId, limit)
@@ -5682,10 +5718,289 @@ class ApiService {
 
     final result = await completer.future;
     if (result.isEmpty) {
-      if (lastError is YtPlaylistImportException) throw lastError!;
+      final err = lastError;
+      if (err is YtPlaylistImportException) throw err;
+      // Both sources died on the connection itself (offline / DNS / TLS /
+      // timeout) — say "network", not "playlist not found".
+      if (err is SocketException ||
+          err is HandshakeException ||
+          err is TimeoutException ||
+          err is http.ClientException) {
+        throw const YtPlaylistImportException(YtPlaylistImportError.network);
+      }
       throw const YtPlaylistImportException(YtPlaylistImportError.notFound);
     }
     return _dedupAndFilterPlaylistSongs(result);
+  }
+
+  /// The playlist's own title (for naming an imported playlist). Never
+  /// throws — null means "couldn't tell", caller falls back to a default name.
+  static Future<String?> fetchYtPlaylistTitle(String playlistUrlOrId) async {
+    final id = _extractYtPlaylistId(playlistUrlOrId);
+    if (id == null || id.isEmpty || _isYtMixPlaylistId(id)) return null;
+    try {
+      final pl = await _yt.playlists
+          .get(id)
+          .timeout(const Duration(seconds: 8));
+      final t = pl.title
+          .replaceAll('&amp;', '&')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&#39;', "'")
+          .trim();
+      return t.isEmpty ? null : t;
+    } catch (e) {
+      _log('[fetchYtPlaylistTitle] failed: $e');
+      return null;
+    }
+  }
+
+  /// Community-playlist stream ka cache (sirf POORI crawl hui playlists).
+  static final Map<String, ({DateTime at, List<Song> songs})> _playlistCache = {};
+  static const Duration _playlistCacheTtl = Duration(minutes: 10);
+
+  /// Ek baar fail ho to 700ms baad dobara try. Phir bhi khaali ho to exception
+  /// — taaki UI retry dikha sake.
+  static Future<List<Song>> _fetchCommunityPlaylistUncached(
+      String playlistId, int limit) async {
+    Object? lastErr;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final songs = await fetchYtPlaylistSongs(playlistId, limit: limit);
+        if (songs.isNotEmpty) return songs;
+      } catch (e) {
+        lastErr = e;
+        // Mix/invalid link pe retry ka fayda nahi.
+        if (e is YtPlaylistImportException &&
+            (e.reason == YtPlaylistImportError.isMix ||
+                e.reason == YtPlaylistImportError.invalidLink)) {
+          rethrow;
+        }
+      }
+      if (attempt == 0) {
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
+    }
+    if (lastErr != null) throw lastErr;
+    throw const YtPlaylistImportException(YtPlaylistImportError.notFound);
+  }
+
+  /// Ek page ke JSON ko EK hi pass me scan karta hai (songs + continuation
+  /// token) aur matched row ke andar ghusta nahi (rows ke menu/thumbnail
+  /// subtree bade hote hain). Pehle 3 baar poora tree walk hota tha —
+  /// low-end phone pe wahi jank tha.
+  static void _scanPlaylistPage(
+      dynamic node, List<Map<String, dynamic>> items, List<String> tokens) {
+    if (node is Map) {
+      final item = node['musicResponsiveListItemRenderer'];
+      if (item is Map) items.add(Map<String, dynamic>.from(item));
+      final cont = node['continuationItemRenderer'];
+      if (cont is Map) {
+        final t = cont['continuationEndpoint']?['continuationCommand']?['token'];
+        if (t is String && t.isNotEmpty) tokens.add(t);
+      }
+      final nc = node['nextContinuationData'];
+      if (nc is Map) {
+        final t = nc['continuation'];
+        if (t is String && t.isNotEmpty) tokens.add(t);
+      }
+      for (final e in node.entries) {
+        final k = e.key;
+        if (k == 'musicResponsiveListItemRenderer' ||
+            k == 'continuationItemRenderer') {
+          continue;
+        }
+        _scanPlaylistPage(e.value, items, tokens);
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        _scanPlaylistPage(v, items, tokens);
+      }
+    }
+  }
+
+  static Song? _songFromPlaylistRow(Map<String, dynamic> item) {
+    final videoId = (item['playlistItemData']?['videoId'] ?? '').toString();
+    if (videoId.isEmpty) return null;
+    final title = _flexColumnText(item, 0);
+    if (title.isEmpty) return null;
+    final tl = title.toLowerCase();
+    if (tl == 'deleted video' || tl == 'private video') return null;
+
+    final artistRuns = _artistRunsInSubtitle(item);
+    var artist = artistRuns.isNotEmpty
+        ? artistRuns.map((a) => a.name).join(', ')
+        : _flexColumnText(item, 1);
+    if (artist.isEmpty) artist = 'Unknown';
+    // Album column kabhi kabhi views/plays count hota hai — album mat maano,
+    // warna "Go to album" galat cheez dhoondta hai.
+    var albumText = _flexColumnText(item, 2);
+    if (RegExp(r'\d.*(view|play|song|track|video)', caseSensitive: false)
+        .hasMatch(albumText)) {
+      albumText = '';
+    }
+
+    // Playlist rows me duration fixedColumns me hota hai.
+    int? duration;
+    final fixed = (item['fixedColumns'] as List?) ?? const [];
+    if (fixed.isNotEmpty) {
+      final runs = (fixed.first?['musicResponsiveListItemFixedColumnRenderer']
+              ?['text']?['runs'] as List?) ??
+          const [];
+      duration = _parseDurationText(runs
+          .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+          .join()
+          .trim());
+    }
+
+    final thumb = _ytmThumbnailUrl(item);
+    return Song(
+      id: videoId,
+      title: _cleanText(title),
+      artist: _cleanText(artist, collapseJukeboxTitle: false),
+      album: _cleanText(albumText),
+      artworkUrl:
+          thumb.isNotEmpty ? thumb : 'https://i.ytimg.com/vi/$videoId/mqdefault.jpg',
+      streamUrl: null,
+      duration: duration,
+      source: SongSource.youtube,
+      viewCount: null,
+      // Primary artist ki real channel id — "Go to artist" turant khulta hai.
+      artistChannelId: artistRuns.isNotEmpty ? artistRuns.first.channelId : null,
+    );
+  }
+
+  /// YT Music InnerTube se playlist PAGE-BY-PAGE (VL<id> browse + continuation,
+  /// ~100 songs/page). Har page ka batch turant yield hota hai — UI ko
+  /// pehle ~100 songs ~1s me mil jaate hain, baaki peeche se judte rehte
+  /// hain. Consumer cancel kare to agla page fetch hi nahi hota.
+  static Stream<List<Song>> _streamYtPlaylistInnerTube(
+      String playlistId, int limit,
+      {bool Function()? cancelled,
+      void Function(bool complete)? onEnd}) async* {
+    // complete == true sirf tab jab playlist sach me aakhir tak (ya limit /
+    // hop-cap tak) pahunchi. Beech me continuation fail ho to false — taaki
+    // adhoori list ko poori maan ke cache / finish na kiya jaaye.
+    var complete = false;
+    try {
+      final browseId =
+          playlistId.startsWith('VL') ? playlistId : 'VL$playlistId';
+      var data =
+          await _ytmBrowseRaw(browseId, timeout: const Duration(seconds: 8));
+      data ??=
+          await _ytmBrowseRaw(browseId, timeout: const Duration(seconds: 8));
+
+      final seen = <String>{};
+      var total = 0;
+      var hops = 0;
+      const maxHops = 40; // 40 pages x ~100 = 4000 songs tak
+      while (data != null &&
+          total < limit &&
+          hops <= maxHops &&
+          !(cancelled?.call() ?? false)) {
+        final items = <Map<String, dynamic>>[];
+        final tokens = <String>[];
+        _scanPlaylistPage(data, items, tokens);
+
+        final batch = <Song>[];
+        for (final item in items) {
+          if (total + batch.length >= limit) break;
+          final vid = (item['playlistItemData']?['videoId'] ?? '').toString();
+          if (vid.isEmpty || !seen.add(vid)) continue;
+          final song = _songFromPlaylistRow(item);
+          if (song != null) batch.add(song);
+        }
+        if (batch.isNotEmpty) {
+          total += batch.length;
+          yield batch;
+        }
+        if (total >= limit || tokens.isEmpty) {
+          complete = true;
+          break;
+        }
+
+        hops++;
+        // Frame ko saans lene do — parse + setState ek hi frame me na dabe.
+        await Future<void>.delayed(Duration.zero);
+        var next = await _ytmBrowseContinuationRaw(tokens.first,
+            timeout: const Duration(seconds: 8));
+        next ??= await _ytmBrowseContinuationRaw(tokens.first,
+            timeout: const Duration(seconds: 8));
+        data = next;
+      }
+      if (hops > maxHops) complete = true;
+    } finally {
+      onEnd?.call(complete);
+    }
+  }
+
+  /// Race ke liye (fetchYtPlaylistSongs): stream ko ek list me jama karta hai.
+  static Future<List<Song>?> _fetchYtPlaylistViaInnerTube(
+      String playlistId, int limit,
+      {List<Song>? sink,
+      bool Function()? cancelled,
+      void Function(bool complete)? onEnd}) async {
+    try {
+      final songs = sink ?? <Song>[];
+      await for (final batch in _streamYtPlaylistInnerTube(playlistId, limit,
+          cancelled: cancelled, onEnd: onEnd)) {
+        songs.addAll(batch);
+      }
+      return songs.isEmpty ? null : List<Song>.of(songs);
+    } catch (e) {
+      _log('[_fetchYtPlaylistViaInnerTube] $playlistId error: $e');
+      return null;
+    }
+  }
+
+  /// Community playlist ke liye progressive stream: cache ho to ek hi batch
+  /// me instant; warna pehla page ~1s me, baaki peeche se. InnerTube khaali
+  /// aaye to purana 3-source race fallback.
+  static Stream<List<Song>> streamCommunityPlaylistSongs(String playlistId,
+      {int limit = 1000}) async* {
+    final cached = _playlistCache[playlistId];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < _playlistCacheTtl) {
+      yield cached.songs;
+      return;
+    }
+    final id = _extractYtPlaylistId(playlistId);
+    if (id == null || id.isEmpty) {
+      throw const YtPlaylistImportException(YtPlaylistImportError.invalidLink);
+    }
+    if (_isYtMixPlaylistId(id)) {
+      throw const YtPlaylistImportException(YtPlaylistImportError.isMix);
+    }
+
+    var complete = false;
+    final all = <Song>[];
+    await for (final batch in _streamYtPlaylistInnerTube(id, limit,
+        onEnd: (c) => complete = c)) {
+      all.addAll(batch);
+      yield batch;
+    }
+    if (all.isEmpty || !complete) {
+      // InnerTube khaali ya beech me ruka — purana multi-source race se
+      // baaki songs lao (jo pehle aa chuke wo dobara yield nahi hote).
+      try {
+        final songs = await _fetchCommunityPlaylistUncached(id, limit);
+        final have = all.map((s) => s.id).toSet();
+        final extra = songs.where((s) => have.add(s.id)).toList();
+        if (extra.isNotEmpty) {
+          all.addAll(extra);
+          yield extra;
+        }
+      } catch (_) {
+        if (all.isEmpty) rethrow;
+      }
+    }
+    // Sirf poori crawl hui playlist cache hoti hai — adhoori nahi.
+    if (complete && all.isNotEmpty) {
+      _playlistCache.remove(playlistId);
+      _playlistCache[playlistId] = (at: DateTime.now(), songs: all);
+      while (_playlistCache.length > 8) {
+        _playlistCache.remove(_playlistCache.keys.first);
+      }
+    }
   }
 
   static Future<List<Song>?> _fetchYtPlaylistViaWorker(
@@ -7561,7 +7876,11 @@ class ApiService {
           duration: duration,
           source: SongSource.youtube,
           viewCount: 1000000,
-          artistChannelId: resolvedChannelId,
+          // '' (home shelf playlists) ko channel id mat maano — warna
+          // "Go to artist" 'yt_' (khaali) id bhejta tha aur kabhi nahi khulta.
+          artistChannelId: resolvedChannelId.isNotEmpty
+              ? resolvedChannelId
+              : (artistRuns.isNotEmpty ? artistRuns.first.channelId : null),
         );
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         topSongs.add(song);
