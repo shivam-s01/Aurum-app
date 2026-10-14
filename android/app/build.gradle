@@ -60,12 +60,16 @@ android {
                 // CMakeLists.txt) is what actually keeps the stripped
                 // .so hard to read; arguments here just wire CMake in.
                 cppFlags "-O2"
+                // Native (CMake) build sirf in ABIs ke liye — splits se conflict nahi karta.
+                abiFilters(*appAbis)
             }
         }
-        ndk {
-            // Matches the abi splits below — no point building native
-            // code for architectures the app never ships.
-            abiFilters(*appAbis)
+        // ndk.abiFilters splits{abi} ke saath conflict karta hai jab Flutter
+        // --split-per-abi lagata hai, isliye CI (arm64-only) mein nahi lagaya.
+        if (!ciArm64Only) {
+            ndk {
+                abiFilters(*appAbis)
+            }
         }
     }
 
