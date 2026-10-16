@@ -45,6 +45,13 @@ class MainActivity : FlutterFragmentActivity() {
     // call back into Dart on with the real success/failure outcome.
     private var methodChannel: MethodChannel? = null
 
+    // Voice ("Hey Google/Gemini, open Astra Music and play <song>") —
+    // arrives as android.media.action.MEDIA_PLAY_FROM_SEARCH. Cold start:
+    // Dart isn't up yet, so the query is parked here and pulled by Dart
+    // (getPending). Warm start: pushed straight to Dart via onNewIntent.
+    private var voiceChannel: MethodChannel? = null
+    private var pendingVoiceQuery: String? = null
+
     private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
 
     // Exposes YoutubeInnertube.getRelated() (YouTube's own related-videos
@@ -119,6 +126,36 @@ class MainActivity : FlutterFragmentActivity() {
         val enabled = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             .getBoolean("flutter.high_refresh_rate", false)
         applyHighRefreshRate(enabled)
+        captureVoiceIntent(intent, push = false)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureVoiceIntent(intent, push = true)
+    }
+
+    private fun captureVoiceIntent(intent: Intent?, push: Boolean) {
+        if (intent?.action != "android.media.action.MEDIA_PLAY_FROM_SEARCH") return
+        val title = intent.getStringExtra(MediaStore.EXTRA_MEDIA_TITLE)
+        val artist = intent.getStringExtra(MediaStore.EXTRA_MEDIA_ARTIST)
+        val raw = intent.getStringExtra(android.app.SearchManager.QUERY)
+        val q = when {
+            !title.isNullOrBlank() ->
+                if (!artist.isNullOrBlank()) "$title $artist" else title
+            !raw.isNullOrBlank() -> raw
+            !artist.isNullOrBlank() -> artist
+            else -> ""
+        }.trim()
+        if (q.isEmpty()) return
+        pendingVoiceQuery = q
+        if (push) {
+            voiceChannel?.invokeMethod("voicePlay", q, object : MethodChannel.Result {
+                override fun success(result: Any?) { pendingVoiceQuery = null }
+                override fun error(code: String, msg: String?, details: Any?) {}
+                override fun notImplemented() {}
+            })
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -130,6 +167,16 @@ class MainActivity : FlutterFragmentActivity() {
         relatedChannelHandler = AurumRelatedChannelHandler(flutterEngine.dartExecutor.binaryMessenger)
 
         batteryChannelHandler = AurumBatteryChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+
+        voiceChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.aurum.music/voice").also { ch ->
+            ch.setMethodCallHandler { call, result ->
+                if (call.method == "getPending") {
+                    val q = pendingVoiceQuery
+                    pendingVoiceQuery = null
+                    result.success(q)
+                } else result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).also { methodChannel = it }
         methodChannel!!

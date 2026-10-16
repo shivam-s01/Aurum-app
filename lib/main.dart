@@ -49,6 +49,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/diagnostic_log_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/native_engine_bridge.dart';
+import 'services/voice_play_service.dart';
 import 'services/notification_service.dart';
 import 'services/update_push_service.dart';
 import 'services/update_service.dart';
@@ -381,6 +382,7 @@ Future<void> main() async {
   // — the lowest-opt-in moment possible. New users now get the prompt right
   // AFTER onboarding finishes (see _OnboardingGate onDone); users who
   // already completed onboarding get it once, ~20s into a later session.
+  unawaited(VoicePlayService.init());
   unawaited(_askNotificationOnce(afterDelay: const Duration(seconds: 20)));
 
   try {
