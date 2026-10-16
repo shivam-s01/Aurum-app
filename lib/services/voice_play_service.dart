@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:provider/provider.dart';
 import '../main.dart' show navigatorKey;
 import '../providers/favorites_provider.dart';
@@ -46,8 +47,9 @@ class VoicePlayService {
       await Future.delayed(const Duration(milliseconds: 250));
     }
     try {
-      var ctx = navigatorKey.currentContext;
-      if (ctx == null) return;
+      final first = navigatorKey.currentContext;
+      if (first == null) return;
+      BuildContext ctx = first;
       // Wait (max ~10s) for saved liked songs / playlists to finish loading.
       for (var i = 0; i < 40; i++) {
         final c = navigatorKey.currentContext;
