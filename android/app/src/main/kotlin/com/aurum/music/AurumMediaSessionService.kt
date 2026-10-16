@@ -9,6 +9,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -33,6 +35,9 @@ import com.google.common.util.concurrent.ListenableFuture
  * service is just the foreground/notification wrapper around it, not a
  * second player.
  */
+private const val VOICE_NOOP_ID = "aurum_voice_noop"
+private val VOICE_NOOP_ITEM: MediaItem = MediaItem.Builder().setMediaId(VOICE_NOOP_ID).build()
+
 class AurumMediaSessionService : MediaSessionService() {
 
     companion object {
@@ -162,6 +167,36 @@ class AurumMediaSessionService : MediaSessionService() {
                 ))
             }
 
+            // Gemini / Assistant "play <query> on Astra Music" arrives here
+            // (legacy playFromSearch is converted to setMediaItems with a
+            // searchQuery and no URI). Hand the query to Dart and leave the
+            // current queue untouched; Dart's playSong does the real work.
+            override fun onSetMediaItems(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo,
+                mediaItems: MutableList<MediaItem>,
+                startIndex: Int,
+                startPositionMs: Long,
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                if (mediaItems.isNotEmpty() && mediaItems.all { it.localConfiguration == null }) {
+                    val q = mediaItems.firstNotNullOfOrNull { it.requestMetadata.searchQuery }
+                    if (!q.isNullOrBlank()) {
+                        VoiceBridge.dispatch(applicationContext, q)
+                    } else if (mediaSession.player.mediaItemCount == 0) {
+                        // "play some music" with nothing loaded
+                        VoiceBridge.dispatch(applicationContext, "liked songs")
+                    }
+                    // Sentinel: the ForwardingPlayer below ignores it, so the
+                    // engine's own queue is never touched by this request.
+                    return Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(
+                            listOf(VOICE_NOOP_ITEM), 0, 0L
+                        )
+                    )
+                }
+                return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
+            }
+
             override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
                 super.onPostConnect(session, controller)
                 session.setCustomLayout(ImmutableList.of(likeButton))
@@ -205,6 +240,17 @@ class AurumMediaSessionService : MediaSessionService() {
                     b.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 }
                 return b.build()
+            }
+            private fun isVoiceNoop(items: List<MediaItem>) =
+                items.size == 1 && items[0].mediaId == VOICE_NOOP_ID
+            override fun setMediaItems(mediaItems: MutableList<MediaItem>) {
+                if (!isVoiceNoop(mediaItems)) super.setMediaItems(mediaItems)
+            }
+            override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) {
+                if (!isVoiceNoop(mediaItems)) super.setMediaItems(mediaItems, resetPosition)
+            }
+            override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) {
+                if (!isVoiceNoop(mediaItems)) super.setMediaItems(mediaItems, startIndex, startPositionMs)
             }
             override fun isCommandAvailable(command: Int): Boolean =
                 getAvailableCommands().contains(command)

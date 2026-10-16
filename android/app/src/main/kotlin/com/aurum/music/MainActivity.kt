@@ -171,11 +171,20 @@ class MainActivity : FlutterFragmentActivity() {
         voiceChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.aurum.music/voice").also { ch ->
             ch.setMethodCallHandler { call, result ->
                 if (call.method == "getPending") {
-                    val q = pendingVoiceQuery
+                    val q = pendingVoiceQuery ?: VoiceBridge.take()
                     pendingVoiceQuery = null
+                    VoiceBridge.pending = null
                     result.success(q)
                 } else result.notImplemented()
             }
+        }
+
+        VoiceBridge.sink = { q ->
+            voiceChannel?.invokeMethod("voicePlay", q, object : MethodChannel.Result {
+                override fun success(result: Any?) {}
+                override fun error(code: String, msg: String?, details: Any?) {}
+                override fun notImplemented() { VoiceBridge.pending = q }
+            })
         }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).also { methodChannel = it }
@@ -734,6 +743,7 @@ class MainActivity : FlutterFragmentActivity() {
             try { unbindService(it) } catch (_: Exception) {}
         }
         mediaSessionServiceConnection = null
+        VoiceBridge.sink = null
         audioEngineChannelHandler?.release()
         audioEngineChannelHandler = null
         batteryChannelHandler?.release()
