@@ -123,30 +123,24 @@ class UpdateService {
       // STEP 2 — same as Musify: only reached when a newer version
       // actually exists, so this hits the GitHub Releases API on a
       // small fraction of launches, not every launch.
-      final releasesRequest =
-          await http.get(Uri.parse(_releasesUrl)).timeout(const Duration(seconds: 8));
-
-      if (releasesRequest.statusCode != 200) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: releases/latest returned '
-              '${releasesRequest.statusCode} (silent=$silent): ${releasesRequest.body}');
+      // Changelog is best-effort: if this call fails (403 rate limit,
+      // timeout, offline) the popup must still show, just without it.
+      var highlights = const <ChangelogSection>[];
+      try {
+        final releasesRequest =
+            await http.get(Uri.parse(_releasesUrl)).timeout(const Duration(seconds: 8));
+        if (releasesRequest.statusCode == 200) {
+          final releasesResponse =
+              jsonDecode(releasesRequest.body) as Map<String, dynamic>;
+          highlights = _parseHighlights(releasesResponse['body']?.toString() ?? '');
         }
-        if (!silent && context.mounted) _showCheckFailed(context);
-        return;
-      }
-
-      final releasesResponse =
-          jsonDecode(releasesRequest.body) as Map<String, dynamic>;
-      final changelog = releasesResponse['body']?.toString() ?? '';
-      final releaseName = releasesResponse['name']?.toString() ?? '';
-
-      final highlights = _parseHighlights(changelog);
+      } catch (_) {}
 
       if (context.mounted) {
         _showDialog(
           context,
           version: versionLabel,
-          displayName: releaseName.isNotEmpty ? releaseName : versionLabel,
+          displayName: versionLabel,
           url: downloadUrl,
           highlights: highlights,
         );

@@ -78,8 +78,6 @@ dependencies:
   # fresh `flutter pub get` — pinning exact prevents that regression
   # until the project is deliberately upgraded to AGP 9+/built-in Kotlin.
   dynamic_color: 1.7.0
-  material_new_shapes: ^1.0.0
-  phosphor_flutter: ^2.1.0
   expressive_loading_indicator:
     path: packages/expressive_loading_indicator
 

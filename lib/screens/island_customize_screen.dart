@@ -99,6 +99,7 @@ class _IslandCustomizeScreenState extends State<IslandCustomizeScreen> {
 
   Future<void> _toggleEnabled(bool v) async {
     final applied = await AudioPrefs.setIslandEnabled(v);
+    if (!mounted) return;
     final resolved = applied ? v : false;
     setState(() => _enabled = resolved);
     if (v && !applied && mounted) {

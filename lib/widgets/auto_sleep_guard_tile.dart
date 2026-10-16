@@ -72,11 +72,12 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
       ),
     );
 
-    if (result == null) return; // dismissed without changing anything
+    if (result == null || !mounted) return; // dismissed, or tile gone
 
     if (result.enabled != _enabled) {
       setState(() => _enabled = result.enabled);
       await _engine.autoSleepGuardSetEnabled(result.enabled);
+      if (!mounted) return;
     }
     if (result.hours != _durationHours) {
       setState(() => _durationHours = result.hours);
