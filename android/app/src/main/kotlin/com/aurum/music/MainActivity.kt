@@ -137,16 +137,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun captureVoiceIntent(intent: Intent?, push: Boolean) {
         if (intent?.action != "android.media.action.MEDIA_PLAY_FROM_SEARCH") return
-        val title = intent.getStringExtra(MediaStore.EXTRA_MEDIA_TITLE)
-        val artist = intent.getStringExtra(MediaStore.EXTRA_MEDIA_ARTIST)
-        val raw = intent.getStringExtra(android.app.SearchManager.QUERY)
-        val q = when {
-            !title.isNullOrBlank() ->
-                if (!artist.isNullOrBlank()) "$title $artist" else title
-            !raw.isNullOrBlank() -> raw
-            !artist.isNullOrBlank() -> artist
-            else -> ""
-        }.trim()
+        // Re-launch from VoiceBridge.dispatch already carries a ready payload;
+        // a direct Assistant/Gemini intent carries MediaStore-style extras
+        // (focus/title/artist/album/genre/playlist/query) -> build the payload.
+        val q = (intent.getStringExtra(VoiceBridge.EXTRA_PAYLOAD)
+            ?: VoiceBridge.payload(intent.getStringExtra(android.app.SearchManager.QUERY), intent.extras)).trim()
         if (q.isEmpty()) return
         pendingVoiceQuery = q
         if (push) {

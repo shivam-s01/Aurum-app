@@ -179,9 +179,16 @@ class AurumMediaSessionService : MediaSessionService() {
                 startPositionMs: Long,
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 if (mediaItems.isNotEmpty() && mediaItems.all { it.localConfiguration == null }) {
+                    // Besides the free-text query, Gemini/Assistant ships structured
+                    // MediaStore-style extras (focus = song/artist/album/playlist/genre,
+                    // title, artist, album, ...) in requestMetadata.extras. Forward all
+                    // of it so Dart can tell "play Kesariya by Arijit" (a song) from
+                    // "play Arijit Singh" (an artist) like YouTube Music does.
                     val q = mediaItems.firstNotNullOfOrNull { it.requestMetadata.searchQuery }
-                    if (!q.isNullOrBlank()) {
-                        VoiceBridge.dispatch(applicationContext, q)
+                    val extras = mediaItems.firstNotNullOfOrNull { it.requestMetadata.extras }
+                    val payload = VoiceBridge.payload(q, extras)
+                    if (payload.isNotBlank()) {
+                        VoiceBridge.dispatch(applicationContext, payload)
                     } else if (mediaSession.player.mediaItemCount == 0) {
                         // "play some music" with nothing loaded
                         VoiceBridge.dispatch(applicationContext, "liked songs")
@@ -258,6 +265,17 @@ class AurumMediaSessionService : MediaSessionService() {
                 super.hasNextMediaItem() || engine.canSkipNext()
             override fun hasPreviousMediaItem(): Boolean =
                 super.hasPreviousMediaItem() || engine.canSkipPrevious()
+            // Assistants follow a voice "play <x>" with play(). The requested song is
+            // started by Dart (playSong), so letting this play() through would first
+            // resume whatever old song was paused -> a short burst of the wrong audio.
+            override fun play() {
+                if (VoiceBridge.voiceJustRequested()) return
+                super.play()
+            }
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady && VoiceBridge.voiceJustRequested()) return
+                super.setPlayWhenReady(playWhenReady)
+            }
             override fun seekToNext() { engine.skipToNext() }
             override fun seekToNextMediaItem() { engine.skipToNext() }
             override fun seekToPrevious() { engine.skipToPrevious() }
