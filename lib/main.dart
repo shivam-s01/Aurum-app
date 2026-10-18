@@ -965,16 +965,40 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
   // correctness bug.
   static bool _warmed = false;
 
+  // FIX (flash / full app reload): build() used to return `widget.child`
+  // directly on every build after the first, but a Stack on the very first
+  // one. Any later rebuild of this widget (e.g. MaterialApp's Consumer
+  // rebuilding on a theme/locale change) therefore swapped Stack -> child,
+  // which makes Flutter unmount and recreate the ENTIRE app underneath
+  // (AppLock, onboarding gate, MainShell, Home). The structure is now
+  // constant — `child` is always Stack index 0 — and only the throwaway
+  // warm-up box is added, then removed after it has painted.
+  late bool _showWarmup;
+
+  @override
+  void initState() {
+    super.initState();
+    _showWarmup = !_warmed;
+    _warmed = true;
+    if (_showWarmup) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _showWarmup = false);
+        });
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_warmed) return widget.child;
-    _warmed = true;
     return Stack(
+      fit: StackFit.passthrough,
       children: [
         widget.child,
         // Offstage: laid out and painted once (which is all we need to
         // force shader compilation) but never actually shown or hit-tested.
-        Positioned(
+        if (_showWarmup)
+          Positioned(
           left: -100,
           top: -100,
           child: IgnorePointer(

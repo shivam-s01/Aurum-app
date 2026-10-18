@@ -70,6 +70,12 @@ class SplashScreen extends StatefulWidget {
   final Widget child;
   const SplashScreen({super.key, required this.child});
 
+  /// Becomes true once the intro overlay is completely gone (or was never
+  /// shown: animations off / already played this process). One-time UI
+  /// hints (e.g. the Home sign-in tip) wait for this so they never pop up
+  /// underneath or during the wordmark animation. Never goes back to false.
+  static final ValueNotifier<bool> finishedNotifier = ValueNotifier<bool>(false);
+
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
@@ -123,6 +129,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     if (_played || !AudioPrefs.enableAnimationsNotifier.value) {
       _played = true;
+      SplashScreen.finishedNotifier.value = true;
       return;
     }
     _showSplash = true;
@@ -171,6 +178,7 @@ class _SplashScreenState extends State<SplashScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _showSplash = false);
+          SplashScreen.finishedNotifier.value = true;
         });
       });
     });
@@ -187,57 +195,58 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    if (!_showSplash) return widget.child;
+    // FIX (flash / full reload right after the splash ends): this used to
+    // `return widget.child` once the splash finished, but `Stack([child,
+    // overlay])` while it was playing. Those are two DIFFERENT widget types
+    // at the same slot, so the moment _showSplash flipped to false Flutter
+    // threw away the whole app subtree underneath (AppLockScreen ->
+    // OnboardingGate -> MainShell -> Home) and rebuilt it from scratch:
+    // dark placeholder frames from AppLock/Onboarding's "checking" state,
+    // Home re-running initState + cache hydrate + shimmer. That was the
+    // ~0.5s flash on Home. `child` now ALWAYS sits at Stack index 0, and
+    // only the overlay is added/removed, so the app is never remounted.
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        widget.child,
+        if (_showSplash) _buildOverlay(context),
+      ],
+    );
+  }
+
+  Widget _buildOverlay(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    // FIX (black-flash-on-handoff): was hardcoded to AurumTheme.darkBg,
-    // a fixed constant. MainShell's own Scaffold (the screen this widget
-    // hands off to) paints with AurumTheme.bgOf(context), which resolves
-    // to a Material You DYNAMIC color when the user has that enabled —
-    // not the same value as darkBg in that case. That one-frame color
-    // mismatch, right at the instant _showSplash flips to false, is what
-    // read as a ~0.2s black flash. Pulling the same bgOf(context) here
-    // guarantees the splash's own background is bit-for-bit identical to
-    // what's already visible underneath it, so removing this layer never
-    // has a color to jump across — dynamic-color users and fixed-theme
-    // users both get a truly seamless handoff.
+    // Same bgOf(context) as the Scaffold underneath, so removing this
+    // layer never has a color to jump across (dynamic colour included).
     final handoffBg = AurumTheme.bgOf(context);
-    // Picks the readable subtitle color for whichever background is
-    // actually resolved this frame (dark app theme, light app theme, or
-    // dynamic/Material You in either brightness) — see the field doc
-    // comment above for why a single fixed color broke in light mode.
     final musicTextColor = ThemeData.estimateBrightnessForColor(handoffBg) ==
             Brightness.dark
         ? _musicTextColorDark
         : _musicTextColorLight;
-    return Stack(
-      children: [
-        widget.child,
-        AnimatedBuilder(
-          animation: _fadeController,
-          builder: (context, _) {
-            return Opacity(
-              opacity: 1.0 - _fadeController.value,
-              child: IgnorePointer(
-                child: Container(
-                  color: handoffBg,
-                  width: double.infinity,
-                  height: double.infinity,
-                  child: _SplashContent(
-                    timeline: _timeline,
-                    particles: _particles,
-                    screenSize: size,
-                    cyan: _cyan,
-                    violet: _violet,
-                    paleCyan: _paleCyan,
-                    paleViolet: _paleViolet,
-                    musicColor: musicTextColor,
-                  ),
-                ),
+    return AnimatedBuilder(
+      animation: _fadeController,
+      builder: (context, _) {
+        return Opacity(
+          opacity: 1.0 - _fadeController.value,
+          child: IgnorePointer(
+            child: Container(
+              color: handoffBg,
+              width: double.infinity,
+              height: double.infinity,
+              child: _SplashContent(
+                timeline: _timeline,
+                particles: _particles,
+                screenSize: size,
+                cyan: _cyan,
+                violet: _violet,
+                paleCyan: _paleCyan,
+                paleViolet: _paleViolet,
+                musicColor: musicTextColor,
               ),
-            );
-          },
-        ),
-      ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

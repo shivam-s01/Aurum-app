@@ -1,7 +1,6 @@
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -18,6 +17,12 @@ class ChangelogSection {
   final String title;
   final List<String> items;
   const ChangelogSection(this.title, this.items);
+}
+
+class _LatestBuild {
+  final int build;
+  final String url;
+  const _LatestBuild(this.build, this.url);
 }
 
 class UpdateService {
@@ -56,83 +61,38 @@ class UpdateService {
       final info = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
 
-      // STEP 1 — same as Musify's checkAppUpdates(): cheap version check
-      // against check.json on the 'update' branch via
-      // raw.githubusercontent.com. No auth, no rate limit. Cache-busted
-      // so a just-pushed check.json is never served stale.
-      final bustedUrl = Uri.parse(_checkUrl).replace(
-        queryParameters: {'t': DateTime.now().millisecondsSinceEpoch.toString()},
-      );
+      // Primary: check.json (raw.githubusercontent.com — no rate limit).
+      // Fallback: Releases API (tag "build<N>" + apk asset). Either one
+      // answering is enough, so a missing/stale check.json or a CDN hiccup
+      // can't break the update flow anymore.
+      final latest = await _fetchLatest();
 
-      final response = await http.get(bustedUrl).timeout(const Duration(seconds: 8));
-
-      if (response.statusCode != 200) {
+      if (latest == null) {
         if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: check.json fetch returned '
-              '${response.statusCode} (silent=$silent): ${response.body}');
+          debugPrint('[Aurum] UpdateService: no update info reachable (silent=$silent)');
         }
         if (!silent && context.mounted) _showCheckFailed(context);
         return;
       }
 
-      final map = jsonDecode(response.body) as Map<String, dynamic>;
-
-      // check.json is expected to look like:
-      // { "buildNumber": 3134, "url": "https://github.com/<repo>/releases/download/build3134/app-arm64-v8a-release.apk" }
-      final latestBuild = map['buildNumber'] is int
-          ? map['buildNumber'] as int
-          : int.tryParse(map['buildNumber']?.toString() ?? '');
-      final downloadUrl = map['url']?.toString() ?? '';
-
-      if (kDebugMode) {
-        debugPrint('[Aurum] UpdateService: currentBuild=$currentBuild '
-            'latestBuild=$latestBuild');
-      }
-
-      if (latestBuild == null) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: check.json missing/invalid '
-              'buildNumber — skipping.');
-        }
-        if (!silent && context.mounted) _showCheckFailed(context);
-        return;
-      }
-
-      if (latestBuild <= currentBuild) {
+      if (latest.build <= currentBuild) {
         if (!silent && context.mounted) _showUpToDate(context);
         return;
       }
 
-      if (downloadUrl.isEmpty) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: check.json missing url — skipping.');
-        }
-        if (!silent && context.mounted) _showCheckFailed(context);
-        return;
-      }
+      final versionLabel = 'build${latest.build}';
 
-      final versionLabel = 'build$latestBuild';
+      if (!force && await _isSnoozed(versionLabel)) return;
 
-      if (!force && await _isSnoozed(versionLabel)) {
-        if (kDebugMode) {
-          debugPrint('[Aurum] UpdateService: "$versionLabel" is snoozed, skipping popup');
-        }
-        return;
-      }
-
-      // STEP 2 — same as Musify: only reached when a newer version
-      // actually exists, so this hits the GitHub Releases API on a
-      // small fraction of launches, not every launch.
-      // Changelog is best-effort: if this call fails (403 rate limit,
-      // timeout, offline) the popup must still show, just without it.
+      // Changelog is best-effort — popup must show even without it.
       var highlights = const <ChangelogSection>[];
       try {
-        final releasesRequest =
-            await http.get(Uri.parse(_releasesUrl)).timeout(const Duration(seconds: 8));
-        if (releasesRequest.statusCode == 200) {
-          final releasesResponse =
-              jsonDecode(releasesRequest.body) as Map<String, dynamic>;
-          highlights = _parseHighlights(releasesResponse['body']?.toString() ?? '');
+        final res = await http
+            .get(Uri.parse(_releasesUrl), headers: _ghHeaders)
+            .timeout(const Duration(seconds: 6));
+        if (res.statusCode == 200) {
+          final body = jsonDecode(res.body) as Map<String, dynamic>;
+          highlights = _parseHighlights(body['body']?.toString() ?? '');
         }
       } catch (_) {}
 
@@ -141,7 +101,7 @@ class UpdateService {
           context,
           version: versionLabel,
           displayName: versionLabel,
-          url: downloadUrl,
+          url: latest.url,
           highlights: highlights,
         );
       }
@@ -151,6 +111,70 @@ class UpdateService {
       }
       if (!silent && context.mounted) _showCheckFailed(context);
     }
+  }
+
+  static const Map<String, String> _ghHeaders = {
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'AstraMusic-Updater',
+  };
+
+  /// Tries check.json (2 attempts), then the Releases API. Returns null
+  /// only if every source failed.
+  static Future<_LatestBuild?> _fetchLatest() async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final url = Uri.parse(_checkUrl).replace(
+          queryParameters: {'t': DateTime.now().millisecondsSinceEpoch.toString()},
+        );
+        final res = await http
+            .get(url, headers: const {'Cache-Control': 'no-cache'})
+            .timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final map = jsonDecode(res.body) as Map<String, dynamic>;
+          final build = int.tryParse(map['buildNumber']?.toString() ?? '');
+          final apkUrl = map['url']?.toString() ?? '';
+          if (build != null && apkUrl.isNotEmpty) return _LatestBuild(build, apkUrl);
+        }
+      } catch (_) {}
+      if (attempt == 0) await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    try {
+      final res = await http
+          .get(Uri.parse(_releasesUrl), headers: _ghHeaders)
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final map = jsonDecode(res.body) as Map<String, dynamic>;
+        final tag = map['tag_name']?.toString() ?? '';
+        final build = int.tryParse(tag.replaceAll(RegExp(r'[^0-9]'), ''));
+        final assets = (map['assets'] as List?) ?? const [];
+        String apk = '';
+        for (final a in assets) {
+          final u = (a as Map)['browser_download_url']?.toString() ?? '';
+          if (u.endsWith('.apk')) {
+            apk = u;
+            break;
+          }
+        }
+        if (build != null && apk.isNotEmpty) {
+          // The tag is the raw build number, but the phone's PackageInfo
+          // reports the real versionCode, which Flutter's --split-per-abi
+          // raises by an ABI offset (check.json already carries the real
+          // one). Add the same offset here so both sources compare against
+          // the installed build identically — otherwise a build less than
+          // ~33 min newer would be missed when this fallback is used.
+          final offset = apk.contains('arm64-v8a')
+              ? 2000
+              : apk.contains('armeabi-v7a')
+                  ? 1000
+                  : apk.contains('x86_64')
+                      ? 4000
+                      : 0;
+          return _LatestBuild(build + offset, apk);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   static Future<bool> _isSnoozed(String version) async {
@@ -383,6 +407,8 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
 
   @override
   Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    final textP = AurumTheme.textPrimaryOf(context);
     return Positioned(
       bottom: 100,
       left: 24,
@@ -397,26 +423,23 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
             child: Center(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: Container(
+                child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF16161F).withOpacity(0.92),
+                      color: AurumTheme.bgElevatedOf(context),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      border: Border.all(color: textP.withOpacity(0.08)),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(widget.icon, color: AurumTheme.accent, size: 18),
+                      Icon(widget.icon, color: accent, size: 18),
                       const SizedBox(width: 10),
                       Flexible(
                         child: Text(widget.message,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                            style: TextStyle(
+                                color: textP, fontSize: 13, fontWeight: FontWeight.w600)),
                       ),
                     ]),
                   ),
-                ),
               ),
             ),
           ),
@@ -444,32 +467,30 @@ class _UpdateDialog extends StatefulWidget {
 
 class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderStateMixin {
   double _progress = 0;
+  int _received = 0;
+  int _total = 0;
   bool _downloading = false;
   bool _installing = false;
+  bool _error = false;
   String _status = '';
+  DateTime _lastUiTick = DateTime.fromMillisecondsSinceEpoch(0);
   late final AnimationController _entryCtrl;
 
   @override
   void initState() {
     super.initState();
-    _entryCtrl = AnimationController(vsync: this, duration: AurumMotion.long2);
+    _entryCtrl = AnimationController(vsync: this, duration: AurumMotion.medium2);
     _entryCtrl.forward();
-    // Listens for the real install outcome (see UpdateService.
-    // onInstallResult's doc comment) — a hard failure (corrupt file,
-    // signature mismatch, session error) can arrive within a second or
-    // two of installApk() being called, well before the user would see
-    // anything else; a genuine success/user-confirmed-it usually arrives
-    // after this dialog has already closed (Android's own confirmation
-    // screen takes over), in which case there's no dialog left to update
-    // and the callback is a no-op here — that's fine, the update either
-    // proceeded or the user dismissed the OS prompt themselves.
+    // Real install outcome arrives asynchronously from the native
+    // PackageInstaller; a hard failure lands here while the dialog is up.
     UpdateService.onInstallResult = (success, message) {
       if (!mounted) return;
       if (!success) {
         setState(() {
           _downloading = false;
           _installing = false;
-          _status = message.isNotEmpty ? message : 'Install failed — please try again';
+          _error = true;
+          _status = message.isNotEmpty ? message : 'Install failed. Please try again.';
         });
       }
     };
@@ -482,11 +503,17 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
     super.dispose();
   }
 
+  static String _mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
+
   Future<void> _downloadAndInstall() async {
     AurumHaptics.medium();
     setState(() {
       _downloading = true;
-      _status = 'Downloading';
+      _installing = false;
+      _error = false;
+      _progress = 0;
+      _received = 0;
+      _total = 0;
     });
     try {
       final dir = await getTemporaryDirectory();
@@ -495,7 +522,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
       final oldFile = File(path);
       if (await oldFile.exists()) await oldFile.delete();
 
-      final dio = Dio();
+      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 15)));
       await dio.download(
         widget.url,
         path,
@@ -504,41 +531,39 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
           responseType: ResponseType.bytes,
         ),
         onReceiveProgress: (received, total) {
-          // FIX (crash): the dialog can be dismissed (back button / tap
-          // outside) while a multi-second download is still streaming in.
-          // Dio keeps calling this progress callback after that — without
-          // this guard, setState on the now-disposed State throws and
-          // crashes the app instead of just silently stopping updates.
           if (!mounted) return;
-          if (total > 0) setState(() => _progress = received / total);
+          // ~8 repaints/second max so the download never janks the UI.
+          final now = DateTime.now();
+          if (now.difference(_lastUiTick).inMilliseconds < 120 && received != total) return;
+          _lastUiTick = now;
+          setState(() {
+            _received = received;
+            if (total > 0) {
+              _total = total;
+              _progress = received / total;
+            }
+          });
         },
       );
       if (!mounted) return;
 
-      final file = File(path);
-      final size = await file.length();
+      final size = await File(path).length();
       if (size < 1024 * 1024) {
         if (!mounted) return;
         setState(() {
           _downloading = false;
-          _status = 'Download failed — please try again';
+          _error = true;
+          _status = 'The download didn\'t finish. Please try again.';
         });
         return;
       }
 
       setState(() {
         _installing = true;
-        _status = 'Installing';
         _progress = 1.0;
       });
       AurumHaptics.light();
       await Future.delayed(const Duration(milliseconds: 350));
-      // installApk() only confirms the PackageInstaller session STARTED —
-      // popping this dialog here hands control to Android's own update
-      // confirmation screen (or, on a fast/silent path, the update just
-      // proceeds). A genuine early failure (bad file, session error) is
-      // still caught by the onInstallResult listener in initState() above
-      // while this dialog is still up, before this pop ever runs.
       await UpdateService.installApk(path);
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -546,247 +571,283 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
       setState(() {
         _downloading = false;
         _installing = false;
-        _status = 'Something went wrong — check your connection';
+        _error = true;
+        _status = 'Couldn\'t download the update. Check your connection and try again.';
       });
     }
   }
 
+  // ── Pieces ────────────────────────────────────────────────────────────
+
+  Widget _header(BuildContext context, Color accent, Color onAccent, Color textP) {
+    return Row(
+      children: [
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            gradient: AurumTheme.accentGradientOf(context),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(Icons.music_note_rounded, color: onAccent, size: 26),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _installing
+                    ? 'Installing update'
+                    : _downloading
+                        ? 'Downloading update'
+                        : 'Update available',
+                style: TextStyle(
+                  color: textP,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Astra Music',
+                style: TextStyle(
+                  color: textP.withOpacity(0.5),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _notes(Color accent, Color textP) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < widget.highlights.length; i++) ...[
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : 14, bottom: 8),
+            child: Text(
+              widget.highlights[i].title.toUpperCase(),
+              style: TextStyle(
+                color: accent,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+          for (final item in widget.highlights[i].items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 7),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 7),
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(color: textP.withOpacity(0.45), shape: BoxShape.circle),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: TextStyle(color: textP.withOpacity(0.8), fontSize: 13.5, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _progressBlock(Color accent, Color textP) {
+    final pct = (_progress * 100).clamp(0, 100).toInt();
+    final String right;
+    if (_installing) {
+      right = '';
+    } else if (_total > 0) {
+      right = '${_mb(_received)} of ${_mb(_total)} MB';
+    } else {
+      right = '${_mb(_received)} MB';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 6,
+            child: _installing
+                ? const AurumM3Loader(height: 6, borderRadius: 6)
+                : LinearProgressIndicator(
+                    value: _total > 0 ? _progress : null,
+                    minHeight: 6,
+                    backgroundColor: textP.withOpacity(0.08),
+                    valueColor: AlwaysStoppedAnimation(accent),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Text(
+              _installing ? 'Confirm the Android prompt to finish' : '$pct%',
+              style: TextStyle(
+                color: textP.withOpacity(0.75),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            Text(right, style: TextStyle(color: textP.withOpacity(0.5), fontSize: 13)),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    final textP = AurumTheme.textPrimaryOf(context);
+    final card = AurumTheme.bgElevatedOf(context);
+    final onAccent = ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
     final curved = CurvedAnimation(parent: _entryCtrl, curve: AurumMotion.standard);
-    return ScaleTransition(
-      scale: Tween<double>(begin: 0.92, end: 1.0).animate(curved),
+    final maxBody = MediaQuery.of(context).size.height * 0.38;
+    final hasNotes = widget.highlights.isNotEmpty;
+    const red = Color(0xFFE86B6B);
+
+    return PopScope(
+      // No accidental dismiss while a download/install is in flight.
+      canPop: !_downloading,
       child: FadeTransition(
         opacity: curved,
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF121118).withOpacity(0.96),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: Colors.white.withOpacity(0.07)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AurumTheme.accent.withOpacity(0.08),
-                      blurRadius: 40,
-                      spreadRadius: -8,
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Icon badge
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        gradient: AurumTheme.accentGradient,
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AurumTheme.accent.withOpacity(0.35),
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.96, end: 1.0).animate(curved),
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            child: Container(
+              decoration: BoxDecoration(
+                color: card,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: textP.withOpacity(0.08)),
+              ),
+              padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _header(context, accent, onAccent, textP),
+                  const SizedBox(height: 18),
+
+                  if (_downloading)
+                    _progressBlock(accent, textP)
+                  else ...[
+                    if (hasNotes)
+                      Flexible(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxHeight: maxBody),
+                          child: SingleChildScrollView(
+                            physics: const ClampingScrollPhysics(),
+                            child: _notes(accent, textP),
                           ),
-                        ],
-                      ),
-                      child: const Icon(Icons.arrow_upward_rounded, color: Colors.black, size: 28),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'A new version of Aurum\nis ready',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        height: 1.25,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Installs over your current app — nothing to uninstall.',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
-                    ),
-
-                    if (widget.highlights.isNotEmpty && !_downloading) ...[
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.04),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withOpacity(0.06)),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (int i = 0; i < widget.highlights.length; i++) ...[
-                              if (i > 0) const SizedBox(height: 16),
-                              // Section title (e.g. "✨ New", "🐛 Fixed")
-                              // rendered as its own small caps label so
-                              // the popup reads as organized categories
-                              // rather than one undifferentiated bullet
-                              // dump — this is the "WHAT'S NEW" grouping
-                              // Spotify-style release notes use.
-                              Text(
-                                widget.highlights[i].title.toUpperCase(),
-                                style: TextStyle(
-                                  color: AurumTheme.accent.withOpacity(0.9),
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              ...widget.highlights[i].items.map((h) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 5),
-                                          width: 5,
-                                          height: 5,
-                                          decoration: BoxDecoration(
-                                            color: AurumTheme.accent,
-                                            borderRadius: BorderRadius.circular(3),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(h,
-                                              style: TextStyle(
-                                                color: Colors.white.withOpacity(0.82),
-                                                fontSize: 13,
-                                                height: 1.4,
-                                              )),
-                                        ),
-                                      ],
-                                    ),
-                                  )),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    if (_downloading) ...[
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Icon(
-                            _installing ? Icons.settings_rounded : Icons.download_rounded,
-                            color: AurumTheme.accent,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(_status,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.75),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              )),
-                          const Spacer(),
-                          if (_progress > 0 && _progress < 1.0)
-                            Text('${(_progress * 100).toInt()}%',
-                                style: TextStyle(
-                                  color: AurumTheme.accent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                )),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: SizedBox(
-                          height: 6,
-                          child: _installing
-                              ? const AurumM3Loader(height: 6, borderRadius: 8)
-                              : TweenAnimationBuilder<double>(
-                                  tween: Tween(begin: 0, end: _progress),
-                                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                                  builder: (_, value, __) => LinearProgressIndicator(
-                                    value: value,
-                                    minHeight: 6,
-                                    backgroundColor: Colors.white.withOpacity(0.08),
-                                    valueColor: AlwaysStoppedAnimation(AurumTheme.accent),
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ],
-
-                    if (_status.startsWith('Something') || _status.startsWith('Download failed'))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(_status,
-                            style: const TextStyle(
-                              color: Color(0xFFE86B6B),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            )),
                       )
                     else
-                      const SizedBox(height: 24),
-
-                    if (!_downloading) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                              ),
-                              onPressed: () {
-                                AurumHaptics.selection();
-                                widget.onDismiss();
-                                Navigator.pop(context);
-                              },
-                              child: Text('Not now',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.45),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  )),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 2,
-                            child: ElevatedButton(
-                              onPressed: _downloadAndInstall,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AurumTheme.accent,
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(vertical: 15),
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              child: const Text('Update Now',
-                                  style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'A new version is ready with the latest improvements and fixes.',
+                        style: TextStyle(
+                          color: textP.withOpacity(0.75),
+                          fontSize: 14,
+                          height: 1.45,
+                        ),
                       ),
-                    ],
+                    const SizedBox(height: 14),
+                    Text(
+                      'Installs over the current app. Your library and downloads stay safe.',
+                      style: TextStyle(color: textP.withOpacity(0.45), fontSize: 12.5, height: 1.4),
+                    ),
                   ],
-                ),
+
+                  if (_error) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: red, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _status,
+                            style: const TextStyle(color: red, fontSize: 12.5, height: 1.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  if (!_downloading) ...[
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            style: TextButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            onPressed: () {
+                              AurumHaptics.selection();
+                              widget.onDismiss();
+                              Navigator.pop(context);
+                            },
+                            child: Text(
+                              'Later',
+                              style: TextStyle(
+                                color: textP.withOpacity(0.6),
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: _downloadAndInstall,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: accent,
+                              foregroundColor: onAccent,
+                              elevation: 0,
+                              minimumSize: const Size.fromHeight(48),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: Text(
+                              _error ? 'Retry' : 'Update',
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
               ),
             ),
           ),

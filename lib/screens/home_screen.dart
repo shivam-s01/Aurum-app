@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/artist.dart' show ArtistAlbum, RelatedArtist;
 import '../providers/player_provider.dart';
@@ -36,6 +37,7 @@ import '../main.dart' show aurumRouteObserver, aurumDebugErrorWidgetBuilder;
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_coach_tip.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../widgets/aurum_stacked_artwork.dart';
@@ -2395,13 +2397,38 @@ class _ProfileAvatarButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final avatarUrl = context.watch<AuthProvider>().avatarUrl;
 
+    // 40dp — exactly the size of the Settings chip next to it (was 34dp,
+    // which looked smaller/misaligned beside the 40dp chip).
+    //
+    // New-user hint: signed-out users get ONE small tip under this button
+    // (same style as the Library import tip). Any touch removes it and it
+    // never comes back; signed-in users never see it.
     return Padding(
       padding: const EdgeInsets.only(right: 12, left: 4),
-      child: AurumPressable(
+      child: AurumCoachTip(
+        prefKey: 'profile_signin_tip_seen_v1',
+        icon: Icons.auto_awesome_rounded,
+        title: 'Make it yours',
+        message:
+            'Sign in for smarter recommendations and a library that stays in sync.',
+        enabled: () => !context.read<AuthProvider>().isSignedIn,
+        // First launch shows the notification / storage / autostart prompts
+        // one after another — wait until they are all finished so this hint
+        // never competes with them (existing users pass instantly).
+        ready: () async {
+          try {
+            final p = await SharedPreferences.getInstance();
+            return (p.getBool('notif_prompted_v1') ?? false) &&
+                (p.getBool('asked_launch_permissions') ?? false);
+          } catch (_) {
+            return true;
+          }
+        },
+        child: AurumPressable(
         scaleAmount: 0.90,
         onTap: () => _openProfile(context),
         child: Container(
-          width: 34, height: 34,
+          width: 40, height: 40,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: AurumTheme.accentGradientOf(context),
@@ -2428,13 +2455,14 @@ class _ProfileAvatarButton extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
   Widget _defaultIcon(BuildContext context) => Container(
         color: AurumTheme.bgOf(context),
         child: Icon(Icons.person_rounded,
-            color: AurumTheme.textSecondaryOf(context), size: 20),
+            color: AurumTheme.textSecondaryOf(context), size: 22),
       );
 }
 
