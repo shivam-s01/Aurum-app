@@ -10,6 +10,7 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding, AppLifecycleState;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -18,6 +19,10 @@ import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/sync_service.dart';
 import 'download_provider.dart';
+import '../l10n/generated/app_localizations.dart';
+import '../main.dart' show navigatorKey;
+import '../services/auth_service.dart';
+import '../widgets/premium_gate.dart';
 
 class FavoritesProvider extends ChangeNotifier {
   static const _boxName = 'aurum_favorites';
@@ -82,7 +87,57 @@ class FavoritesProvider extends ChangeNotifier {
     }
   }
 
+  // ── Like requires a Google account ─────────────────────────────────
+  // Enforced HERE (the single entry point every heart/like button, the
+  // queue, the lock-screen heart etc. goes through) so no screen can
+  // forget the gate. Un-liking is always allowed — a guest who already
+  // has local likes is never stuck with them.
+  bool _loginPromptOpen = false;
+
+  Future<bool> _ensureSignedInToLike() async {
+    bool signedIn;
+    try {
+      signedIn = AuthService.instance.isSignedIn;
+    } catch (_) {
+      signedIn = false;
+    }
+    if (signedIn) return true;
+
+    // One sheet at a time (rapid double-taps must not stack sheets).
+    if (_loginPromptOpen) return false;
+
+    // Lock-screen / notification heart while the app isn't in front:
+    // there is nowhere to show the sheet, so do nothing (the caller
+    // re-syncs the heart icon back to "not liked").
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != null && state != AppLifecycleState.resumed) return false;
+
+    // overlay.context sits below the Navigator, MaterialApp's
+    // Localizations and every Provider — safe for sheets + l10n.
+    final ctx = navigatorKey.currentState?.overlay?.context;
+    if (ctx == null || !ctx.mounted) return false;
+
+    _loginPromptOpen = true;
+    try {
+      final l10n = AppLocalizations.of(ctx);
+      return await PremiumGate.ensureSignedIn(
+        ctx,
+        feature: l10n?.fpLikeSongsFeature ?? 'Like Songs',
+        description: l10n?.fpLikeSongsSignIn ??
+            'Sign in with Google to save songs to your library.',
+      );
+    } finally {
+      _loginPromptOpen = false;
+    }
+  }
+
   Future<void> toggleFavorite(Song song) async {
+    // Liking (not un-liking) needs sign-in. After a successful login the
+    // like goes straight through — no second tap needed.
+    if (!isFavorite(song.id)) {
+      if (!await _ensureSignedInToLike()) return;
+      if (isFavorite(song.id)) return; // liked meanwhile (e.g. cloud sync)
+    }
     if (isFavorite(song.id)) {
       await _remove(song.id);
       AnalyticsService.instance.logFavorite(song, false);

@@ -40,6 +40,26 @@ class PremiumGate {
     );
   }
 
+  /// Shows the SAME Google sign-in sheet used for "Create Playlist" and
+  /// resolves to true once the user is signed in (immediately, if they
+  /// already are), false if they dismissed it. Lets a caller do:
+  ///   if (!await PremiumGate.ensureSignedIn(context, feature: '...')) return;
+  static Future<bool> ensureSignedIn(
+    BuildContext context, {
+    required String feature,
+    String? description,
+  }) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.isSignedIn) return true;
+    await showAurumModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _LoginGateSheet(feature: feature, description: description),
+    );
+    return auth.isSignedIn;
+  }
+
   static void guard(
     BuildContext context, {
     required String feature,

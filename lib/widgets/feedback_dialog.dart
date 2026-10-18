@@ -2,6 +2,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import 'premium_gate.dart';
 import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_focus_field.dart';
@@ -46,6 +49,8 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   final _controller = TextEditingController();
   bool _sending = false;
   bool _sent = false;
+  String? _error;
+  bool _spamWarn = false;
 
   // Keyboard-focus timing (autofocus-during-dialog-entrance-animation
   // bug) is handled centrally by AurumFocusField now — see that file for
@@ -69,7 +74,34 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
 
   Future<void> _send() async {
     if (_rating == 0 || _sending) return;
-    setState(() => _sending = true);
+    FocusScope.of(context).unfocus();
+
+    // 1) Abuse check first — red message, nothing is sent.
+    final problem = await FeedbackService.screen(_controller.text);
+    if (!mounted) return;
+    if (problem != null) {
+      AurumHaptics.selection();
+      setState(() => _error = problem);
+      return;
+    }
+
+    // 2) Guests get the same Google sign-in sheet as "Create Playlist".
+    //    Their rating + text stay in the dialog, and as soon as sign-in
+    //    succeeds we carry straight on and send — no second tap needed.
+    final signedIn = await PremiumGate.ensureSignedIn(
+      context,
+      feature: 'Feedback',
+      description:
+          'Sign in with Google to send your feedback.\nIt takes just a moment.',
+    );
+    if (!mounted) return;
+    if (!signedIn) return; // dismissed the sheet — dialog stays as it was
+
+    final auth = context.read<AuthProvider>();
+    setState(() {
+      _error = null;
+      _sending = true;
+    });
 
     String? version;
     try {
@@ -83,21 +115,34 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
     // instantly or is still in flight.
     final sendFuture = FeedbackService.submit(
       rating: _rating,
+      userId: auth.userId,
+      userEmail: auth.email,
       message: _controller.text,
       appVersion: version,
     );
-    await Future.wait([
+    final results = await Future.wait<dynamic>([
       sendFuture,
       Future.delayed(const Duration(milliseconds: 600)),
     ]);
 
     if (!mounted) return;
+    if (results.first != true) {
+      setState(() {
+        _sending = false;
+        _error = 'Could not send. Check your connection and try again.';
+      });
+      return;
+    }
+    final warn = await FeedbackService.recordSendAndCheckSpam();
+    if (!mounted) return;
     setState(() {
       _sending = false;
       _sent = true;
+      _spamWarn = warn;
     });
 
-    await Future.delayed(const Duration(milliseconds: 1400));
+    // Leave a bit longer on screen when there's a warning to read.
+    await Future.delayed(Duration(milliseconds: warn ? 3200 : 1400));
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -233,6 +278,13 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
             focusNode: focusNode,
             maxLines: 3,
             minLines: 2,
+            maxLength: FeedbackService.maxMessageLength,
+            buildCounter: (_,
+                    {required currentLength, required isFocused, maxLength}) =>
+                null,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
             textCapitalization: TextCapitalization.sentences,
             decoration: InputDecoration(
               hintText: 'Tell us what\'s on your mind (optional)',
@@ -258,6 +310,12 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
             style: const TextStyle(fontSize: 14),
           ),
         ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(_error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+        ],
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
@@ -350,6 +408,19 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
                 height: 1.4,
               ),
         ),
+        if (_spamWarn) ...[
+          const SizedBox(height: 14),
+          const Text(
+            FeedbackService.spamWarning,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.redAccent,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
       ],
     );
