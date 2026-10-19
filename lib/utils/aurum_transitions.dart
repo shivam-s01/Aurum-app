@@ -772,7 +772,14 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
           // reasoning) — there is then always real, already-themed
           // content behind the fade instead of an engine-default clear
           // color, cold start or not.
-          opaque: false,
+          // PERF (mix/album heavy lag): opaque:true is safe for the white-flash
+          // case too. Flutter's TransitionRoute forces its overlay entry to
+          // opaque:false for the whole push/pop animation (the previous screen
+          // stays painted under the fade) and applies this flag only once the
+          // transition has COMPLETED. With opaque:false the screen below (Home,
+          // its glass nav bar, shelves, images) stayed built and rasterised
+          // under every detail page forever, adding GPU work to every frame.
+          opaque: true,
           transitionDuration: _animsOn()
               ? const Duration(milliseconds: 300)
               : Duration.zero,
@@ -903,7 +910,10 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
                 opacity: incomingFade,
                 child: SlideTransition(
                   position: incomingSlide,
-                  child: child,
+                  // PERF: the page is painted once into its own layer, so the
+                  // 300ms fade/slide only composites a cached texture instead
+                  // of re-recording the page every frame (low-end push jank).
+                  child: RepaintBoundary(child: child),
                 ),
               ),
             );

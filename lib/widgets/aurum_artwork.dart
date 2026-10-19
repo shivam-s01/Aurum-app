@@ -63,6 +63,13 @@ class AurumArtwork extends StatelessWidget {
   // be touched; it has no effect on what's painted.
   final bool suppressWhiteShimmer;
 
+  // PERF (low-end): a full-bleed header only ever shows ~1.05x screen width
+  // of pixels, but decoded at a fixed 1200px. On a 720p phone that is ~2.7x
+  // the pixels/RAM for zero visible gain. When true, the decode width is
+  // capped at what the screen can actually show (still never above 1200).
+  // Opt-in, so full-screen players keep their current sharpness.
+  final bool decodeToScreenWidth;
+
   const AurumArtwork({
     super.key,
     required this.url,
@@ -71,7 +78,18 @@ class AurumArtwork extends StatelessWidget {
     this.fadeIn = true,
     this.isBlurredBackground = false,
     this.suppressWhiteShimmer = false,
+    this.decodeToScreenWidth = false,
   });
+
+  /// Decode width for a full-bleed header: 1.05x screen width in physical
+  /// pixels, capped at 1200. Shared with precacheImage callers so the
+  /// precache and the widget hit the exact same image-cache entry.
+  static int screenDecodeWidth(BuildContext context) {
+    final px = MediaQuery.sizeOf(context).width *
+        MediaQuery.devicePixelRatioOf(context) *
+        1.05;
+    return px.ceil().clamp(480, 1200);
+  }
 
   /// Upgrades a list/tile-sized artwork URL (300x300 for YouTube, 150x150
   /// for Saavn — see _hqArtworkGeneric/_onrenderArtwork in api_service.dart)
@@ -128,7 +146,7 @@ class AurumArtwork extends StatelessWidget {
     return url;
   }
 
-  int? get _cacheSize {
+  int? _cacheSizeFor(BuildContext context) {
     // When size is non-finite (size: double.infinity — used for both the
     // blurred full-screen background AND the sharp full-player hero disc
     // art, which also fills its parent at full width/height), the right
@@ -148,7 +166,8 @@ class AurumArtwork extends StatelessWidget {
     //     fell into the 220px blurred-background cap. Decode at a size
     //     that actually uses the upgraded source's resolution instead.
     if (!size.isFinite) {
-      return isBlurredBackground ? 220 : 1200;
+      if (isBlurredBackground) return 220;
+      return decodeToScreenWidth ? screenDecodeWidth(context) : 1200;
     }
     if (size <= 0) return null;
     return (size * 2).toInt();
@@ -191,7 +210,7 @@ class AurumArtwork extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        cacheWidth: _cacheSize,
+        cacheWidth: _cacheSizeFor(context),
         // FIX: same isBlurredBackground gap as the content:// and network
         // paths above — a failed local file read (deleted/moved file)
         // should not inject the gradient placeholder into a full-screen
@@ -216,12 +235,11 @@ class AurumArtwork extends StatelessWidget {
     // once with hqdefault.jpg (guaranteed to exist for every YouTube
     // video) before falling through to the placeholder, so a missing
     // maxres thumbnail no longer means a blank gray box.
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: _RetryableNetworkImage(
+    return _clipped(
+      _RetryableNetworkImage(
         url: url,
         size: size,
-        cacheSize: _cacheSize,
+        cacheSize: _cacheSizeFor(context),
         fadeIn: fadeIn,
         placeholder: _shimmer(context, suppressWhiteShimmer),
         // FIX (same class as the content:// _bytes==null fix): a
@@ -238,6 +256,15 @@ class AurumArtwork extends StatelessWidget {
       ),
     );
   }
+
+  // PERF: a ClipRRect with radius 0 still creates an anti-aliased clip layer
+  // per image (full-bleed headers, every wide thumb). Skip it when square.
+  Widget _clipped(Widget child) => borderRadius <= 0
+      ? child
+      : ClipRRect(
+          borderRadius: BorderRadius.circular(borderRadius),
+          child: child,
+        );
 
   // FIX ("grey/white layer on cold start, tap karte time, kuch bhi karke
   // na aaye"): _shimmer used AurumTheme.bgSurfaceOf(context), which is a

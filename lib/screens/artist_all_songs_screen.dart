@@ -44,9 +44,9 @@ class ArtistAllSongsScreen extends StatelessWidget {
         // fix): default Sliver cacheExtent (250px) is too small once this
         // list can run into the hundreds of tracks — a fast fling would
         // tear down and rebuild tiles just outside that tiny buffer,
-        // showing blank/jank frames. 1200 keeps scrolling smooth even on
-        // an artist with a huge catalog.
-        cacheExtent: 1200,
+        // showing blank/jank frames. 600 keeps scrolling smooth on a huge
+        // catalog without a heavy first frame on low-end phones.
+        cacheExtent: 600,
         slivers: [
           SliverAppBar(
             expandedHeight: 96,

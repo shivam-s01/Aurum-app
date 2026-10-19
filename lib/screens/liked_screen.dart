@@ -141,8 +141,9 @@ class _LikedScreenState extends State<LikedScreen> {
         // library_screen.dart / mix_screen.dart's matching fix): default
         // Sliver cacheExtent (250px) is too small for a large liked-songs
         // list — fast flings tear down and rebuild tiles just outside
-        // that tiny buffer. Matching the same 1200 used elsewhere.
-        cacheExtent: 1200,
+        // that tiny buffer. 600 keeps flings smooth without building ~15 extra
+        // rows (images) inside the first frame on low-end phones.
+        cacheExtent: 600,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,

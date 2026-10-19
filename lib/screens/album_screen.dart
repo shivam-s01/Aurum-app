@@ -120,11 +120,10 @@ class _AlbumScreenState extends State<AlbumScreen>
   void initState() {
     super.initState();
     AnalyticsService.instance.logScreen('Album');
-    // Repaints on every animation tick while a glow fade is in flight —
-    // see mix_screen.dart's matching listener for the full reasoning.
-    _glowController.addListener(() {
-      if (mounted) setState(() {});
-    });
+    // The glow fade is driven by _glowController and consumed only by small
+    // AnimatedBuilder wrappers in build() (page bg, header fade gradient).
+    // Deliberately NOT a setState listener: that rebuilt the whole screen,
+    // every SongTile included, on each frame of the fade.
     _load();
     _extractGlow(widget.artworkUrl);
   }
@@ -176,7 +175,7 @@ class _AlbumScreenState extends State<AlbumScreen>
       // actually moves the target, and _setGlowTarget fades `_glow`
       // smoothly to it rather than snapping.
       if (safe.value != _glowTarget.value) {
-        setState(() => _setGlowTarget(safe));
+        _setGlowTarget(safe);
       }
     }
   }
@@ -272,27 +271,29 @@ class _AlbumScreenState extends State<AlbumScreen>
     final artists = _creditedArtists;
     final year = _year;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = immersiveScaffoldBg(context, _glow);
-    final screenW = MediaQuery.of(context).size.width;
-    final topInset = MediaQuery.of(context).padding.top;
+    // Resolved per animation frame by the AnimatedBuilders below, so a glow
+    // fade only repaints the background and never rebuilds the song list.
+    Color bgNow(BuildContext c) => immersiveScaffoldBg(c, _glow);
+    final screenW = MediaQuery.sizeOf(context).width;
+    final topInset = MediaQuery.paddingOf(context).top;
     final headerH = screenW * 1.04;
     final titleColor = isDark ? Colors.white : AurumTheme.textPrimaryOf(context);
     final subColor = isDark
         ? Colors.white.withOpacity(0.72)
         : AurumTheme.textSecondaryOf(context);
 
-    final scaffold = Scaffold(
-      backgroundColor: bg,
-      // Persistent mini player — see liked_screen.dart for the reasoning.
-      bottomNavigationBar: const MiniPlayerSlot(),
-      body: Container(
-        color: bg,
-        child: CustomScrollView(
-          cacheExtent: 1200,
+    final Widget body = AnimatedBuilder(
+      animation: _glowController,
+      builder: (ctx, child) => ColoredBox(color: bgNow(ctx), child: child),
+      child: CustomScrollView(
+        // PERF: 1200px made ~30 rows (images + prewarm timers) build in the
+        // very first frame, right inside the route transition. 500px keeps
+        // flings smooth without that open-time burst.
+        cacheExtent: 500,
           slivers: [
             // ── Header (scrolls away 1:1 with the list) ───────────────────
             SliverToBoxAdapter(
-              child: SizedBox(
+              child: RepaintBoundary(child: SizedBox(
                 height: headerH,
                 child: Stack(
                   fit: StackFit.expand,
@@ -307,9 +308,11 @@ class _AlbumScreenState extends State<AlbumScreen>
                                     _artworkUrl),
                                 size: double.infinity,
                                 borderRadius: 0,
+                                decodeToScreenWidth: true,
                               )
-                            : Container(
-                                color: _glow,
+                            : AnimatedBuilder(
+                                animation: _glowController,
+                                builder: (_, child) => ColoredBox(color: _glow, child: child),
                                 child: Center(
                                   child: Icon(
                                     Icons.album_rounded,
@@ -343,21 +346,27 @@ class _AlbumScreenState extends State<AlbumScreen>
 
                     // Layer 2 — bottom fade into the page background.
                     Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              bg.withOpacity(0.0),
-                              bg.withOpacity(0.0),
-                              bg.withOpacity(0.55),
-                              bg.withOpacity(0.92),
-                              bg,
-                            ],
-                            stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
-                          ),
-                        ),
+                      child: AnimatedBuilder(
+                        animation: _glowController,
+                        builder: (ctx, _) {
+                          final bg = bgNow(ctx);
+                          return DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  bg.withOpacity(0.0),
+                                  bg.withOpacity(0.0),
+                                  bg.withOpacity(0.55),
+                                  bg.withOpacity(0.92),
+                                  bg,
+                                ],
+                                stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
 
@@ -493,7 +502,7 @@ class _AlbumScreenState extends State<AlbumScreen>
                     ),
                   ],
                 ),
-              ),
+              )),
             ),
 
             // ── Action row: shuffle · Play · download ─────────────────────
@@ -601,6 +610,10 @@ class _AlbumScreenState extends State<AlbumScreen>
                     ytStyle: true,
                   ),
                   childCount: _songs.length,
+                  // PERF: SongTile owns its RepaintBoundary and has no
+                  // keep-alive state; skip the delegate's duplicates.
+                  addRepaintBoundaries: false,
+                  addAutomaticKeepAlives: false,
                 ),
               ),
 
@@ -614,6 +627,16 @@ class _AlbumScreenState extends State<AlbumScreen>
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         ),
+    );
+
+    final scaffold = AnimatedBuilder(
+      animation: _glowController,
+      child: body,
+      builder: (ctx, child) => Scaffold(
+        backgroundColor: bgNow(ctx),
+        // Persistent mini player.
+        bottomNavigationBar: const MiniPlayerSlot(),
+        body: child,
       ),
     );
 

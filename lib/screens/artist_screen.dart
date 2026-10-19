@@ -239,7 +239,8 @@ class _ArtistScreenState extends State<ArtistScreen> {
           physics: const BouncingScrollPhysics(),
           // Keeps sections built a screen-and-a-bit ahead so a fast fling
           // never shows a half-built page.
-          cacheExtent: 1200,
+          // (600, not 1200: 1200 built ~15 rows in the first frame on low-end.)
+          cacheExtent: 600,
           slivers: [
             // ONE hero block that scrolls away together with the page — no
             // parallax, no pinned/collapsing app bar. The photo, name and
@@ -396,25 +397,43 @@ class _ArtistScreenState extends State<ArtistScreen> {
       height: heroH,
       child: Stack(
         fit: StackFit.expand,
+        // The stretched photo and the top scrim deliberately paint above the
+        // hero box while the page is pulled down - a hard clip here is what
+        // cut them off and left a gap/seam.
+        clipBehavior: Clip.none,
         children: [
           // Photo. Pulling past the top stretches it (anchored at the
           // bottom) so there's never an empty gap above it.
           ValueListenableBuilder<double>(
             valueListenable: _stretch,
             builder: (context, st, child) => Transform.scale(
-              scale: 1 + (st / heroH) * 0.9,
+              // STRETCH FIX: scale must be exactly 1 + st/heroH. The hero box
+              // moves down by `st` while the photo is anchored at its bottom,
+              // so this makes the photo's top land on the screen top. The old
+              // 0.9 factor left a dark gap above the photo.
+              scale: 1 + (st / heroH),
               alignment: Alignment.bottomCenter,
               child: child,
             ),
-            child:
-                AurumArtwork(url: artist.imageUrl, size: 700, borderRadius: 0),
+            // Own layer: the stretch only transforms a cached texture instead
+            // of re-painting the whole hero (photo, gradients, glass) per frame.
+            child: RepaintBoundary(
+              child: AurumArtwork(
+                  url: artist.imageUrl, size: 700, borderRadius: 0),
+            ),
           ),
           // Soft dark strip so the back arrow stays readable on bright photos.
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: topPad + 90,
+          // STRETCH FIX: follows the SCREEN top (top: -st) instead of the hero
+          // box top, which moves down while pulling and drew a hard seam.
+          ValueListenableBuilder<double>(
+            valueListenable: _stretch,
+            builder: (context, st, child) => Positioned(
+              top: -st,
+              left: 0,
+              right: 0,
+              height: topPad + 90,
+              child: child!,
+            ),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -914,6 +933,10 @@ class _ArtistTopSongsSection extends StatelessWidget {
           curatedQueue: true,
         ),
         childCount: visibleCount,
+        // PERF: SongTile owns its RepaintBoundary and has no keep-alive
+        // state; skip the delegate's duplicates.
+        addRepaintBoundaries: false,
+        addAutomaticKeepAlives: false,
       ),
     );
   }

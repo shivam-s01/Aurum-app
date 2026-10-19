@@ -172,14 +172,20 @@ class _SongTileState extends State<SongTile> {
   Widget build(BuildContext context) {
     // FIX: use select instead of watch — only rebuilds THIS tile when ITS
     // song's liked state changes, not when any favorite changes anywhere.
-    final isLiked = context.select<FavoritesProvider, bool>(
-      (fav) => fav.isFavorite(widget.song.id),
-    );
+    // PERF: ytStyle rows (Mix/Album) have no heart, so they must not rebuild
+    // when any favorite changes. ytStyle is constant per tile instance.
+    final isLiked = widget.ytStyle
+        ? false
+        : context.select<FavoritesProvider, bool>(
+            (fav) => fav.isFavorite(widget.song.id),
+          );
     final isCurrentSong = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == widget.song.id,
     );
+    // PERF: isPlaying only matters for the currently playing row (equalizer
+    // animation). Other rows no longer rebuild on every play/pause.
     final isActuallyPlaying = context.select<PlayerProvider, bool>(
-      (p) => p.isPlaying,
+      (p) => p.currentSong?.id == widget.song.id && p.isPlaying,
     );
 
     // PERF: RepaintBoundary isolates each tile into its own compositor

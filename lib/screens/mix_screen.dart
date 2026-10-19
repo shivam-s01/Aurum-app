@@ -203,15 +203,10 @@ class _MixScreenState extends State<MixScreen>
   void initState() {
     super.initState();
     AnalyticsService.instance.logScreen('Mix');
-    // Repaints on every animation tick while a glow fade is in flight
-    // (see _setGlowTarget) — AnimationController itself doesn't trigger
-    // Flutter rebuilds on its own; something has to translate its
-    // ticks into setState calls so `_glow`'s getter (which reads
-    // `_glowAnimation.value`) actually produces a new frame each tick
-    // instead of only updating once the fade finishes.
-    _glowController.addListener(() {
-      if (mounted) setState(() {});
-    });
+    // The glow fade is driven by _glowController and consumed only by small
+    // AnimatedBuilder wrappers in build() (page bg, header fade gradient).
+    // Deliberately NOT a setState listener: that rebuilt the whole screen,
+    // every SongTile included, on each frame of the fade.
     _extractGlow();
     // Fire-and-forget: see autoLoadMore's doc comment above. Deliberately
     // not awaited here — the screen must render immediately with
@@ -369,11 +364,19 @@ class _MixScreenState extends State<MixScreen>
     // upgraded URL, same decode width AurumArtwork uses for a sharp
     // size:double.infinity image, same cache manager) so it is already in
     // flight — often finished — before the header widget builds.
+    // PERF: must mirror what CachedNetworkImage builds in AurumArtwork
+    // (memCacheWidth -> ResizeImage over a plain provider, no maxWidth).
+    // The old maxWidth: variant decoded the image at full resolution into
+    // the ImageCache and wrote a second resized disk-cache entry, neither of
+    // which the header ever reused - pure wasted decode/RAM on low-end.
     precacheImage(
-      CachedNetworkImageProvider(
-        AurumArtwork.upgradeForFullPlayer(url),
-        maxWidth: 1200,
-        cacheManager: AurumImageCache(),
+      ResizeImage.resizeIfNeeded(
+        AurumArtwork.screenDecodeWidth(context),
+        null,
+        CachedNetworkImageProvider(
+          AurumArtwork.upgradeForFullPlayer(url),
+          cacheManager: AurumImageCache(),
+        ),
       ),
       context,
     ).catchError((_) {
@@ -408,7 +411,7 @@ class _MixScreenState extends State<MixScreen>
       // below actually paints with) smoothly from its current value to
       // the new one instead of a hard snap.
       if (safe.value != _glowTarget.value) {
-        setState(() => _setGlowTarget(safe));
+        _setGlowTarget(safe);
       }
     }
   }
@@ -450,9 +453,11 @@ class _MixScreenState extends State<MixScreen>
     // show up immediately.
     final songs = _songs;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = immersiveScaffoldBg(context, _glow);
-    final screenW = MediaQuery.of(context).size.width;
-    final topInset = MediaQuery.of(context).padding.top;
+    // Resolved per animation frame by the AnimatedBuilders below, so a glow
+    // fade only repaints the background and never rebuilds the song list.
+    Color bgNow(BuildContext c) => immersiveScaffoldBg(c, _glow);
+    final screenW = MediaQuery.sizeOf(context).width;
+    final topInset = MediaQuery.paddingOf(context).top;
     // Reference proportions: sharp artwork ~1.04x screen width tall, title
     // block sitting on its faded bottom edge.
     final headerH = screenW * 1.04;
@@ -462,16 +467,18 @@ class _MixScreenState extends State<MixScreen>
         : AurumTheme.textSecondaryOf(context);
     final description = (widget.description ?? '').trim();
 
-    Widget body = Container(
-      color: bg,
+    Widget body = AnimatedBuilder(
+      animation: _glowController,
+      builder: (ctx, child) => ColoredBox(color: bgNow(ctx), child: child),
       child: CustomScrollView(
-        // PERF: bigger cache so fast flings through a 100-song list don't
-        // tear down and rebuild rows just outside the default buffer.
-        cacheExtent: 1200,
+        // PERF: 1200px made ~30 rows (images + prewarm timers) build in the
+        // very first frame, right inside the route transition. 500px keeps
+        // flings smooth without that open-time burst.
+        cacheExtent: 500,
         slivers: [
           // ── Header (scrolls away 1:1 with the list) ─────────────────────
           SliverToBoxAdapter(
-            child: SizedBox(
+            child: RepaintBoundary(child: SizedBox(
               height: headerH,
               child: Stack(
                 fit: StackFit.expand,
@@ -486,9 +493,11 @@ class _MixScreenState extends State<MixScreen>
                                   widget.artworkUrl),
                               size: double.infinity,
                               borderRadius: 0,
+                              decodeToScreenWidth: true,
                             )
-                          : Container(
-                              color: _glow,
+                          : AnimatedBuilder(
+                              animation: _glowController,
+                              builder: (_, child) => ColoredBox(color: _glow, child: child),
                               child: Center(
                                 child: Icon(
                                   Icons.music_note_rounded,
@@ -524,21 +533,27 @@ class _MixScreenState extends State<MixScreen>
                   // Layer 2 — bottom fade into the page background (same
                   // color the Scaffold paints, so there is no seam).
                   Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            bg.withOpacity(0.0),
-                            bg.withOpacity(0.0),
-                            bg.withOpacity(0.55),
-                            bg.withOpacity(0.92),
-                            bg,
-                          ],
-                          stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
-                        ),
-                      ),
+                    child: AnimatedBuilder(
+                      animation: _glowController,
+                      builder: (ctx, _) {
+                        final bg = bgNow(ctx);
+                        return DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                bg.withOpacity(0.0),
+                                bg.withOpacity(0.0),
+                                bg.withOpacity(0.55),
+                                bg.withOpacity(0.92),
+                                bg,
+                              ],
+                              stops: const [0.0, 0.40, 0.62, 0.82, 1.0],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
 
@@ -665,7 +680,7 @@ class _MixScreenState extends State<MixScreen>
                   ),
                 ],
               ),
-            ),
+            )),
           ),
 
           // ── Action row: shuffle · Play · download ───────────────────────
@@ -818,6 +833,11 @@ class _MixScreenState extends State<MixScreen>
                   ytStyle: true,
                 ),
                 childCount: songs.length,
+                // PERF: SongTile already wraps itself in a RepaintBoundary and
+                // has no keep-alive state, so the delegate's own per-row
+                // boundary + KeepAlive wrapper are pure overhead.
+                addRepaintBoundaries: false,
+                addAutomaticKeepAlives: false,
               ),
             ),
 
@@ -854,10 +874,14 @@ class _MixScreenState extends State<MixScreen>
       );
     }
 
-    final scaffold = Scaffold(
-      backgroundColor: bg,
-      bottomNavigationBar: const MiniPlayerSlot(),
-      body: body,
+    final scaffold = AnimatedBuilder(
+      animation: _glowController,
+      child: body,
+      builder: (ctx, child) => Scaffold(
+        backgroundColor: bgNow(ctx),
+        bottomNavigationBar: const MiniPlayerSlot(),
+        body: child,
+      ),
     );
 
     // Dark mode: the header artwork runs under the status bar, so keep the
