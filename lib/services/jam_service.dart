@@ -127,6 +127,8 @@ class JamService extends ChangeNotifier {
   String previewRoomName = '';
   String previewHostName = '';
   String previewSong = '';
+  String? previewHostAvatar;
+  List<String?> previewAvatars = const [];
   int previewCount = 0;
 
   /// Live sync error of THIS phone vs the room, in ms (+ = ahead). For the
@@ -197,6 +199,13 @@ class JamService extends ChangeNotifier {
   Timer? _driftTimer;
   Timer? _hostLostTimer;
   Timer? _peekTimer;
+
+  /// Bumped by every leave() and every new create/peek. A create/peek that
+  /// finds the number changed was cancelled (user tapped Cancel while
+  /// connecting) and must stop without touching state.
+  int _opSeq = 0;
+  bool _presenceSynced = false; // first presence snapshot received on this channel
+  Completer<void>? _presenceWake;
   int _graceUntil = 0;
   int _songMismatchSince = 0;
   double _curSpeed = 1.0;
@@ -251,6 +260,10 @@ class JamService extends ChangeNotifier {
   static String? parseCode(String raw) {
     var s = raw.trim().toUpperCase();
     if (s.isEmpty) return null;
+    // A whole pasted invite ("Rahul's Jam — Astra Jam\nCode: ASTRA-K7X2QP\nhttps://…")
+    // → pull the code out of it first.
+    final found = extractCode(s);
+    if (found != null) return found;
     final slash = s.lastIndexOf('/');
     if (slash >= 0) s = s.substring(slash + 1);
     s = s.replaceAll('ASTRA-', '').replaceAll('-', '').replaceAll(' ', '');
@@ -260,6 +273,23 @@ class JamService extends ChangeNotifier {
       if (!_alphabet.contains(c)) return null;
     }
     return s;
+  }
+
+  /// Finds "ASTRA-XXXXXX" or ".../jam/XXXXXX" anywhere inside [text].
+  /// Used for clipboard auto-fill and for pasted invites. Null if none.
+  static String? extractCode(String text) {
+    final t = text.toUpperCase();
+    final m = RegExp('ASTRA-([$_alphabet]{6})(?![$_alphabet])').firstMatch(t) ??
+        RegExp('/JAM/([$_alphabet]{6})(?![$_alphabet])').firstMatch(t);
+    return m?.group(1);
+  }
+
+  /// Opens the realtime socket early (call when the Jam page opens) so the
+  /// websocket handshake is already done by the time the user taps Join.
+  void warmUp() {
+    try {
+      Supabase.instance.client.realtime.connect();
+    } catch (_) {}
   }
 
   static String sanitizeRoomName(String raw) {
@@ -272,9 +302,18 @@ class JamService extends ChangeNotifier {
   // ══════════════════════════════════════════════════════════════════════
   // Create / peek / join / leave
   // ══════════════════════════════════════════════════════════════════════
+  /// True when this create/peek was cancelled or replaced while it was
+  /// awaiting. Closes the half-open channel only if nothing newer owns it.
+  Future<bool> _superseded(int op) async {
+    if (op == _opSeq) return false;
+    if (_phase == JamPhase.idle) await _closeChannel();
+    return true;
+  }
+
   Future<bool> createRoom(String roomName) async {
     if (_phase != JamPhase.idle) await leave(silent: true);
     await _loadPrefs();
+    final op = ++_opSeq;
     _phase = JamPhase.connecting;
     _notice = JamNotice.none;
     notifyListeners();
@@ -283,12 +322,14 @@ class JamService extends ChangeNotifier {
     for (var attempt = 0; attempt < 3; attempt++) {
       final code = _randomCode();
       final ok = await _openChannel(code);
+      if (await _superseded(op)) return false;
       if (!ok) {
         await _closeChannel();
         _fail(JamNotice.connectionFailed);
         return false;
       }
       await Future.delayed(const Duration(milliseconds: 700)); // let presence sync
+      if (await _superseded(op)) return false;
       if (_hostPresence() != null) {
         await _closeChannel();
         continue; // someone already hosts this code
@@ -321,23 +362,37 @@ class JamService extends ChangeNotifier {
     }
     if (_phase != JamPhase.idle) await leave(silent: true);
     await _loadPrefs();
+    final op = ++_opSeq;
     _phase = JamPhase.connecting;
     _notice = JamNotice.none;
     notifyListeners();
 
-    final ok = await _openChannel(code);
-    if (!ok) {
-      await _closeChannel();
+    warmUp();
+    // Attempt 1 is patient (slow 4G), attempt 2 re-opens the channel in case a
+    // presence snapshot was missed. A room that is really gone is detected
+    // fast: once the (empty) snapshot has arrived we only wait a short grace.
+    Map<String, dynamic>? host;
+    var connected = false;
+    for (var attempt = 0; attempt < 2 && host == null; attempt++) {
+      final ok = await _openChannel(code);
+      if (await _superseded(op)) return false;
+      connected = ok;
+      if (!ok) {
+        await _closeChannel();
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 400));
+          continue;
+        }
+        break;
+      }
+      connected = true; // reflects the LAST attempt, so a dead net says "can't connect"
+      host = await _waitForHost(maxMs: attempt == 0 ? 6500 : 4500);
+      if (await _superseded(op)) return false;
+      if (host == null && _presenceSynced) break; // snapshot was empty → room is gone
+    }
+    if (!connected) {
       _fail(JamNotice.connectionFailed);
       return false;
-    }
-    // Wait (max ~4 s) for the host to show up in presence.
-    final deadline = _now() + 4000;
-    Map<String, dynamic>? host;
-    while (_now() < deadline) {
-      host = _hostPresence();
-      if (host != null) break;
-      await Future.delayed(const Duration(milliseconds: 250));
     }
     if (host == null) {
       await _closeChannel();
@@ -354,6 +409,8 @@ class JamService extends ChangeNotifier {
     previewRoomName = (host['room'] ?? '').toString();
     previewHostName = (host['name'] ?? '').toString();
     previewSong = (host['song'] ?? '').toString();
+    previewHostAvatar = host['avatar']?.toString();
+    previewAvatars = _previewAvatarList();
     previewCount = count;
     _phase = JamPhase.previewing;
     notifyListeners();
@@ -363,6 +420,25 @@ class JamService extends ChangeNotifier {
       if (_phase == JamPhase.previewing) leave(silent: true);
     });
     return true;
+  }
+
+  /// Resolves as soon as the host shows up in presence. Gives up after
+  /// [maxMs], or [emptyGraceMs] after an EMPTY snapshot arrived (dead code).
+  Future<Map<String, dynamic>?> _waitForHost({required int maxMs, int emptyGraceMs = 2200}) async {
+    final start = _now();
+    int? syncedAt;
+    while (true) {
+      final h = _hostPresence();
+      if (h != null) return h;
+      final t = _now();
+      if (t - start >= maxMs) return null;
+      if (_presenceSynced) {
+        syncedAt ??= t;
+        if (t - syncedAt >= emptyGraceMs) return null;
+      }
+      final c = _presenceWake = Completer<void>();
+      await Future.any([c.future, Future.delayed(const Duration(milliseconds: 120))]);
+    }
   }
 
   /// Joins a room previously opened with [peek].
@@ -387,6 +463,7 @@ class JamService extends ChangeNotifier {
   }
 
   Future<void> leave({bool silent = false}) async {
+    _opSeq++;
     final wasIn = _phase == JamPhase.inRoom;
     if (wasIn) _send({'t': 'bye'});
     _stopTimers();
@@ -401,6 +478,8 @@ class JamService extends ChangeNotifier {
       } catch (_) {}
     }
     _phase = JamPhase.idle;
+    previewHostAvatar = null;
+    previewAvatars = const [];
     _isHost = false;
     _members = const [];
     _code = '';
@@ -418,6 +497,8 @@ class JamService extends ChangeNotifier {
   }
 
   void _fail(JamNotice n) {
+    previewHostAvatar = null;
+    previewAvatars = const [];
     _phase = JamPhase.idle;
     _notice = n;
     notifyListeners();
@@ -429,6 +510,8 @@ class JamService extends ChangeNotifier {
   Future<bool> _openChannel(String code) async {
     await _closeChannel();
     final gen = ++_channelGen;
+    _presenceSynced = false;
+    _presenceWake = null;
     final completer = Completer<bool>();
     try {
       final ch = Supabase.instance.client.channel(
@@ -542,6 +625,9 @@ class JamService extends ChangeNotifier {
     return out;
   }
 
+  List<String?> _previewAvatarList() =>
+      _allPresence().map((p) => p['avatar']?.toString()).toList();
+
   Map<String, dynamic>? _hostPresence() {
     final hosts = _allPresence().where((m) => m['host'] == true).toList();
     if (hosts.isEmpty) return null;
@@ -553,6 +639,9 @@ class JamService extends ChangeNotifier {
   // Presence → members, host election
   // ══════════════════════════════════════════════════════════════════════
   void _onPresenceSync() {
+    _presenceSynced = true;
+    final pw = _presenceWake;
+    if (pw != null && !pw.isCompleted) pw.complete();
     final all = _allPresence();
     if (_phase == JamPhase.previewing) {
       previewCount = all.length;
@@ -561,7 +650,9 @@ class JamService extends ChangeNotifier {
         previewRoomName = (h['room'] ?? '').toString();
         previewHostName = (h['name'] ?? '').toString();
         previewSong = (h['song'] ?? '').toString();
+        previewHostAvatar = h['avatar']?.toString();
       }
+      previewAvatars = _previewAvatarList();
       notifyListeners();
       return;
     }
