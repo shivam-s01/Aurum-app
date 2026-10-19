@@ -42,6 +42,7 @@ import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/audio_output_sheet.dart';
+import '../widgets/jam_entry.dart';
 import '../widgets/aurum_artwork.dart' show AurumArtwork;
 import '../services/native_engine_bridge.dart'
     show MediaVolume, AudioOutputDevice, AudioOutputDeviceKind, AudioOutputDevices;
@@ -1088,7 +1089,7 @@ class _BottomIconRowState extends State<_BottomIconRow> {
             const SizedBox(width: 10),
             _RoundIconButton(
               icon: sleepActive ? Icons.bedtime_rounded : Icons.dark_mode_outlined,
-              onTap: () => showSleepTimerForSong(context, widget.player),
+              onTap: () => showSleepOrJamSheet(context, widget.player),
             ),
           ],
         ),

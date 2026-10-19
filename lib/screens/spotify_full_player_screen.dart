@@ -42,6 +42,8 @@ import '../widgets/aurum_play_pause_icon.dart';
 // other screen (song tiles, library, Classic player) already opens.
 import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 import '../utils/aurum_haptics.dart';
+import '../widgets/jam_entry.dart';
+import '../services/jam_service.dart';
 import '../services/api_service.dart';
 import '../utils/aurum_transitions.dart' show AurumDepthRoute;
 import 'artist_screen.dart';
@@ -1006,10 +1008,29 @@ class _IconActionsRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: const Icon(Icons.info_outline_rounded,
-                color: Colors.white70, size: 22),
-            onPressed: () => showSongInfoDialog(context, song),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.info_outline_rounded,
+                    color: Colors.white70, size: 22),
+                onPressed: () => showSongInfoDialog(context, song),
+              ),
+              // Jam (listen together) — Spotify-Connect-style speaker glyph
+              // right beside the details button; green while in a Jam.
+              ListenableBuilder(
+                listenable: JamService.instance,
+                builder: (context, _) => IconButton(
+                  tooltip: 'Jam',
+                  icon: JamConnectIcon(
+                    size: 22,
+                    color: JamService.instance.inRoom
+                        ? const Color(0xFF1ED760)
+                        : Colors.white70,
+                  ),
+                  onPressed: () => openJamPage(context),
+                ),
+              ),
+            ],
           ),
           Row(
             children: [

@@ -493,6 +493,8 @@ class NativeAudioEngine {
   Future<void> setRepeatMode(String mode) => _method.invokeMethod('setRepeatMode', {'mode': mode});
   Future<void> setShuffleMode(bool enabled) => _method.invokeMethod('setShuffleMode', {'enabled': enabled});
   Future<void> setSpeed(double speed) => _method.invokeMethod('setSpeed', {'speed': speed});
+  /// Jam: while true, new playQueue loads stay paused until play() is called.
+  Future<void> setJamHold(bool hold) => _method.invokeMethod('setJamHold', {'hold': hold});
   // Pushes Battery Saver Mode's active state down to the native pre-buffer
   // resolver — see AurumAudioEngine.priorityForwardWindow. Best-effort: if
   // this fails (very old platform build, channel not ready yet), native

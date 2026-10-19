@@ -12,6 +12,7 @@ import 'settings_storage_screen.dart';
 import 'settings_privacy_screen.dart';
 import 'settings_about_screen.dart';
 import 'support_developer_screen.dart';
+import 'jam_screen.dart';
 import 'settings_language_screen.dart';
 import 'settings_region_screen.dart';
 import 'profile_screen.dart';
@@ -109,6 +110,14 @@ class SettingsScreen extends StatelessWidget {
                       title: l10n.settingsPlayerAudio,
                       subtitle: l10n.settingsPlayerAudioSubtitle,
                       onTap: () => _open(context, SettingsPlayerScreen(audioEngine: engine)),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.groups_rounded,
+                      title: 'Astra Jam',
+                      subtitle: Localizations.localeOf(context).languageCode == 'hi'
+                          ? 'Doston ke saath ek hi gaana, ek hi time pe'
+                          : 'Listen together, in perfect sync',
+                      onTap: () => _open(context, const JamScreen()),
                     ),
                     _SettingsRow(
                       icon: Icons.sd_storage_rounded,

@@ -417,6 +417,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.setShuffleMode(call.argument<Boolean>("enabled") ?: false)
                     result.success(null)
                 }
+                "setJamHold" -> {
+                    engine.jamHoldStart = call.argument<Boolean>("hold") ?: false
+                    result.success(null)
+                }
                 "setSpeed" -> {
                     engine.setSpeed((call.argument<Number>("speed") ?: 1.0).toFloat())
                     result.success(null)

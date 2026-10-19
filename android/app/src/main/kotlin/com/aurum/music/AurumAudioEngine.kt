@@ -1087,6 +1087,11 @@ class AurumAudioEngine(
     // and checked immediately before every recovery-triggered
     // player.play() call below — a paused user is never resumed out from
     // under them by a background retry.
+    // JAM (group listening): while true, a fresh playQueue/restart loads the
+    // song but leaves it PAUSED, so every phone in the room can buffer first
+    // and then start together on the host's "go" signal. Set only by the
+    // Jam service via the "setJamHold" channel call; false everywhere else.
+    @Volatile var jamHoldStart: Boolean = false
     private var userPaused = false
 
     // Media3's playlist == the "ConcatenatingAudioSource" equivalent.
@@ -1699,7 +1704,7 @@ class AurumAudioEngine(
         // this playing" intent — always clears any stale userPaused left
         // over from whatever was playing before (see userPaused doc
         // comment above play()/pause()).
-        userPaused = false
+        userPaused = jamHoldStart
 
         val safeIndex = if (songs.isEmpty()) 0 else startIndex.coerceIn(0, songs.size - 1)
         var effectiveIndex = safeIndex
@@ -1811,7 +1816,9 @@ class AurumAudioEngine(
             ensureFocusBeforePlay()
             restoreVolume(releaseVolumeToOne = !freshGrab)
             didMute = false
-            player.play()
+            // JAM: when held, the song is fully loaded but stays PAUSED; the
+            // Jam "go" signal (setJamHold(false) + play()) starts it together.
+            if (jamHoldStart) player.pause() else player.play()
             started = true
             scheduleSettlePushStates(mySession)
         } catch (e: Exception) {

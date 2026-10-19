@@ -87,6 +87,25 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
+            <!-- Astra Jam links are handled by the app_links plugin, not by
+                 Flutter's built-in deep-link router (which would try to push
+                 "/jam/CODE" as a named route and fail). -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
+
+            <!-- Astra Jam: astra://jam/CODE  and  https://astra.mmusic.workers.dev/jam/CODE -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="astra" android:host="jam"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="astra.mmusic.workers.dev" android:pathPrefix="/jam/"/>
+            </intent-filter>
+
             <!-- Gemini / Google Assistant: "open Astra Music and play <song>" -->
             <intent-filter>
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH"/>

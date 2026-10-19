@@ -74,6 +74,9 @@ import 'providers/auth_provider.dart';
 import 'providers/premium_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
+import 'screens/jam_screen.dart';
+import 'services/jam_service.dart';
+import 'package:app_links/app_links.dart';
 import 'screens/library_screen.dart';
 import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
@@ -412,6 +415,15 @@ Future<void> main() async {
     await UpdatePushService.instance.init();
   } catch (_) {}
 
+  // ASTRA JAM deep links: astra://jam/CODE and
+  // https://astra.mmusic.workers.dev/jam/CODE open the join screen. Cold
+  // start waits a moment so onboarding / the shell are on screen first.
+  try {
+    // app_links 6.x: this stream already emits the cold-start link first,
+    // so getInitialLink() is NOT also called (it caused a double push).
+    AppLinks().uriLinkStream.listen(_onJamLink, onError: (_) {});
+  } catch (_) {}
+
   // Wires the native→Dart callback for PackageInstaller's async install
   // result (see UpdateService.installApk / AurumSilentInstaller's doc
   // comment) — has to run once at startup so the handler exists no
@@ -429,6 +441,46 @@ Future<void> main() async {
     // Settings > Diagnostic Logs.
     DiagnosticLogService.logNetworkError('uncaught_zone_error', '$error');
   });
+}
+
+bool _jamFirstLink = true;
+String? _jamLastLink;
+int _jamLastLinkAt = 0;
+
+/// De-dupes repeated deliveries; the first (cold-start) link waits so the
+/// splash / shell are on screen before the Jam page is pushed.
+void _onJamLink(Uri uri) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final key = uri.toString();
+  if (_jamLastLink == key && now - _jamLastLinkAt < 5000) return;
+  _jamLastLink = key;
+  _jamLastLinkAt = now;
+  final cold = _jamFirstLink;
+  _jamFirstLink = false;
+  if (cold) {
+    Future.delayed(const Duration(milliseconds: 1800), () => _handleJamLink(uri));
+  } else {
+    _handleJamLink(uri);
+  }
+}
+
+/// Opens the Astra Jam join screen for a Jam link. Ignores anything else.
+void _handleJamLink(Uri uri) {
+  try {
+    String? raw;
+    if (uri.scheme == 'astra' && uri.host == 'jam' && uri.pathSegments.isNotEmpty) {
+      raw = uri.pathSegments.first;
+    } else if (uri.host == 'astra.mmusic.workers.dev' &&
+        uri.pathSegments.length >= 2 &&
+        uri.pathSegments.first == 'jam') {
+      raw = uri.pathSegments[1];
+    }
+    final code = raw == null ? null : JamService.parseCode(raw);
+    if (code == null) return;
+    navigatorKey.currentState?.push(
+      AurumPageRoute(builder: (_) => JamScreen(initialCode: code)),
+    );
+  } catch (_) {}
 }
 
 class AurumApp extends StatelessWidget {
