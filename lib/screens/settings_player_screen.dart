@@ -23,7 +23,7 @@ import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
 // =============================================================================
-class SleepTimerService {
+class SleepTimerService extends ChangeNotifier {
   SleepTimerService._();
   static final SleepTimerService instance = SleepTimerService._();
 
@@ -33,11 +33,10 @@ class SleepTimerService {
   bool _fadeOut = true;
   NativeAudioEngine? _engine;
 
-  // Listeners so UI can rebuild when timer ticks/ends
-  final List<VoidCallback> _listeners = [];
-  void addListener(VoidCallback cb) => _listeners.add(cb);
-  void removeListener(VoidCallback cb) => _listeners.remove(cb);
-  void _notify() { for (final cb in _listeners) cb(); }
+  // addListener / removeListener / notifyListeners now come from
+  // ChangeNotifier, so this is also a valid Listenable for
+  // ListenableBuilder / AnimatedBuilder.
+  void _notify() => notifyListeners();
 
   bool get isActive => _timer != null && _timer!.isActive;
   Duration get remaining => isActive ? _endsAt!.difference(DateTime.now()) : Duration.zero;
