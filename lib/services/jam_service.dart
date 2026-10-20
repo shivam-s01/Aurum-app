@@ -91,8 +91,14 @@ class JamService extends ChangeNotifier {
   static const int _startDelayMs = 900; // go-signal lead time
   static const int _barrierTimeoutMs = 7000;
   static const int _stallHoldMs = 4000;
-  static const int _driftIgnoreMs = 35;
-  static const int _driftHardSeekMs = 200; // beyond this a quick seek beats seconds of speed-shifting
+  // The native engine reports its position once per second and the reading
+  // carries ~30-150 ms of channel/scheduling noise. Reacting to every blip
+  // (old limits: 35 ms / 200 ms) made guests change speed and seek all the
+  // time, and each setPlaybackSpeed()/seek() is an audible glitch. So: wide
+  // dead-zone, median of recent samples, rare and gentle corrections.
+  static const int _driftIgnoreMs = 90;
+  static const int _driftHardSeekMs = 350; // only a real, persistent gap is worth a seek
+  static const int _speedChangeGapMs = 5000; // at most one speed change per 5 s
   static const int _maxQueueSent = 25;
 
   // ── Public state ────────────────────────────────────────────────────────
@@ -221,6 +227,8 @@ class JamService extends ChangeNotifier {
   int _graceUntil = 0;
   int _songMismatchSince = 0;
   double _curSpeed = 1.0;
+  final List<int> _driftSamples = []; // recent raw drift readings (median = real drift)
+  int _lastSpeedChangeAt = 0;
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
@@ -524,6 +532,7 @@ class JamService extends ChangeNotifier {
     _code = '';
     _roomName = '';
     _driftMs = 0;
+    _driftSamples.clear();
     _inHold = false;
     _stalled.clear();
     _lastHoldAt.clear();
@@ -778,7 +787,15 @@ class JamService extends ChangeNotifier {
         if (now.any((m) => m['host'] == true)) return;
         // Host still talking to us (heartbeat every 5 s) → it's just a presence
         // hiccup, not a real departure. Don't steal the room.
-        if (_now() - _lastHostHeardAt < 12000) return;
+        if (_now() - _lastHostHeardAt < 8000) {
+          // Re-check shortly: if the host really died its heartbeats stop and
+          // the election below runs; if it's alive we simply keep waiting.
+          _hostLostTimer = Timer(const Duration(seconds: 3), () {
+            _hostLostTimer = null;
+            _onPresenceSync();
+          });
+          return;
+        }
         now.sort((a, b) {
           final c = ((a['joined'] ?? 0) as num).compareTo((b['joined'] ?? 0) as num);
           return c != 0 ? c : (a['id'] ?? '').toString().compareTo((b['id'] ?? '').toString());
@@ -929,7 +946,7 @@ class JamService extends ChangeNotifier {
       return;
     }
     if (type == 'whois') {
-      if (_isHost && _phase == JamPhase.inRoom) _sendIam(from);
+      if (_isHost && _channel != null) _sendIam(from);
       return;
     }
 
@@ -1471,6 +1488,7 @@ class JamService extends ChangeNotifier {
       ..playing = true;
     _graceUntil = _now() + 2500;
     _songMismatchSince = 0;
+    _driftSamples.clear();
   }
 
   void _onHeartbeat(Map<String, dynamic> m) {
@@ -1483,10 +1501,29 @@ class JamService extends ChangeNotifier {
       _notice = JamNotice.none;
       notifyListeners();
     }
-    _tl
-      ..songId = sid ?? _tl.songId
-      ..posMs = pos
-      ..atHost = at;
+    if (pl && _tl.playing && (sid == null || sid == _tl.songId)) {
+      // The host's position is only sampled once a second (± ~100 ms noise).
+      // Taking every heartbeat at face value shifted every guest's target
+      // by that noise → constant corrections. Low-pass it; accept a real jump
+      // (host seeked / stalled) immediately.
+      final hostPosNow = pos + (_hostNow - at);
+      final mine = _tl.posMs + (_hostNow - _tl.atHost);
+      final diff = hostPosNow - mine;
+      if (diff.abs() < 150) {
+        _tl
+          ..posMs = mine + (diff * 0.25).round()
+          ..atHost = _hostNow;
+      } else {
+        _tl
+          ..posMs = pos
+          ..atHost = at;
+      }
+    } else {
+      _tl
+        ..songId = sid ?? _tl.songId
+        ..posMs = pos
+        ..atHost = at;
+    }
     if (pl != _tl.playing) {
       _tl.playing = pl;
       if (!pl) {
@@ -1524,6 +1561,7 @@ class JamService extends ChangeNotifier {
     final p = _player;
     if (p == null || songs.isEmpty) return;
     _loading = true;
+    _driftSamples.clear();
     _myStatus = 'syncing';
     _track();
     notifyListeners();
@@ -1564,6 +1602,7 @@ class JamService extends ChangeNotifier {
   /// Pause + seek now, then start playback exactly at host-clock [atHost].
   void _scheduleStart(int posMs, int atHost) {
     _goTimer?.cancel();
+    _driftSamples.clear();
     final localTarget = atHost - (_isHost ? 0 : _offsetMs) - _nudgeMs;
     var delay = localTarget - _now();
     var seekTo = posMs;
@@ -1622,35 +1661,54 @@ class JamService extends ChangeNotifier {
 
     final expected = _tl.posMs + (_hostNow - _tl.atHost) + _nudgeMs;
     if (_lastDurMs > 0 && expected > _lastDurMs + 500) return;
-    final drift = _estimatedPosMs() - expected; // + = we are ahead
-    final moved = (drift ~/ 10) != (_driftMs ~/ 10);
+    final raw = _estimatedPosMs() - expected; // + = we are ahead
+    _driftSamples.add(raw);
+    if (_driftSamples.length > 5) _driftSamples.removeAt(0);
+    final sortedSamples = [..._driftSamples]..sort();
+    // Median: one noisy reading can never trigger a correction by itself.
+    final drift = sortedSamples[sortedSamples.length ~/ 2];
+    final moved = (drift ~/ 20) != (_driftMs ~/ 20);
     _driftMs = drift;
+    if (_driftSamples.length < 3) {
+      if (moved) notifyListeners();
+      return;
+    }
 
     if (drift.abs() > _driftHardSeekMs) {
-      _graceUntil = now + 2500;
+      // Really far off (long stall etc.) → one seek, then leave it alone a while.
+      _graceUntil = now + 6000;
+      _driftSamples.clear();
       try {
-        await _engine.seek(Duration(milliseconds: expected + 120));
+        await _engine.seek(Duration(milliseconds: max(0, expected + 150)));
         if (_curSpeed != 1.0) {
           _curSpeed = 1.0;
+          _lastSpeedChangeAt = now;
           await _engine.setSpeed(1.0);
         }
       } catch (_) {}
     } else if (drift.abs() > _driftIgnoreMs) {
-      final rate = (drift.abs() / 1500).clamp(0.01, 0.04).toDouble();
-      final want = drift > 0 ? 1.0 - rate : 1.0 + rate;
-      if ((want - _curSpeed).abs() > 0.004) {
-        _curSpeed = want;
-        try {
-          await _engine.setSpeed(want);
-        } catch (_) {}
+      // Small but steady gap → ONE gentle speed nudge (1.5 %), not more than
+      // once per 5 s, so there is no speed "hunting" and no audible warble.
+      if (now - _lastSpeedChangeAt > _speedChangeGapMs) {
+        final step = drift.abs() > 200 ? 0.03 : 0.015; // bigger gap → slightly firmer nudge
+        final want = drift > 0 ? 1.0 - step : 1.0 + step;
+        if ((want - _curSpeed).abs() > 0.004) {
+          _curSpeed = want;
+          _lastSpeedChangeAt = now;
+          _driftSamples.clear();
+          try {
+            await _engine.setSpeed(want);
+          } catch (_) {}
+        }
       }
-    } else if (_curSpeed != 1.0 && drift.abs() < 15) {
+    } else if (_curSpeed != 1.0 && drift.abs() < 40 && now - _lastSpeedChangeAt > 3000) {
       _curSpeed = 1.0;
+      _lastSpeedChangeAt = now;
       try {
         await _engine.setSpeed(1.0);
       } catch (_) {}
     }
-    // Refresh the live-offset readout only when it moved by ~10 ms or more.
+    // Refresh the live-offset readout only when it moved by ~20 ms or more.
     if (moved) notifyListeners();
   }
 
