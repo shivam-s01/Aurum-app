@@ -131,6 +131,15 @@ class JamService extends ChangeNotifier {
   List<String?> previewAvatars = const [];
   int previewCount = 0;
 
+  /// One short line about the last connect attempt (socket status, presence
+  /// snapshot, whois reply…). Shown in small text on the error card so a
+  /// failure can be diagnosed from a screenshot.
+  String debugInfo = '';
+  String _subStatus = '-';
+  Map<String, dynamic>? _iamHost; // host info learnt via broadcast (presence-independent)
+  int _iamCount = 0;
+  int _lastHostHeardAt = 0; // last time ANY message from the host arrived
+
   /// Live sync error of THIS phone vs the room, in ms (+ = ahead). For the
   /// small status line / debug overlay.
   int _driftMs = 0;
@@ -327,6 +336,7 @@ class JamService extends ChangeNotifier {
       final ok = await _openChannel(code);
       if (await _superseded(op)) return false;
       if (!ok) {
+        debugInfo = 'create sub:$_subStatus';
         await _closeChannel();
         _fail(JamNotice.connectionFailed);
         return false;
@@ -343,7 +353,14 @@ class JamService extends ChangeNotifier {
       _isHost = true;
       _joinedAt = _now();
       _offsetMs = 0;
-      await _track();
+      // The room must be visible to guests. Retry the presence announce a few
+      // times; if it still isn't confirmed we carry on anyway \u2014 guests can also
+      // find us through the broadcast "whois" fallback.
+      for (var t = 0; t < 3; t++) {
+        if (await _track()) break;
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (await _superseded(op)) return false;
+      }
       _phase = JamPhase.inRoom;
       _startRoomTimers();
       _seedTimelineFromEngine();
@@ -371,28 +388,31 @@ class JamService extends ChangeNotifier {
     notifyListeners();
 
     warmUp();
-    // Attempt 1 is patient (slow 4G), attempt 2 re-opens the channel in case a
-    // presence snapshot was missed. A room that is really gone is detected
-    // fast: once the (empty) snapshot has arrived we only wait a short grace.
+    // Up to 3 attempts. Each one re-opens the channel (a missed presence
+    // snapshot is the classic cause of a false "Room not found") and asks the
+    // host two ways: presence AND a broadcast "whois" that the host answers.
+    // We only say "room not found" after every attempt came back empty.
     Map<String, dynamic>? host;
     var connected = false;
-    for (var attempt = 0; attempt < 2 && host == null; attempt++) {
+    _iamHost = null;
+    _iamCount = 0;
+    final tried = <String>[];
+    for (var attempt = 0; attempt < 3 && host == null; attempt++) {
       final ok = await _openChannel(code);
       if (await _superseded(op)) return false;
       connected = ok;
       if (!ok) {
+        tried.add('sub:$_subStatus');
         await _closeChannel();
-        if (attempt == 0) {
-          await Future.delayed(const Duration(milliseconds: 400));
-          continue;
-        }
-        break;
+        await Future.delayed(const Duration(milliseconds: 500));
+        continue;
       }
-      connected = true; // reflects the LAST attempt, so a dead net says "can't connect"
-      host = await _waitForHost(maxMs: attempt == 0 ? 6500 : 4500);
+      host = await _waitForHost(maxMs: attempt == 0 ? 7000 : 5000);
       if (await _superseded(op)) return false;
-      if (host == null && _presenceSynced) break; // snapshot was empty → room is gone
+      tried.add('ok presence:${_allPresence().length} synced:$_presenceSynced iam:${_iamHost != null}');
     }
+    debugInfo = tried.join(' | ');
+    if (kDebugMode) debugPrint('[Jam] peek $code → $debugInfo');
     if (!connected) {
       _fail(JamNotice.connectionFailed);
       return false;
@@ -402,7 +422,7 @@ class JamService extends ChangeNotifier {
       _fail(JamNotice.roomNotFound);
       return false;
     }
-    final count = _allPresence().length;
+    final count = max(_allPresence().length, _iamCount);
     if (count >= maxMembers) {
       await _closeChannel();
       _fail(JamNotice.roomFull);
@@ -427,33 +447,56 @@ class JamService extends ChangeNotifier {
 
   /// Resolves as soon as the host shows up in presence. Gives up after
   /// [maxMs], or [emptyGraceMs] after an EMPTY snapshot arrived (dead code).
-  Future<Map<String, dynamic>?> _waitForHost({required int maxMs, int emptyGraceMs = 2200}) async {
+  Future<Map<String, dynamic>?> _waitForHost({required int maxMs, int emptyGraceMs = 3600}) async {
     final start = _now();
     int? syncedAt;
+    var lastWhois = 0;
     while (true) {
       final h = _hostPresence();
       if (h != null) return h;
+      final iam = _iamHost;
+      if (iam != null) return iam;
       final t = _now();
       if (t - start >= maxMs) return null;
       if (_presenceSynced) {
         syncedAt ??= t;
         if (t - syncedAt >= emptyGraceMs) return null;
       }
+      // Ask the host directly (works even if presence is flaky). Repeat — a
+      // broadcast sent a moment before the host's socket was ready is lost.
+      if (t - lastWhois >= 1100) {
+        lastWhois = t;
+        _send({'t': 'whois'});
+      }
       final c = _presenceWake = Completer<void>();
       await Future.any([c.future, Future.delayed(const Duration(milliseconds: 120))]);
     }
+  }
+
+  /// Host side: answer a "whois" with everything the preview card needs.
+  void _sendIam(String to) {
+    _send({
+      't': 'iam',
+      'to': to,
+      'room': _roomName,
+      'name': _myName,
+      'song': _currentSongLabel(),
+      'avatar': _myAvatar,
+      'n': max(_allPresence().length, _members.length),
+    });
   }
 
   /// Joins a room previously opened with [peek].
   Future<bool> join() async {
     if (_phase != JamPhase.previewing || _channel == null) return false;
     _peekTimer?.cancel();
-    if (_allPresence().length >= maxMembers) {
+    if (max(_allPresence().length, previewCount) >= maxMembers) {
       await leave(silent: true);
       _fail(JamNotice.roomFull);
       return false;
     }
     _isHost = false;
+    _lastHostHeardAt = _now();
     _joinedAt = _now();
     _roomName = previewRoomName;
     _phase = JamPhase.inRoom;
@@ -545,6 +588,8 @@ class JamService extends ChangeNotifier {
       });
       ch.subscribe((status, error) {
         if (gen != _channelGen) return;
+        _subStatus = error == null ? status.name : '${status.name}(${error.toString().split('\n').first})';
+        if (kDebugMode) debugPrint('[Jam] channel $code → $_subStatus');
         if (status == RealtimeSubscribeStatus.subscribed) {
           if (!completer.isCompleted) completer.complete(true);
           // Re-subscribed after a drop: re-announce so the room re-syncs us.
@@ -593,11 +638,13 @@ class JamService extends ChangeNotifier {
     final ch = _channel;
     _channel = null;
     if (ch != null) {
+      // Time-boxed: on a bad connection these calls can hang for 10 s+, which
+      // used to freeze every retry ("connect hi nahi ho raha").
       try {
-        await ch.untrack();
+        await ch.untrack().timeout(const Duration(seconds: 2));
       } catch (_) {}
       try {
-        await Supabase.instance.client.removeChannel(ch);
+        await Supabase.instance.client.removeChannel(ch).timeout(const Duration(seconds: 3));
       } catch (_) {}
     }
   }
@@ -634,10 +681,18 @@ class JamService extends ChangeNotifier {
         if (_isHost) 'song': _currentSongLabel(),
       };
 
-  Future<void> _track() async {
+  /// Announces us in presence. Returns true when the server confirmed it.
+  Future<bool> _track() async {
+    final ch = _channel;
+    if (ch == null) return false;
     try {
-      await _channel?.track(_presencePayload());
-    } catch (_) {}
+      final dynamic r = await ch.track(_presencePayload()).timeout(const Duration(seconds: 5));
+      final s = r.toString().toLowerCase();
+      return s == 'ok' || s.endsWith('.ok');
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Jam] track failed: $e');
+      return false;
+    }
   }
 
   String _currentSongLabel() {
@@ -721,6 +776,9 @@ class JamService extends ChangeNotifier {
         if (_phase != JamPhase.inRoom || _isHost) return;
         final now = _allPresence();
         if (now.any((m) => m['host'] == true)) return;
+        // Host still talking to us (heartbeat every 5 s) → it's just a presence
+        // hiccup, not a real departure. Don't steal the room.
+        if (_now() - _lastHostHeardAt < 12000) return;
         now.sort((a, b) {
           final c = ((a['joined'] ?? 0) as num).compareTo((b['joined'] ?? 0) as num);
           return c != 0 ? c : (a['id'] ?? '').toString().compareTo((b['id'] ?? '').toString());
@@ -849,11 +907,37 @@ class JamService extends ChangeNotifier {
   // Message router
   // ══════════════════════════════════════════════════════════════════════
   void _onMessage(Map<String, dynamic> m) {
-    if (_phase != JamPhase.inRoom) return;
     final from = (m['f'] ?? '').toString();
     final type = (m['t'] ?? '').toString();
     final to = m['to']?.toString();
     if (to != null && to != _myId) return;
+
+    // Presence-independent host discovery (used while joining by code).
+    if (type == 'iam') {
+      if (_phase == JamPhase.connecting && _iamHost == null) {
+        _iamCount = (m['n'] as num?)?.toInt() ?? 0;
+        _iamHost = {
+          'room': m['room'],
+          'name': m['name'],
+          'song': m['song'],
+          'avatar': m['avatar'],
+          'host': true,
+        };
+        final pw = _presenceWake;
+        if (pw != null && !pw.isCompleted) pw.complete();
+      }
+      return;
+    }
+    if (type == 'whois') {
+      if (_isHost && _phase == JamPhase.inRoom) _sendIam(from);
+      return;
+    }
+
+    if (_phase != JamPhase.inRoom) return;
+    // Any traffic from the host proves it is alive, even if presence glitches.
+    if (!_isHost && (type == 'hb' || type == 'state' || type == 'pong' || type == 'load' || type == 'go' || type == 'pause' || type == 'track')) {
+      _lastHostHeardAt = _now();
+    }
 
     switch (type) {
       // ── host-bound ──

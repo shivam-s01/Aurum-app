@@ -822,6 +822,15 @@ class _ErrorCard extends StatelessWidget {
             Text(s.errorTitle, style: TextStyle(color: tp, fontSize: 14.5, fontWeight: FontWeight.w800)),
             const SizedBox(height: 3),
             Text(s.notice(notice), style: TextStyle(color: ts, fontSize: 13, height: 1.35)),
+            // Tiny diagnostic line (socket status / presence) so a screenshot
+            // tells us exactly why a Jam didn't connect.
+            if (JamService.instance.debugInfo.isNotEmpty &&
+                (notice == JamNotice.roomNotFound || notice == JamNotice.connectionFailed))
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(JamService.instance.debugInfo,
+                    style: TextStyle(color: ts.withOpacity(0.6), fontSize: 10.5, height: 1.3)),
+              ),
             if (canRetry) ...[
               const SizedBox(height: 6),
               GestureDetector(
