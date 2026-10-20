@@ -58,15 +58,20 @@ class _S {
   String get hostedBy => t('Hosted by', 'Host');
   String get nowPlaying => t('Now playing', 'Abhi chal raha hai');
   String get nothingYet => t('Nothing playing yet', 'Abhi kuch nahi chal raha');
-  String get hostHint => t('Play any song from Astra — everyone in the room will hear it.',
-      'Astra se koi bhi gaana chalao — room me sabko sunai dega.');
-  String get guestHint => t('The host controls the music. It starts together for everyone.',
-      'Gaana host chalata hai. Sabke liye ek saath shuru hota hai.');
+  String get hostHint => t('Play any song from Astra \u2014 everyone hears it. Pause or play here, and it happens for everyone.',
+      'Astra se koi bhi gaana chalao \u2014 sabko sunai dega. Yahan pause ya play karoge to sabke liye hoga.');
+  String get guestHint => t('The host controls the music \u2014 when the host pauses or plays, it happens for everyone.',
+      'Gaana host chalata hai \u2014 host pause ya play karega to sabke liye hoga.');
   String get people => t('In this Jam', 'Is Jam me');
   String get host => t('Host', 'Host');
   String get you => t('You', 'Aap');
   String get ok => t('In sync', 'Sync me');
   String get buffering => t('Buffering', 'Buffer ho raha hai');
+  String get reconnectingChip => t('Reconnecting', 'Dobara connect');
+  String get liveSynced => t('In sync right now (within 35 ms)', 'Abhi sync me hai (35 ms ke andar)');
+  String liveOff(int ms) => ms > 0
+      ? t('You are ~$ms ms ahead of the host', 'Aap host se ~$ms ms aage ho')
+      : t('You are ~${-ms} ms behind the host', 'Aap host se ~${-ms} ms peeche ho');
   String get syncing => t('Syncing', 'Sync ho raha hai');
   String get share => t('Invite', 'Bulao');
   String get inviteFriend => t('Invite a friend', 'Dost ko bulao');
@@ -94,16 +99,17 @@ class _S {
     final name = room.trim();
     if (hi) {
       return '\u{1F3A7} Mere Astra Jam me aao${name.isEmpty ? '' : ' \u2014 $name'}\n\n'
-          'Code: $code\n$link\n\nSaath me suno, ek hi time pe.';
+          'Code: $code\n$link\n\nSmooth aur optimized experience \u2014 saath me suno, ek hi time pe.';
     }
     return '\u{1F3A7} Join my Astra Jam${name.isEmpty ? '' : ' \u2014 $name'}\n\n'
-        'Code: $code\n$link\n\nListen together, in perfect sync.';
+        'Code: $code\n$link\n\nSmooth, optimized experience \u2014 listen together, in perfect sync.';
   }
 
   String notice(JamNotice n) {
     switch (n) {
       case JamNotice.roomNotFound:
-        return t('Room not found. Check the code and try again.', 'Room nahi mila. Code check karke dobara try karo.');
+        return t('Room not found. Check the code, or the host may have ended the Jam.',
+            'Room nahi mila. Code check karo, ya host ne Jam band kar diya ho sakta hai.');
       case JamNotice.roomFull:
         return roomFull;
       case JamNotice.connectionFailed:
@@ -303,6 +309,34 @@ class _JamScreenState extends State<JamScreen> {
     }
   }
 
+  Widget _body() {
+    switch (_jam.phase) {
+      case JamPhase.connecting:
+        return _ConnectingView(key: const ValueKey('connecting'), onCancel: _cancelConnect);
+      case JamPhase.previewing:
+        return _PreviewView(
+          key: const ValueKey('preview'),
+          onJoin: () => _jam.join(),
+          onCancel: () => _jam.leave(),
+        );
+      case JamPhase.inRoom:
+        return _RoomView(key: const ValueKey('room'), onLeave: _confirmLeave);
+      case JamPhase.idle:
+        return _HomeView(
+          key: const ValueKey('home'),
+          nameCtrl: _nameCtrl,
+          codeCtrl: _codeCtrl,
+          busy: _busy,
+          last: _last,
+          error: _error,
+          onStart: _start,
+          onJoin: _peek,
+          onRetry: _retry,
+          onDismissError: () => setState(() => _error = null),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = _S.of(context);
@@ -326,44 +360,11 @@ class _JamScreenState extends State<JamScreen> {
         child: AnimatedBuilder(
           animation: _jam,
           builder: (context, _) {
-            Widget body;
-            switch (_jam.phase) {
-              case JamPhase.connecting:
-                body = _ConnectingView(
-                  key: const ValueKey('connecting'),
-                  onCancel: _cancelConnect,
-                );
-                break;
-              case JamPhase.previewing:
-                body = _PreviewView(
-                  key: const ValueKey('preview'),
-                  onJoin: () => _jam.join(),
-                  onCancel: () => _jam.leave(),
-                );
-                break;
-              case JamPhase.inRoom:
-                body = _RoomView(key: const ValueKey('room'), onLeave: _confirmLeave);
-                break;
-              case JamPhase.idle:
-                body = _HomeView(
-                  key: const ValueKey('home'),
-                  nameCtrl: _nameCtrl,
-                  codeCtrl: _codeCtrl,
-                  busy: _busy,
-                  last: _last,
-                  error: _error,
-                  onStart: _start,
-                  onJoin: _peek,
-                  onRetry: _retry,
-                  onDismissError: () => setState(() => _error = null),
-                );
-                break;
-            }
             return AnimatedSwitcher(
               duration: AurumMotion.durationOrZero(AurumMotion.medium1),
               switchInCurve: AurumMotion.standard,
               switchOutCurve: Curves.easeIn,
-              child: body,
+              child: _body(),
             );
           },
         ),
@@ -1009,9 +1010,9 @@ class _RoomView extends StatelessWidget {
     final jam = JamService.instance;
     final tp = AurumTheme.textPrimaryOf(context);
     final accent = AurumTheme.accentOf(context);
-    final myOk = jam.myStatus == 'ok';
-    final chipColor = myOk ? _kGreen : _kAmber;
-    final banner = jam.notice == JamNotice.waitingForFriend || jam.notice == JamNotice.reconnecting;
+    final reconnecting = jam.notice == JamNotice.reconnecting;
+    final chipColor = (jam.myStatus == 'ok' && !reconnecting) ? _kGreen : _kAmber;
+    final banner = jam.notice == JamNotice.waitingForFriend || reconnecting;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
@@ -1033,7 +1034,7 @@ class _RoomView extends StatelessWidget {
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Container(width: 7, height: 7, decoration: BoxDecoration(color: chipColor, shape: BoxShape.circle)),
               const SizedBox(width: 6),
-              Text(s.status(jam.myStatus), style: TextStyle(color: chipColor, fontSize: 11.5, fontWeight: FontWeight.w800)),
+              Text(reconnecting ? s.reconnectingChip : s.status(jam.myStatus), style: TextStyle(color: chipColor, fontSize: 11.5, fontWeight: FontWeight.w800)),
             ]),
           ),
         ]),
@@ -1403,6 +1404,17 @@ class _NudgeCardState extends State<_NudgeCard> {
           ]),
           children: [
             Text(s.fineTuneHint, style: TextStyle(color: ts, fontSize: 12.5, height: 1.3)),
+            if (!jam.isHost && jam.driftMs != 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                jam.driftMs.abs() <= 35 ? s.liveSynced : s.liveOff(jam.driftMs),
+                style: TextStyle(
+                  color: jam.driftMs.abs() <= 35 ? _kGreen : _kAmber,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 activeTrackColor: accent,

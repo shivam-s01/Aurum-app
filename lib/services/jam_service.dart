@@ -92,7 +92,7 @@ class JamService extends ChangeNotifier {
   static const int _barrierTimeoutMs = 7000;
   static const int _stallHoldMs = 4000;
   static const int _driftIgnoreMs = 35;
-  static const int _driftHardSeekMs = 350;
+  static const int _driftHardSeekMs = 200; // beyond this a quick seek beats seconds of speed-shifting
   static const int _maxQueueSent = 25;
 
   // ── Public state ────────────────────────────────────────────────────────
@@ -189,6 +189,7 @@ class JamService extends ChangeNotifier {
 
   // stall hold (host side)
   final Set<String> _stalled = {};
+  final Map<String, int> _lastHoldAt = {}; // guest id → when it last paused the room
   Timer? _holdTimer;
   bool _inHold = false;
   int _stallSince = 0;
@@ -196,6 +197,8 @@ class JamService extends ChangeNotifier {
 
   // timers
   Timer? _hbTimer;
+  Timer? _resubTimer;
+  Timer? _busyRecheck;
   Timer? _driftTimer;
   Timer? _hostLostTimer;
   Timer? _peekTimer;
@@ -464,19 +467,12 @@ class JamService extends ChangeNotifier {
 
   Future<void> leave({bool silent = false}) async {
     _opSeq++;
-    final wasIn = _phase == JamPhase.inRoom;
-    if (wasIn) _send({'t': 'bye'});
+    if (_phase == JamPhase.inRoom) _send({'t': 'bye'});
     _stopTimers();
-    await _closeChannel();
-    try {
-      await _engine.setJamHold(false);
-    } catch (_) {}
-    if (_curSpeed != 1.0) {
-      _curSpeed = 1.0;
-      try {
-        await _engine.setSpeed(1.0);
-      } catch (_) {}
-    }
+
+    // Flip the UI to idle FIRST. Closing the channel below is a network call
+    // that can take seconds on a bad connection — the user must not sit on
+    // the room screen (and tap Leave twice) while it finishes.
     _phase = JamPhase.idle;
     previewHostAvatar = null;
     previewAvatars = const [];
@@ -487,6 +483,7 @@ class JamService extends ChangeNotifier {
     _driftMs = 0;
     _inHold = false;
     _stalled.clear();
+    _lastHoldAt.clear();
     _ready.clear();
     _tl
       ..songId = null
@@ -494,6 +491,17 @@ class JamService extends ChangeNotifier {
       ..posMs = 0;
     if (!silent) _notice = JamNotice.none;
     notifyListeners();
+
+    await _closeChannel();
+    try {
+      await _engine.setJamHold(false);
+    } catch (_) {}
+    if (_curSpeed != 1.0) {
+      _curSpeed = 1.0;
+      try {
+        await _engine.setSpeed(1.0);
+      } catch (_) {}
+    }
   }
 
   void _fail(JamNotice n) {
@@ -555,6 +563,7 @@ class JamService extends ChangeNotifier {
           } else if (_phase == JamPhase.inRoom) {
             _notice = JamNotice.reconnecting;
             notifyListeners();
+            _scheduleResubscribe();
           }
         }
       });
@@ -563,6 +572,20 @@ class JamService extends ChangeNotifier {
       return false;
     }
     return completer.future.timeout(const Duration(seconds: 8), onTimeout: () => false);
+  }
+
+  /// The realtime library retries a dropped channel by itself, but on some
+  /// phones it stays stuck. If we're still "reconnecting" after a few
+  /// seconds, tear the channel down and subscribe again (the subscribed
+  /// callback re-announces us to the room).
+  void _scheduleResubscribe() {
+    _resubTimer?.cancel();
+    final gen = _channelGen;
+    _resubTimer = Timer(const Duration(seconds: 6), () async {
+      if (gen != _channelGen || _phase != JamPhase.inRoom || _notice != JamNotice.reconnecting) return;
+      final ok = await _openChannel(_code);
+      if (!ok && _phase == JamPhase.inRoom && _notice == JamNotice.reconnecting) _scheduleResubscribe();
+    });
   }
 
   Future<void> _closeChannel() async {
@@ -586,6 +609,18 @@ class JamService extends ChangeNotifier {
     try {
       ch.sendBroadcastMessage(event: 'm', payload: m);
     } catch (_) {}
+  }
+
+  /// A pause is the one message that must never be lost, and broadcasts are
+  /// fire-and-forget. Send it again shortly after (only while still paused);
+  /// guests treat repeats as no-ops.
+  void _sendBurst(Map<String, dynamic> m) {
+    _send(m);
+    for (final ms in const [350, 1100]) {
+      Timer(Duration(milliseconds: ms), () {
+        if (_isHost && _phase == JamPhase.inRoom && !_tl.playing) _send(Map<String, dynamic>.of(m));
+      });
+    }
   }
 
   Map<String, dynamic> _presencePayload() => {
@@ -657,6 +692,19 @@ class JamService extends ChangeNotifier {
       return;
     }
     if (_phase != JamPhase.inRoom) return;
+
+    if (!_isHost && all.length > maxMembers) {
+      final byJoin = [...all]..sort((a, b) {
+          final c = ((a['joined'] ?? 0) as num).compareTo((b['joined'] ?? 0) as num);
+          return c != 0 ? c : (a['id'] ?? '').toString().compareTo((b['id'] ?? '').toString());
+        });
+      if (byJoin.indexWhere((m) => m['id'] == _myId) >= maxMembers) {
+        unawaited(leave(silent: true)); // flips the UI to idle immediately
+        _notice = JamNotice.roomFull;
+        notifyListeners();
+        return;
+      }
+    }
 
     final hostEntry = _hostPresence();
     final hostId = hostEntry == null ? null : hostEntry['id'];
@@ -739,7 +787,7 @@ class JamService extends ChangeNotifier {
     if (_isHost) {
       _hbTimer = Timer.periodic(const Duration(seconds: 5), (_) => _hostHeartbeat());
     }
-    _driftTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) => _tick());
+    _driftTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) => _tick());
   }
 
   void _stopTimers() {
@@ -750,7 +798,9 @@ class JamService extends ChangeNotifier {
     _holdTimer?.cancel();
     _hostLostTimer?.cancel();
     _peekTimer?.cancel();
-    _hbTimer = _driftTimer = _pingTimer = _goTimer = _holdTimer = _hostLostTimer = _peekTimer = null;
+    _resubTimer?.cancel();
+    _busyRecheck?.cancel();
+    _hbTimer = _busyRecheck = _driftTimer = _pingTimer = _goTimer = _holdTimer = _hostLostTimer = _peekTimer = _resubTimer = null;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -929,6 +979,12 @@ class JamService extends ChangeNotifier {
 
   void _hostHeartbeat() {
     if (!_isHost || _phase != JamPhase.inRoom) return;
+    // Safety net: the host's player is paused but the room still thinks it
+    // plays (a pause event we missed) → pause everyone now.
+    if (!_alone && _tl.playing && !_es.playing && _es.processingState == 'ready' &&
+        !_loading && !_inHold && _now() > _busyUntil) {
+      hostPause();
+    }
     // Refresh timeline from the host's real engine so guests follow reality.
     if (_es.playing && _es.processingState == 'ready' && !_loading && !_inHold && _now() > _busyUntil) {
       _tl
@@ -1069,7 +1125,7 @@ class JamService extends ChangeNotifier {
       ..playing = false;
     _busyUntil = _now() + 1500;
     _goTimer?.cancel();
-    _send({'t': 'pause', 'pos': pos});
+    _sendBurst({'t': 'pause', 'pos': pos});
     try {
       await _engine.pause();
       await _engine.seek(Duration(milliseconds: pos));
@@ -1103,6 +1159,12 @@ class JamService extends ChangeNotifier {
 
   void _onWait(String from) {
     if (_inHold || !_tl.playing) return;
+    // One guest with a bad connection must not stop the music for everyone
+    // again and again: it gets one room-wide pause per 20 s, after that it
+    // catches up on its own (drift correction / seek).
+    final now = _now();
+    if (now - (_lastHoldAt[from] ?? 0) < 20000) return;
+    _lastHoldAt[from] = now;
     _inHold = true;
     _stalled.add(from);
     _notice = JamNotice.waitingForFriend;
@@ -1156,19 +1218,33 @@ class JamService extends ChangeNotifier {
 
   /// Host watches its own engine so that using the normal mini player /
   /// full player / notification also drives the room.
+  void _recheckAfterBusy() {
+    _busyRecheck?.cancel();
+    final wait = _busyUntil - _now() + 200;
+    _busyRecheck = Timer(Duration(milliseconds: wait < 200 ? 200 : wait), () {
+      if (_isHost && _phase == JamPhase.inRoom) _hostWatch(_es, _es);
+    });
+  }
+
   void _hostWatch(NativeEngineState prev, NativeEngineState s) {
-    if (_now() < _busyUntil || _loading) return;
+    if (_loading) return;
+    if (_now() < _busyUntil) {
+      _recheckAfterBusy(); // don't lose a pause/skip made right after a start
+      return;
+    }
     final sid = s.currentSongId;
 
     // Nobody else in the room: the host's own player is the truth. No
     // barrier, no pause, no delay — a solo host feels completely normal, and
     // a friend who joins later gets the live timeline via the "state" reply.
     if (_alone) {
+      final toggled = s.playing != _tl.playing;
       _tl
         ..songId = sid ?? _tl.songId
         ..posMs = s.position.inMilliseconds
         ..atHost = _now()
         ..playing = s.playing;
+      if (toggled) _hostHeartbeat(); // a guest the presence list hasn't shown yet still hears it
       return;
     }
 
@@ -1192,7 +1268,7 @@ class JamService extends ChangeNotifier {
     }
 
     // Play / pause toggled by the host outside the Jam page
-    if (s.playing != _tl.playing && s.processingState == 'ready') {
+    if (s.playing != _tl.playing && s.processingState == 'ready' && !_inHold) {
       if (s.playing) {
         _engine.pause();
         hostResume();
@@ -1282,14 +1358,18 @@ class JamService extends ChangeNotifier {
 
   void _onPauseMsg(Map<String, dynamic> m) {
     final pos = (m['pos'] as num).toInt();
+    // The host repeats a pause for reliability — once we're settled, repeats do nothing.
+    final settled = !_tl.playing && !_es.playing;
     _goTimer?.cancel();
     _tl
       ..posMs = pos
       ..atHost = _hostNow
       ..playing = false;
-    _graceUntil = _now() + 1500;
-    _engine.pause();
-    _engine.seek(Duration(milliseconds: pos));
+    if (!settled) {
+      _graceUntil = _now() + 1500;
+      _engine.pause();
+      _engine.seek(Duration(milliseconds: pos));
+    }
     if (m['hold'] == true) {
       _notice = JamNotice.waitingForFriend;
       notifyListeners();
@@ -1408,7 +1488,7 @@ class JamService extends ChangeNotifier {
       seekTo = posMs + (-delay);
       delay = 0;
     }
-    _graceUntil = _now() + delay + 2500;
+    _graceUntil = _now() + delay + 1600; // first drift check ~1.6 s after the start
     () async {
       try {
         await _engine.pause();
@@ -1426,7 +1506,7 @@ class JamService extends ChangeNotifier {
     });
   }
 
-  /// 1.5 s heartbeat for drift (guests) and song-mismatch recovery.
+  /// 1 s heartbeat for drift (guests) and song-mismatch recovery.
   Future<void> _tick() async {
     if (_phase != JamPhase.inRoom || _isHost || _loading) return;
     final now = _now();
@@ -1459,6 +1539,7 @@ class JamService extends ChangeNotifier {
     final expected = _tl.posMs + (_hostNow - _tl.atHost) + _nudgeMs;
     if (_lastDurMs > 0 && expected > _lastDurMs + 500) return;
     final drift = _estimatedPosMs() - expected; // + = we are ahead
+    final moved = (drift ~/ 10) != (_driftMs ~/ 10);
     _driftMs = drift;
 
     if (drift.abs() > _driftHardSeekMs) {
@@ -1485,8 +1566,8 @@ class JamService extends ChangeNotifier {
         await _engine.setSpeed(1.0);
       } catch (_) {}
     }
-    // Light UI refresh (debug line) — only when the number actually moved.
-    notifyListeners();
+    // Refresh the live-offset readout only when it moved by ~10 ms or more.
+    if (moved) notifyListeners();
   }
 
   @override
