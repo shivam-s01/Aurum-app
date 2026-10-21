@@ -180,6 +180,15 @@ class AurumAudioEngine(
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(20_000, true)
             .build()
+        // JAM profile: big lead + large rebuffer cushion so a slow guest keeps
+        // playing through network dips instead of stalling the whole room.
+        val jam = DefaultLoadControl.Builder()
+            .setAllocator(sharedAllocator)
+            .setBufferDurationsMs(40_000, 120_000, 4_000, 8_000)
+            .setTargetBufferBytes(-1)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(20_000, true)
+            .build()
         java.lang.reflect.Proxy.newProxyInstance(
             androidx.media3.exoplayer.LoadControl::class.java.classLoader,
             arrayOf<Class<*>>(androidx.media3.exoplayer.LoadControl::class.java),
@@ -195,13 +204,14 @@ class AurumAudioEngine(
                     try {
                         method.invoke(normal, *callArgs)
                         method.invoke(saver, *callArgs)
+                        method.invoke(jam, *callArgs)
                     } catch (e: java.lang.reflect.InvocationTargetException) {
                         throw e.targetException
                     }
                     null
                 }
                 else -> try {
-                    method.invoke(if (dataSaverActive) saver else normal, *callArgs)
+                    method.invoke(if (dataSaverActive) saver else if (jamBoostBuffer) jam else normal, *callArgs)
                 } catch (e: java.lang.reflect.InvocationTargetException) {
                     throw e.targetException
                 }
@@ -494,7 +504,7 @@ class AurumAudioEngine(
         // Requires WAKE_LOCK permission (already in AndroidManifest.xml) and
         // must run inside a foreground service (AurumMediaSessionService) —
         // both are satisfied here.
-        .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
+        .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK) // CPU + WiFi lock: streaming/Jam must not lose WiFi when screen is off
         .build()
         .also { p ->
             // AudioOffloadPreferences is applied via trackSelectionParameters
@@ -1013,6 +1023,8 @@ class AurumAudioEngine(
     // on "Next" is never slowed down), but nothing beyond that gets
     // buffered ahead of actual need.
     @Volatile private var dataSaverActive = false
+    // JAM: true while in a room → LoadControl uses the large "jam" buffer profile.
+    @Volatile var jamBoostBuffer: Boolean = false
 
     // Android's own "is this a genuinely low-RAM device" signal — set once
     // by the OS at install/build time from actual device specs (see

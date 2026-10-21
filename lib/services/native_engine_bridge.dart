@@ -495,6 +495,8 @@ class NativeAudioEngine {
   Future<void> setSpeed(double speed) => _method.invokeMethod('setSpeed', {'speed': speed});
   /// Jam: while true, new playQueue loads stay paused until play() is called.
   Future<void> setJamHold(bool hold) => _method.invokeMethod('setJamHold', {'hold': hold});
+  /// Jam: bigger read-ahead buffer + rebuffer cushion while in a room.
+  Future<void> setJamBuffer(bool on) => _method.invokeMethod('setJamBuffer', {'on': on});
   // Pushes Battery Saver Mode's active state down to the native pre-buffer
   // resolver — see AurumAudioEngine.priorityForwardWindow. Best-effort: if
   // this fails (very old platform build, channel not ready yet), native

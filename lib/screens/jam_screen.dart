@@ -83,6 +83,8 @@ class _S {
   String get leaveTitle => t('Leave this Jam?', 'Jam chhodna hai?');
   String get leaveBody => t('The music keeps playing on your phone, but no longer in sync.',
       'Gaana aapke phone pe chalta rahega, par sync me nahi.');
+  String get leaveBodyGuest => t('The music will stop on your phone when you leave.',
+      'Jam chhodte hi aapke phone pe gaana ruk jayega.');
   String get cancel => t('Cancel', 'Cancel');
   String get fineTune => t('Fine-tune sync', 'Sync theek karo');
   String get fineTuneHint => t('Using Bluetooth earbuds and hearing a delay? Nudge it here.',
@@ -288,7 +290,7 @@ class _JamScreenState extends State<JamScreen> {
           style: TextStyle(color: AurumTheme.textPrimaryOf(c), fontWeight: FontWeight.w800, fontSize: 19),
         ),
         content: Text(
-          s.leaveBody,
+          _jam.isHost ? s.leaveBody : s.leaveBodyGuest,
           style: TextStyle(color: AurumTheme.textSecondaryOf(c), fontSize: 14, height: 1.4),
         ),
         actions: [

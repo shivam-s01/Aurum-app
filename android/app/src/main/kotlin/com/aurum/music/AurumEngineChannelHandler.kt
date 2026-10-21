@@ -421,6 +421,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.jamHoldStart = call.argument<Boolean>("hold") ?: false
                     result.success(null)
                 }
+                "setJamBuffer" -> {
+                    engine.jamBoostBuffer = call.argument<Boolean>("on") ?: false
+                    result.success(null)
+                }
                 "setSpeed" -> {
                     engine.setSpeed((call.argument<Number>("speed") ?: 1.0).toFloat())
                     result.success(null)

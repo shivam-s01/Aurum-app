@@ -88,8 +88,9 @@ class JamService extends ChangeNotifier {
   static const String codePrefix = 'ASTRA-';
   static const String linkBase = 'https://astra.mmusic.workers.dev/jam/';
   static const String _alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-  static const int _startDelayMs = 900; // go-signal lead time
-  static const int _barrierTimeoutMs = 7000;
+  static const int _startDelayMs = 900; // go-signal lead time (minimum)
+  static const int _maxStartDelayMs = 2800; // grows with the slowest guest's RTT
+  static const int _barrierTimeoutMs = 15000; // slow phones get time to buffer
   static const int _stallHoldMs = 4000;
   // The native engine reports its position once per second and the reading
   // carries ~30-150 ms of channel/scheduling noise. Reacting to every blip
@@ -209,6 +210,11 @@ class JamService extends ChangeNotifier {
   bool _inHold = false;
   int _stallSince = 0;
   bool _sentWait = false;
+  final Map<String, int> _guestRtt = {}; // guest id → its best clock-sync RTT (ms)
+  bool _chSubscribed = false; // realtime channel currently joined
+  bool _resubbing = false;
+  Timer? _trackTimer;
+  int _hostByeAt = 0; // host announced it is leaving (fast election)
 
   // timers
   Timer? _hbTimer;
@@ -237,6 +243,25 @@ class JamService extends ChangeNotifier {
     if (c != null && !c.isCompleted) c.complete();
   }
   int get _hostNow => _isHost ? _now() : _now() + _offsetMs;
+
+  int _bestRtt() {
+    if (_clockSamples.isEmpty) return 0;
+    var b = _clockSamples.first[0];
+    for (final s in _clockSamples) {
+      if (s[0] < b) b = s[0];
+    }
+    return b;
+  }
+
+  /// Go-signal lead time: enough for the slowest guest's network round trip.
+  int get _goDelayMs {
+    if (_alone) return 120;
+    var worst = 0;
+    for (final r in _guestRtt.values) {
+      if (r > worst) worst = r;
+    }
+    return (_startDelayMs + worst).clamp(_startDelayMs, _maxStartDelayMs).toInt();
+  }
 
   // ══════════════════════════════════════════════════════════════════════
   // Setup
@@ -349,7 +374,7 @@ class JamService extends ChangeNotifier {
         _fail(JamNotice.connectionFailed);
         return false;
       }
-      await Future.delayed(const Duration(milliseconds: 700)); // let presence sync
+      await _waitPresenceSync(4500); // slow net: wait for the real snapshot
       if (await _superseded(op)) return false;
       if (_hostPresence() != null) {
         await _closeChannel();
@@ -370,6 +395,7 @@ class JamService extends ChangeNotifier {
         if (await _superseded(op)) return false;
       }
       _phase = JamPhase.inRoom;
+      _jamBuffer(true);
       _startRoomTimers();
       _seedTimelineFromEngine();
       // If something is already playing, start the room with it.
@@ -406,7 +432,7 @@ class JamService extends ChangeNotifier {
     _iamCount = 0;
     final tried = <String>[];
     for (var attempt = 0; attempt < 3 && host == null; attempt++) {
-      final ok = await _openChannel(code);
+      final ok = await _openChannel(code, timeoutSec: attempt == 0 ? 16 : 12);
       if (await _superseded(op)) return false;
       connected = ok;
       if (!ok) {
@@ -415,7 +441,7 @@ class JamService extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 500));
         continue;
       }
-      host = await _waitForHost(maxMs: attempt == 0 ? 7000 : 5000);
+      host = await _waitForHost(maxMs: attempt == 0 ? 12000 : 9000);
       if (await _superseded(op)) return false;
       tried.add('ok presence:${_allPresence().length} synced:$_presenceSynced iam:${_iamHost != null}');
     }
@@ -455,7 +481,7 @@ class JamService extends ChangeNotifier {
 
   /// Resolves as soon as the host shows up in presence. Gives up after
   /// [maxMs], or [emptyGraceMs] after an EMPTY snapshot arrived (dead code).
-  Future<Map<String, dynamic>?> _waitForHost({required int maxMs, int emptyGraceMs = 3600}) async {
+  Future<Map<String, dynamic>?> _waitForHost({required int maxMs, int emptyGraceMs = 6500}) async {
     final start = _now();
     int? syncedAt;
     var lastWhois = 0;
@@ -508,6 +534,7 @@ class JamService extends ChangeNotifier {
     _joinedAt = _now();
     _roomName = previewRoomName;
     _phase = JamPhase.inRoom;
+    _jamBuffer(true);
     await _track();
     _startRoomTimers();
     _startClockSync();
@@ -518,8 +545,14 @@ class JamService extends ChangeNotifier {
 
   Future<void> leave({bool silent = false}) async {
     _opSeq++;
+    final wasGuest = _phase == JamPhase.inRoom && !_isHost;
+    final hostEndsRoom = _phase == JamPhase.inRoom && _isHost && _members.length > 1;
+    // Host closes the room → tell everyone: the Jam is over and their music stops.
+    if (hostEndsRoom) _send({'t': 'end'});
     if (_phase == JamPhase.inRoom) _send({'t': 'bye'});
     _stopTimers();
+    // Guest leaves the room → its music stops RIGHT NOW (before any network work).
+    if (wasGuest) unawaited(_stopOwnPlayback());
 
     // Flip the UI to idle FIRST. Closing the channel below is a network call
     // that can take seconds on a bad connection — the user must not sit on
@@ -537,6 +570,8 @@ class JamService extends ChangeNotifier {
     _stalled.clear();
     _lastHoldAt.clear();
     _ready.clear();
+    _guestRtt.clear();
+    _hostByeAt = 0;
     _tl
       ..songId = null
       ..playing = false
@@ -544,7 +579,13 @@ class JamService extends ChangeNotifier {
     if (!silent) _notice = JamNotice.none;
     notifyListeners();
 
+    if (hostEndsRoom) {
+      _send({'t': 'end'}); // repeat once (broadcasts are fire-and-forget)
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
     await _closeChannel();
+    _jamBuffer(false);
+    if (wasGuest) await _stopOwnPlayback(); // in case a load finished meanwhile
     try {
       await _engine.setJamHold(false);
     } catch (_) {}
@@ -567,8 +608,8 @@ class JamService extends ChangeNotifier {
   // ══════════════════════════════════════════════════════════════════════
   // Channel plumbing
   // ══════════════════════════════════════════════════════════════════════
-  Future<bool> _openChannel(String code) async {
-    await _closeChannel();
+  Future<bool> _openChannel(String code, {int timeoutSec = 16, bool quick = false}) async {
+    await _closeChannel(quick: quick);
     final gen = ++_channelGen;
     _presenceSynced = false;
     _presenceWake = null;
@@ -600,6 +641,7 @@ class JamService extends ChangeNotifier {
         _subStatus = error == null ? status.name : '${status.name}(${error.toString().split('\n').first})';
         if (kDebugMode) debugPrint('[Jam] channel $code → $_subStatus');
         if (status == RealtimeSubscribeStatus.subscribed) {
+          _chSubscribed = true;
           if (!completer.isCompleted) completer.complete(true);
           // Re-subscribed after a drop: re-announce so the room re-syncs us.
           if (_phase == JamPhase.inRoom) {
@@ -611,10 +653,13 @@ class JamService extends ChangeNotifier {
             }
           }
         } else if (status == RealtimeSubscribeStatus.channelError ||
-            status == RealtimeSubscribeStatus.timedOut) {
-          if (!completer.isCompleted) {
-            completer.complete(false);
-          } else if (_phase == JamPhase.inRoom) {
+            status == RealtimeSubscribeStatus.timedOut ||
+            status == RealtimeSubscribeStatus.closed) {
+          _chSubscribed = false;
+          // First connect on a slow net: the library keeps retrying by itself,
+          // so do NOT give up on the first timeout — the overall timeout below
+          // decides. Once we are in a room, a drop starts a quick resubscribe.
+          if (completer.isCompleted && _phase == JamPhase.inRoom) {
             _notice = JamNotice.reconnecting;
             notifyListeners();
             _scheduleResubscribe();
@@ -625,7 +670,7 @@ class JamService extends ChangeNotifier {
     } catch (_) {
       return false;
     }
-    return completer.future.timeout(const Duration(seconds: 8), onTimeout: () => false);
+    return completer.future.timeout(Duration(seconds: timeoutSec), onTimeout: () => false);
   }
 
   /// The realtime library retries a dropped channel by itself, but on some
@@ -635,25 +680,28 @@ class JamService extends ChangeNotifier {
   void _scheduleResubscribe() {
     _resubTimer?.cancel();
     final gen = _channelGen;
-    _resubTimer = Timer(const Duration(seconds: 6), () async {
+    _resubTimer = Timer(const Duration(seconds: 4), () async {
       if (gen != _channelGen || _phase != JamPhase.inRoom || _notice != JamNotice.reconnecting) return;
-      final ok = await _openChannel(_code);
-      if (!ok && _phase == JamPhase.inRoom && _notice == JamNotice.reconnecting) _scheduleResubscribe();
+      await _forceResub();
+      if (_phase == JamPhase.inRoom && _notice == JamNotice.reconnecting) _scheduleResubscribe();
     });
   }
 
-  Future<void> _closeChannel() async {
+  Future<void> _closeChannel({bool quick = false}) async {
     _channelGen++;
+    _chSubscribed = false;
     final ch = _channel;
     _channel = null;
     if (ch != null) {
       // Time-boxed: on a bad connection these calls can hang for 10 s+, which
       // used to freeze every retry ("connect hi nahi ho raha").
+      if (!quick) {
+        try {
+          await ch.untrack().timeout(const Duration(seconds: 2));
+        } catch (_) {}
+      }
       try {
-        await ch.untrack().timeout(const Duration(seconds: 2));
-      } catch (_) {}
-      try {
-        await Supabase.instance.client.removeChannel(ch).timeout(const Duration(seconds: 3));
+        await Supabase.instance.client.removeChannel(ch).timeout(Duration(milliseconds: quick ? 1500 : 3000));
       } catch (_) {}
     }
   }
@@ -715,11 +763,17 @@ class JamService extends ChangeNotifier {
     final ch = _channel;
     if (ch == null) return out;
     try {
+      // De-duplicate by member id: a reconnecting phone can briefly show up
+      // twice, which used to look like a 5th person (\"room full\" kick).
+      final byId = <String, Map<String, dynamic>>{};
       for (final st in ch.presenceState()) {
         for (final p in st.presences) {
-          out.add(Map<String, dynamic>.from(p.payload));
+          final pl = Map<String, dynamic>.from(p.payload);
+          final id = (pl['id'] ?? '').toString();
+          byId[id.isEmpty ? '#${byId.length}' : id] = pl;
         }
       }
+      out.addAll(byId.values);
     } catch (_) {}
     return out;
   }
@@ -785,15 +839,24 @@ class JamService extends ChangeNotifier {
         if (_phase != JamPhase.inRoom || _isHost) return;
         final now = _allPresence();
         if (now.any((m) => m['host'] == true)) return;
-        // Host still talking to us (heartbeat every 5 s) → it's just a presence
-        // hiccup, not a real departure. Don't steal the room.
-        if (_now() - _lastHostHeardAt < 8000) {
-          // Re-check shortly: if the host really died its heartbeats stop and
-          // the election below runs; if it's alive we simply keep waiting.
-          _hostLostTimer = Timer(const Duration(seconds: 3), () {
+        void recheck() {
+          _hostLostTimer = Timer(const Duration(seconds: 4), () {
             _hostLostTimer = null;
             _onPresenceSync();
           });
+        }
+        // MY connection is the problem (dropped / resubscribing / I am not even
+        // in the presence list yet) → never decide the host left. This is what
+        // used to throw a guest out of the room when ITS internet blinked.
+        if (!_chSubscribed || _resubbing || _notice == JamNotice.reconnecting ||
+            !now.any((m) => m['id'] == _myId)) {
+          recheck();
+          return;
+        }
+        // Host still talking to us → just a presence hiccup, keep waiting.
+        final hostSaidBye = _hostByeAt != 0 && _now() - _hostByeAt < 60000;
+        if (!hostSaidBye && _now() - _lastHostHeardAt < 20000) {
+          recheck();
           return;
         }
         now.sort((a, b) {
@@ -802,10 +865,8 @@ class JamService extends ChangeNotifier {
         });
         if (now.isNotEmpty && now.first['id'] == _myId) {
           _promoteToHost();
-        } else if (now.length <= 1) {
-          // Alone and not first? (can't happen) — end gracefully.
-          _notice = JamNotice.hostEnded;
-          leave(silent: true);
+        } else {
+          recheck(); // an older guest should take over; check again
         }
       });
     } else if (hostEntry != null) {
@@ -835,6 +896,7 @@ class JamService extends ChangeNotifier {
 
   void _promoteToHost() {
     _isHost = true;
+    _hostByeAt = 0;
     _offsetMs = 0;
     _notice = JamNotice.youAreHostNow;
     _pingTimer?.cancel();
@@ -875,6 +937,8 @@ class JamService extends ChangeNotifier {
     _peekTimer?.cancel();
     _resubTimer?.cancel();
     _busyRecheck?.cancel();
+    _trackTimer?.cancel();
+    _trackTimer = null;
     _hbTimer = _busyRecheck = _driftTimer = _pingTimer = _goTimer = _holdTimer = _hostLostTimer = _peekTimer = _resubTimer = null;
   }
 
@@ -965,14 +1029,26 @@ class JamService extends ChangeNotifier {
         if (_isHost) _sendStateTo(from);
         break;
       case 'ready':
-        if (_isHost) _onReady(from, (m['lid'] as num?)?.toInt() ?? 0, m['stall'] == true);
+        if (_isHost) _onReady(from, (m['lid'] as num?)?.toInt() ?? 0, m['stall'] == true, (m['rtt'] as num?)?.toInt() ?? 0);
         break;
       case 'wait':
         if (_isHost) _onWait(from);
         break;
+      case 'end':
+        // Only the host can end the Jam.
+        final hid = (_hostPresence()?['id'] ?? '').toString();
+        if (!_isHost && _phase == JamPhase.inRoom && (hid.isEmpty || hid == from)) {
+          unawaited(_onHostEnded());
+        }
+        break;
       case 'bye':
         _stalled.remove(from);
-        if (_isHost) _wakeBarrier();
+        _guestRtt.remove(from);
+        if (_isHost) {
+          _wakeBarrier();
+        } else if (from == (_hostPresence()?['id'] ?? '').toString()) {
+          _hostByeAt = _now();
+        }
         break;
 
       // ── guest-bound ──
@@ -1018,7 +1094,7 @@ class JamService extends ChangeNotifier {
     final st = (s.processingState == 'buffering' || s.processingState == 'loading') ? 'buffering' : 'ok';
     if (st != _myStatus && !_loading) {
       _myStatus = st;
-      _track();
+      _trackSoon(); // coalesced: slow nets flip buffering↔ok often
       notifyListeners();
     }
 
@@ -1182,7 +1258,8 @@ class JamService extends ChangeNotifier {
 
   int _goneLid = -1; // last load id whose "go" was already sent
 
-  void _onReady(String from, int lid, bool stall) {
+  void _onReady(String from, int lid, bool stall, [int rtt = 0]) {
+    if (rtt > 0) _guestRtt[from] = rtt;
     if (stall) {
       // A guest recovered from a stall.
       _stalled.remove(from);
@@ -1197,15 +1274,15 @@ class JamService extends ChangeNotifier {
     // the broadcast "go" covers everyone, so nothing is sent here.
     final missedBarrier = lid == 0 || lid == _goneLid;
     if (missedBarrier && _tl.playing && !_loading && !_inHold) {
-      final at = _hostNow + _startDelayMs;
-      final pos = _hostPosNow() + _startDelayMs;
+      final at = _hostNow + _goDelayMs;
+      final pos = _hostPosNow() + _goDelayMs;
       _send({'t': 'go', 'to': from, 'pos': pos, 'at': at, 'lid': lid, 'sid': _tl.songId});
     }
   }
 
   void _hostGo(int posMs, {int lid = 0}) {
     // Alone in the room → nobody to wait for, start almost instantly.
-    final at = _hostNow + (_alone ? 120 : _startDelayMs);
+    final at = _hostNow + _goDelayMs;
     _tl
       ..songId = _es.currentSongId ?? _tl.songId
       ..posMs = posMs
@@ -1435,7 +1512,7 @@ class JamService extends ChangeNotifier {
   Future<void> _guestLoadAndReport(List<Song> songs, int idx, int posMs, {required int lid}) async {
     await _applyLoad(songs, idx, posMs);
     if (_phase != JamPhase.inRoom) return;
-    _send({'t': 'ready', 'lid': lid});
+    _send({'t': 'ready', 'lid': lid, 'rtt': _bestRtt()});
     // "go" arrived while we were still buffering (slow phone) → join the
     // running timeline a moment from now instead of staying silent.
     if (_tl.playing) {
@@ -1541,7 +1618,7 @@ class JamService extends ChangeNotifier {
     final buffering = s.processingState == 'buffering' || s.processingState == 'loading';
     if (buffering && _tl.playing) {
       if (_stallSince == 0) _stallSince = _now();
-      if (!_sentWait && _now() - _stallSince > 1200) {
+      if (!_sentWait && _now() - _stallSince > 2500) {
         _sentWait = true;
         _send({'t': 'wait'});
       }
@@ -1577,16 +1654,20 @@ class JamService extends ChangeNotifier {
         await p.playSong(target, queue: songs, index: idx.clamp(0, songs.length - 1).toInt(), curatedQueue: true);
       }
       await _engine.pause();
+      if (_phase != JamPhase.inRoom) {
+        await _engine.pause(); // left while loading → stay silent
+        return;
+      }
 
-      await _waitUntilReady(minBufferedMs: 0, timeoutMs: 12000);
+      await _waitUntilReady(minBufferedMs: 0, timeoutMs: 20000);
       if (posMs > 0) {
         await _engine.seek(Duration(milliseconds: posMs));
         await Future.delayed(const Duration(milliseconds: 150));
-        await _waitUntilReady(minBufferedMs: posMs + 4000, timeoutMs: 8000);
+        await _waitUntilReady(minBufferedMs: posMs + 6000, timeoutMs: 14000);
       } else {
         // Give the first seconds a moment to fill so playback never stalls
         // right after "go".
-        await _waitUntilReady(minBufferedMs: 3000, timeoutMs: 6000);
+        await _waitUntilReady(minBufferedMs: 6000, timeoutMs: 12000);
       }
       await _engine.pause();
     } catch (e) {
@@ -1631,7 +1712,9 @@ class JamService extends ChangeNotifier {
 
   /// 1 s heartbeat for drift (guests) and song-mismatch recovery.
   Future<void> _tick() async {
-    if (_phase != JamPhase.inRoom || _isHost || _loading) return;
+    if (_phase != JamPhase.inRoom) return;
+    if (!_isHost) _livenessCheck();
+    if (_isHost || _loading) return;
     final now = _now();
     if (now < _graceUntil) return;
 
@@ -1710,6 +1793,81 @@ class JamService extends ChangeNotifier {
     }
     // Refresh the live-offset readout only when it moved by ~20 ms or more.
     if (moved) notifyListeners();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Stability helpers
+  // ══════════════════════════════════════════════════════════════════════
+  Future<void> _waitPresenceSync(int ms) async {
+    final end = _now() + ms;
+    while (!_presenceSynced && _now() < end) {
+      final c = _presenceWake = Completer<void>();
+      await Future.any([c.future, Future.delayed(const Duration(milliseconds: 150))]);
+    }
+    await Future.delayed(const Duration(milliseconds: 350));
+  }
+
+  Future<void> _onHostEnded() async {
+    await leave(silent: true); // guest leave → own playback stops immediately
+    _notice = JamNotice.hostEnded;
+    notifyListeners();
+  }
+
+  Future<void> _stopOwnPlayback() async {
+    try {
+      await _engine.pause();
+    } catch (_) {}
+    try {
+      await _engine.setJamHold(false);
+    } catch (_) {}
+  }
+
+  /// Bigger read-ahead buffer + larger rebuffer cushion while in a Jam.
+  void _jamBuffer(bool on) {
+    unawaited(() async {
+      try {
+        await _engine.setJamBuffer(on);
+      } catch (_) {}
+    }());
+  }
+
+  void _trackSoon() {
+    if (_trackTimer != null) return;
+    _trackTimer = Timer(const Duration(milliseconds: 1500), () {
+      _trackTimer = null;
+      if (_phase == JamPhase.inRoom) _track();
+    });
+  }
+
+  /// Guest: no message from the host for 14 s although we think we are
+  /// connected → the socket silently died (WiFi↔mobile switch, hotspot nap).
+  /// Re-open the channel right away instead of waiting for the library.
+  void _livenessCheck() {
+    if (_resubbing) return;
+    // Healthy channel but the host is simply gone from presence → that's the
+    // election's job (promote oldest guest), not a reason to keep resubscribing.
+    if (_chSubscribed && _hostPresence() == null && _allPresence().any((m) => m['id'] == _myId)) return;
+    final now = _now();
+    if (now - _lastHostHeardAt > 14000) {
+      _lastHostHeardAt = now;
+      _notice = JamNotice.reconnecting;
+      notifyListeners();
+      unawaited(_forceResub());
+    }
+  }
+
+  Future<void> _forceResub() async {
+    if (_resubbing || _phase != JamPhase.inRoom || _code.isEmpty) return;
+    _resubbing = true;
+    try {
+      final ok = await _openChannel(_code, timeoutSec: 12, quick: true);
+      if (!ok && _phase == JamPhase.inRoom) {
+        _notice = JamNotice.reconnecting;
+        notifyListeners();
+      }
+    } finally {
+      _resubbing = false;
+    }
   }
 
   @override
