@@ -8907,8 +8907,16 @@ class ApiService {
         score += 0.3;
       } else if (diff > 15) {
         score -= 0.4;
+      } else if (diff > 7) {
+        // 8-15s off is a different cut/intro: line timings would be
+        // visibly shifted, so rank it below a closer version.
+        score -= 0.15;
       }
     }
+    // Prefer an entry that actually has line-synced lyrics over a
+    // plain-only one with the same text match.
+    final synced = entry['syncedLyrics'];
+    if (synced is String && synced.isNotEmpty) score += 0.05;
     return score.clamp(0.0, 1.0);
   }
 

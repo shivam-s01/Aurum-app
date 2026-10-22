@@ -27,10 +27,18 @@ class LyricsResult {
   bool get hasSynced => synced != null && synced!.isNotEmpty;
   bool get hasAny => hasSynced || (plain != null && plain!.trim().isNotEmpty);
 
-  /// Index of the last line whose timestamp is <= [position], or -1 if
-  /// we're still before the first line.
+  /// The player reports position in coarse ticks (local interpolation every
+  /// 500ms, corrected by native events) and the highlight + scroll animation
+  /// take a few frames to show. Looking this far ahead makes the active line
+  /// land WITH the vocal instead of visibly trailing it. Applied here so
+  /// every lyrics view (inline strip, immersive, Spotify layout) agrees.
+  static const Duration kHighlightLead = Duration(milliseconds: 250);
+
+  /// Index of the last line whose timestamp is <= [position] (+ lead), or -1
+  /// if we're still before the first line.
   int activeIndexFor(Duration position) {
     if (!hasSynced) return -1;
+    position += kHighlightLead;
     int lo = 0, hi = synced!.length - 1, ans = -1;
     while (lo <= hi) {
       final mid = (lo + hi) >> 1;
@@ -50,6 +58,12 @@ class LyricsResult {
   static List<LyricLine> parseLrc(String lrc) {
     final tagPattern = RegExp(r'\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]');
     final lines = <LyricLine>[];
+    // Optional [offset:+/-ms] header: positive = lyrics appear EARLIER
+    // (LRC spec), so it is subtracted from every timestamp.
+    final offMatch =
+        RegExp(r'\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false)
+            .firstMatch(lrc);
+    final offsetMs = int.tryParse(offMatch?.group(1) ?? '') ?? 0;
     for (final rawLine in lrc.split('\n')) {
       final matches = tagPattern.allMatches(rawLine).toList();
       if (matches.isEmpty) continue;
@@ -60,8 +74,9 @@ class LyricsResult {
         final fracStr = m.group(3) ?? '0';
         // Normalize fractional part to milliseconds regardless of 2 or 3 digits.
         final millis = int.parse(fracStr.padRight(3, '0').substring(0, 3));
+        final ms = (minutes * 60 + seconds) * 1000 + millis - offsetMs;
         lines.add(LyricLine(
-          time: Duration(minutes: minutes, seconds: seconds, milliseconds: millis),
+          time: Duration(milliseconds: ms < 0 ? 0 : ms),
           text: text,
         ));
       }

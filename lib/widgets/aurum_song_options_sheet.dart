@@ -17,6 +17,9 @@ import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/settings_player_screen.dart'
     show SleepTimerService, EqualizerScreen;
 import '../services/api_service.dart';
+import '../services/audio_prefs.dart';
+import '../services/native_engine_bridge.dart' show CastState;
+import 'cast_button.dart' show showCastSheet;
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
@@ -830,6 +833,38 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
             onTap: _openSpeed,
           ),
           if (widget.showPlayerTools) ...[
+            // Cast entry point inside the full player's 3-dot menu (Spotify
+            // + edge-to-edge layouts both route here). Hidden only if Cast
+            // is unsupported on this device or the user set the icon to
+            // "hidden" in settings.
+            ValueListenableBuilder<String>(
+              valueListenable: AudioPrefs.castIconVisibilityNotifier,
+              builder: (context, visibility, _) {
+                if (visibility == 'hidden') return const SizedBox.shrink();
+                final engine = player.engine;
+                return StreamBuilder<CastState>(
+                  stream: engine.castStateStream,
+                  initialData: engine.castState,
+                  builder: (context, snap) {
+                    final cs = snap.data ?? const CastState();
+                    if (!cs.supported) return const SizedBox.shrink();
+                    return _Row(
+                      icon: cs.isConnected
+                          ? Icons.cast_connected_rounded
+                          : Icons.cast_rounded,
+                      label: cs.isConnected
+                          ? l10n.castingToDevice(
+                              cs.deviceName ?? l10n.castDeviceFallbackName)
+                          : l10n.castToDeviceLabel,
+                      onTap: () {
+                        _close();
+                        showCastSheet(widget.rootContext);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
             _Row(
               icon: Icons.equalizer_rounded,
               label: l10n.fpAudioEffects,

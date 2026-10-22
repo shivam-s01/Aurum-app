@@ -5046,6 +5046,43 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   bool _selecting = false;
   final Set<String> _selectedIds = {};
 
+  // -- Reorder mode --
+  // Dragging is an explicit mode (menu -> "Reorder songs"), not an always-on
+  // handle: the immediate-drag handle sat in the thumb zone and hijacked
+  // vertical swipes meant for scrolling, and SliverReorderableList is
+  // heavier than a plain SliverList. Normal browsing now scrolls exactly
+  // like Mix / Artist.
+  bool _reordering = false;
+
+  // -- Pull-down stretch (same approach as ArtistScreen) --
+  // Overscroll past the top stretches the header art (anchored at its
+  // bottom) so no empty layer ever shows above it. The value lives in its
+  // own notifier: a scroll tick repaints only the art transform, never the
+  // list, and nothing at all once the offset is back in range.
+  final ScrollController _scroll = ScrollController();
+  final ValueNotifier<double> _stretch = ValueNotifier<double>(0);
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final o = _scroll.offset;
+    final st = o < 0 ? -o : 0.0;
+    if (_stretch.value != st) _stretch.value = st;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    _stretch.dispose();
+    super.dispose();
+  }
+
   // -- Palette glow --------------------------------------------------------
   // Plain target color. The fade between targets is animated by
   // _PlaylistAnimatedBg / _PlaylistHeaderFade (TweenAnimationBuilder), so
@@ -5138,6 +5175,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   void _enterSelectMode(String firstSongId) {
+    if (_reordering) return;
     AurumHaptics.medium();
     setState(() {
       _selecting = true;
@@ -5390,11 +5428,28 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final summary = '${songs.length} ${songs.length == 1 ? 'track' : 'tracks'}'
         '${duration.isNotEmpty ? ' • $duration' : ''}';
 
+    // Row keys must be unique even if a playlist holds the same song twice
+    // (YouTube imports are not de-duplicated): 2nd+ copy gets "#n" suffix.
+    final rowKeys = List<String>.filled(songs.length, '');
+    final indexByKey = <String, int>{};
+    final seenIds = <String, int>{};
+    for (var i = 0; i < songs.length; i++) {
+      final id = songs[i].id;
+      final n = seenIds.update(id, (v) => v + 1, ifAbsent: () => 0);
+      final k = n == 0 ? id : '$id#$n';
+      rowKeys[i] = k;
+      indexByKey[k] = i;
+    }
+
     final scroll = CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      // Bigger buffer so a fast fling through a long playlist doesn't
-      // tear down and rebuild rows just outside the default 250px.
-      cacheExtent: 1200,
+      controller: _scroll,
+      // No explicit physics: identical to MixScreen (platform default), so
+      // there is no bounce/empty layer when pulling down. The stretch below
+      // still covers any platform that does allow overscroll.
+      // PERF: 1200px built ~15+ rows (thumbs + prewarm timers) inside the
+      // route transition. 500 matches Mix/Artist: smooth flings, no
+      // open-time burst.
+      cacheExtent: 500,
       slivers: [
         // ── Header / Select-mode app bar ───────────────────────────────
         if (_selecting)
@@ -5423,6 +5478,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             child: _PlaylistHeader(
               playlist: pl,
               height: headerH,
+              stretch: _stretch,
               bg: bg,
               poster: _playlistPosterColor(pl.id),
               onBack: () {
@@ -5453,6 +5509,36 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                 ),
+              ),
+            ),
+          ),
+
+        if (_reordering && songs.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Drag the handles to reorder',
+                      style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      AurumHaptics.selection();
+                      setState(() => _reordering = false);
+                    },
+                    child: Text('Done',
+                        style: TextStyle(
+                            color: AurumTheme.accentOf(context),
+                            fontWeight: FontWeight.w700)),
+                  ),
+                ],
               ),
             ),
           ),
@@ -5504,7 +5590,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
             ),
           )
-        else
+        else if (_reordering)
           SliverReorderableList(
             itemCount: songs.length,
             onReorder: (oldIdx, newIdx) {
@@ -5555,13 +5641,43 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   index: i,
                   selecting: _selecting,
                   selected: _selectedIds.contains(song.id),
-                  canReorder: songs.length > 1,
+                  reordering: true,
                   onEnterSelectMode: () => _enterSelectMode(song.id),
                   onToggleSelected: () => _toggleSelected(song.id),
                   onMenu: () => _showRowMenu(pl, song, i),
                 ),
               );
             },
+          )
+        else
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, i) {
+                final song = songs[i];
+                return _PlaylistTrackRow(
+                  key: ValueKey(rowKeys[i]),
+                  song: song,
+                  playlist: pl,
+                  index: i,
+                  selecting: _selecting,
+                  selected: _selectedIds.contains(song.id),
+                  reordering: false,
+                  onEnterSelectMode: () => _enterSelectMode(song.id),
+                  onToggleSelected: () => _toggleSelected(song.id),
+                  onMenu: () => _showRowMenu(pl, song, i),
+                );
+              },
+              childCount: songs.length,
+              findChildIndexCallback: (key) {
+                if (key is! ValueKey<String>) return null;
+                return indexByKey[key.value];
+              },
+              // PERF: the row owns its RepaintBoundary and keeps no
+              // keep-alive state — the delegate's extra wrappers are pure
+              // overhead (same as MixScreen).
+              addRepaintBoundaries: false,
+              addAutomaticKeepAlives: false,
+            ),
           ),
 
         const SliverToBoxAdapter(child: SizedBox(height: 32)),
@@ -5569,9 +5685,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     );
 
     final scaffold = PopScope(
-      canPop: !_selecting,
+      canPop: !_selecting && !_reordering,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _selecting) _exitSelectMode();
+        if (didPop) return;
+        if (_selecting) {
+          _exitSelectMode();
+        } else if (_reordering) {
+          setState(() => _reordering = false);
+        }
       },
       child: Scaffold(
         backgroundColor: bg,
@@ -5723,6 +5844,22 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         },
                 );
               }),
+            if (pl.songs.length > 1)
+              ListTile(
+                leading: Icon(Icons.swap_vert_rounded,
+                    color: AurumTheme.accentOf(context)),
+                title: Text('Reorder songs',
+                    style:
+                        TextStyle(color: AurumTheme.textPrimaryOf(context))),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    _selecting = false;
+                    _selectedIds.clear();
+                    _reordering = true;
+                  });
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded,
                   color: Colors.redAccent),
@@ -5921,6 +6058,7 @@ class _PlaylistHeaderFade extends StatelessWidget {
 class _PlaylistHeader extends StatelessWidget {
   final AurumPlaylist playlist;
   final double height;
+  final ValueListenable<double> stretch;
   final Color bg;
   final Color poster;
   final VoidCallback onBack;
@@ -5930,6 +6068,7 @@ class _PlaylistHeader extends StatelessWidget {
   const _PlaylistHeader({
     required this.playlist,
     required this.height,
+    required this.stretch,
     required this.bg,
     required this.poster,
     required this.onBack,
@@ -5952,25 +6091,47 @@ class _PlaylistHeader extends StatelessWidget {
       height: height,
       child: Stack(
         fit: StackFit.expand,
+        // The stretched art and the top scrim paint above the header box
+        // while the page is pulled down — a hard clip would cut them off.
+        clipBehavior: Clip.none,
         children: [
           // Layer 0 — artwork (tap = change cover) or generated poster.
+          // scale = 1 + st/height, bottom-anchored: the box moves down by
+          // st while the art grows upward by exactly st, so its top always
+          // lands on the screen top (no empty layer when pulling down).
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onEditCover,
-              child: art.isNotEmpty
-                  ? _PlaylistHeaderArt(url: art)
-                  : _PlaylistPoster(color: poster),
+              child: ValueListenableBuilder<double>(
+                valueListenable: stretch,
+                builder: (context, st, child) => Transform.scale(
+                  scale: 1 + (st / height),
+                  alignment: Alignment.bottomCenter,
+                  child: child,
+                ),
+                // Own layer: the stretch only transforms a cached texture.
+                child: RepaintBoundary(
+                  child: art.isNotEmpty
+                      ? _PlaylistHeaderArt(url: art)
+                      : _PlaylistPoster(color: poster),
+                ),
+              ),
             ),
           ),
 
           // Layer 1 — top scrim so status bar + floating pills stay
-          // readable on bright covers.
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: topInset + 90,
+          // readable on bright covers. Follows the SCREEN top (top: -st),
+          // not the box top, so no seam while pulling.
+          ValueListenableBuilder<double>(
+            valueListenable: stretch,
+            builder: (context, st, child) => Positioned(
+              top: -st,
+              left: 0,
+              right: 0,
+              height: topInset + 90,
+              child: child!,
+            ),
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -6411,18 +6572,19 @@ class _PlaylistTrackRow extends StatefulWidget {
   final int index;
   final bool selecting;
   final bool selected;
-  final bool canReorder;
+  final bool reordering;
   final VoidCallback onEnterSelectMode;
   final VoidCallback onToggleSelected;
   final VoidCallback onMenu;
 
   const _PlaylistTrackRow({
+    super.key,
     required this.song,
     required this.playlist,
     required this.index,
     required this.selecting,
     required this.selected,
-    required this.canReorder,
+    required this.reordering,
     required this.onEnterSelectMode,
     required this.onToggleSelected,
     required this.onMenu,
@@ -6458,12 +6620,13 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
   @override
   Widget build(BuildContext context) {
     final song = widget.song;
-    final isCurrent = context.select<PlayerProvider, bool>(
-      (p) => p.currentSong?.id == song.id,
-    );
-    final isActive = context.select<PlayerProvider, bool>(
-      (p) => p.currentSong?.id == song.id && p.isPlaying,
-    );
+    // ONE selector per row (0 = idle, 1 = current/paused, 2 = playing)
+    // instead of two — halves the per-row listener work on every
+    // player tick that changes nothing for this row.
+    final playState = context.select<PlayerProvider, int>((p) =>
+        p.currentSong?.id != song.id ? 0 : (p.isPlaying ? 2 : 1));
+    final isCurrent = playState != 0;
+    final isActive = playState == 2;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = AurumTheme.accentOf(context);
     final ink = (isDark ? Colors.white : Colors.black);
@@ -6472,7 +6635,9 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
       child: ColoredBox(
         color: widget.selected ? accent.withOpacity(0.10) : Colors.transparent,
         child: InkWell(
-          onTap: () {
+          onTap: widget.reordering
+              ? null
+              : () {
             if (widget.selecting) {
               widget.onToggleSelected();
               return;
@@ -6490,7 +6655,9 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
               debugPrint('[_PlaylistTrackRow] playSong error: $e');
             });
           },
-          onLongPress: widget.selecting ? null : widget.onEnterSelectMode,
+          onLongPress: (widget.selecting || widget.reordering)
+              ? null
+              : widget.onEnterSelectMode,
           splashColor: ink.withValues(alpha: 0.06),
           highlightColor: ink.withValues(alpha: 0.04),
           child: Column(
@@ -6500,17 +6667,13 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
                 padding: const EdgeInsets.fromLTRB(20, 9, 4, 9),
                 child: Row(
                   children: [
-                    AnimatedSize(
-                      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                      curve: Curves.easeOutCubic,
-                      alignment: Alignment.centerLeft,
-                      child: widget.selecting
-                          ? Padding(
-                              padding: const EdgeInsets.only(right: 12),
-                              child: _PlaylistCheck(selected: widget.selected),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
+                    // PERF: no per-row AnimatedSize in the normal list — one
+                    // less render object on every row.
+                    if (widget.selecting)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _PlaylistCheck(selected: widget.selected),
+                      ),
                     Stack(
                       alignment: Alignment.center,
                       children: [
@@ -6571,24 +6734,21 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
                         ],
                       ),
                     ),
-                    if (!widget.selecting) ...[
-                      if (widget.canReorder)
-                        // Drag handle is the ONLY reorder trigger — tap /
-                        // long-press elsewhere on the row keep their own
-                        // meaning (play / multi-select).
-                        ReorderableDragStartListener(
-                          index: widget.index,
-                          child: SizedBox(
-                            width: 34,
-                            height: 44,
-                            child: Icon(
-                              Icons.drag_handle_rounded,
-                              size: 20,
-                              color: AurumTheme.textSecondaryOf(context)
-                                  .withOpacity(0.55),
-                            ),
+                    if (widget.reordering)
+                      // Reorder mode only: handle is the sole drag trigger.
+                      ReorderableDragStartListener(
+                        index: widget.index,
+                        child: SizedBox(
+                          width: 56,
+                          height: 44,
+                          child: Icon(
+                            Icons.drag_handle_rounded,
+                            size: 24,
+                            color: AurumTheme.textSecondaryOf(context),
                           ),
                         ),
+                      )
+                    else if (!widget.selecting) ...[
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: widget.onMenu,

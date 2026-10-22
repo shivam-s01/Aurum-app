@@ -3337,6 +3337,7 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
 
   LyricsResult? _result;
   String? _loadedForId;
+  Song? _loadedForSong;
 
   @override
   Widget build(BuildContext context) {
@@ -3351,6 +3352,7 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
     final watchedSong = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     if (watchedSong != null && watchedSong.id != _loadedForId) {
       _loadedForId = watchedSong.id;
+      _loadedForSong = watchedSong;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _fetch();
       });
@@ -3416,7 +3418,9 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
     // is ever applied, but every request still actually fires.
     final myGeneration = ++_fetchGeneration;
     final requestedForId = _loadedForId;
-    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
+    final result = await context
+        .read<PlayerProvider>()
+        .fetchSyncedLyrics(forSong: _loadedForSong);
     if (!mounted) return;
     // Stale response (a newer skip happened while this was in flight, or
     // the song id changed again) — ignore it.
@@ -5814,7 +5818,9 @@ class _LyricsPageState extends State<AurumLyricsPage> {
       _result = null;
       _activeIndex = -1;
     });
-    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
+    final result = await context
+        .read<PlayerProvider>()
+        .fetchSyncedLyrics(forSong: _loadedFor);
     if (!mounted) return;
     // Stale response — a newer song change (and fetch) happened while this
     // one was in flight. Ignore it so old lyrics can never clobber the

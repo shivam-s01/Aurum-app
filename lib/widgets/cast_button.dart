@@ -16,6 +16,23 @@ import '../services/audio_prefs.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 
+/// Opens the right Cast sheet (session sheet if connected, device picker
+/// otherwise). Shared by [CastIconButton] and the full player's 3-dot menu
+/// so both entry points behave identically.
+void showCastSheet(BuildContext context) {
+  final engine = context.read<PlayerProvider>().engine;
+  AurumHaptics.light();
+  showAurumModalBottomSheet(
+    context: context,
+    backgroundColor: AurumTheme.bgElevatedOf(context),
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (_) => engine.castState.isConnected
+        ? const _CastSessionSheet()
+        : const _CastDevicePickerSheet(),
+  );
+}
+
 /// Compact cast icon button for the full player's top bar. Renders
 /// nothing (zero width) if Cast isn't supported on this device, and
 /// nothing if no Cast devices are on the network — same as Spotify only

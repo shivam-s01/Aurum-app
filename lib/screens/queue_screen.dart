@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import '../providers/player_provider.dart';
 import '../models/song.dart';
@@ -51,6 +52,31 @@ class _QueueScreenState extends State<QueueScreen> {
   static const double _dismissVelocity = 900.0;
 
   final PullDownDismissController _pull = PullDownDismissController();
+
+  // ── Queue lock ───────────────────────────────────────────────────────────
+  // Locked = the queue can't be changed by accident: drag-reorder and the ✕
+  // remove buttons are disabled. Tapping a song to play it still works.
+  // Persisted so it stays as the user left it.
+  static const String _lockPrefKey = 'queue_locked_v1';
+  bool _locked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final v = p.getBool(_lockPrefKey) ?? false;
+      if (mounted && v != _locked) setState(() => _locked = v);
+    }).catchError((_) {});
+  }
+
+  void _toggleLock() {
+    AurumHaptics.medium();
+    final next = !_locked;
+    setState(() => _locked = next);
+    SharedPreferences.getInstance()
+        .then((p) => p.setBool(_lockPrefKey, next))
+        .catchError((_) => false);
+  }
 
   // FIX (drag chhodne ke baad song snap-back + upar-niche jump): pehle
   // onReorder seedha player.moveQueueItem() chalata tha, jo pehle native
@@ -98,6 +124,7 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   void _onReorder(PlayerProvider player, int from, int to) {
+    if (_locked) return;
     AurumHaptics.medium();
     final adjustedTo = to > from ? to - 1 : to;
     if (from == adjustedTo) return;
@@ -225,6 +252,8 @@ class _QueueScreenState extends State<QueueScreen> {
                       ),
                       const SizedBox(height: 18),
                       _QueueMetaPill(
+                        locked: _locked,
+                        onToggleLock: _toggleLock,
                         songCount: queue.length,
                         totalSeconds: totalSeconds,
                         onMore: () => showAurumSongOptions(
@@ -276,11 +305,12 @@ class _QueueScreenState extends State<QueueScreen> {
                         index: i,
                         song: song,
                         isCurrent: isCurrent,
+                        locked: _locked,
                         onTap: () {
                           AurumHaptics.selection();
                           player.skipToIndex(i);
                         },
-                        onRemove: isCurrent
+                        onRemove: (isCurrent || _locked)
                             ? null
                             : () {
                                 AurumHaptics.light();
@@ -399,11 +429,15 @@ class _CurrentTrackCard extends StatelessWidget {
 // reference) · "N songs • total duration".
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueMetaPill extends StatelessWidget {
+  final bool locked;
+  final VoidCallback onToggleLock;
   final int songCount;
   final int totalSeconds;
   final VoidCallback? onMore;
 
   const _QueueMetaPill({
+    required this.locked,
+    required this.onToggleLock,
     required this.songCount,
     required this.totalSeconds,
     this.onMore,
@@ -433,9 +467,21 @@ class _QueueMetaPill extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const SizedBox(width: 6),
-            const Icon(Icons.lock_outline_rounded,
-                color: Colors.white38, size: 16),
+            const SizedBox(width: 2),
+            IconButton(
+              tooltip: locked ? 'Unlock queue' : 'Lock queue',
+              icon: Icon(
+                locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                color: locked
+                    ? AurumTheme.accentOf(context)
+                    : Colors.white38,
+                size: 18,
+              ),
+              onPressed: onToggleLock,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              splashRadius: 18,
+            ),
             // FIX ("upnext ekdam screenshot jaisa" — reference pill shows
             // lock icon AND a ⋮ overflow icon together on the left): this
             // only ever rendered the lock icon, with no overflow button
@@ -600,6 +646,7 @@ class _QueueRow extends StatelessWidget {
   final int index;
   final Song song;
   final bool isCurrent;
+  final bool locked;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
 
@@ -608,6 +655,7 @@ class _QueueRow extends StatelessWidget {
     required this.index,
     required this.song,
     required this.isCurrent,
+    required this.locked,
     required this.onTap,
     required this.onRemove,
   });
@@ -691,17 +739,22 @@ class _QueueRow extends StatelessWidget {
                 const SizedBox(width: 8),
               // Reorder handle: this pointer belongs to reordering, never to
               // the swipe-down-dismiss (child Listener fires first).
-              Listener(
-                onPointerDown: (e) => PullDownDismiss.ignorePointer = e.pointer,
-                child: ReorderableDragStartListener(
-                  index: index,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Icon(Icons.drag_handle_rounded,
-                        color: Colors.white38, size: 20),
+              if (locked)
+                // Locked: no handle at all, so a row can't be picked up.
+                const SizedBox(width: 36)
+              else
+                Listener(
+                  onPointerDown: (e) =>
+                      PullDownDismiss.ignorePointer = e.pointer,
+                  child: ReorderableDragStartListener(
+                    index: index,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.drag_handle_rounded,
+                          color: Colors.white38, size: 20),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

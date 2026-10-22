@@ -973,8 +973,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (state.currentIndex != null && state.currentIndex != _lastHandledIndex) {
       _indexDebounce?.cancel();
       final idx = state.currentIndex!;
+      // Capture WHICH song the engine reported for this index. The timer
+      // below fires 150ms later, by which point _queue may have been
+      // replaced by a newer tap — re-reading _queue[idx] then could pick a
+      // different song and log it to History.
+      final reportedId = state.currentSongId;
       _indexDebounce = Timer(const Duration(milliseconds: 150), () {
         if (idx == _lastHandledIndex) return;
+        final q = _queue;
+        if (idx < 0 || idx >= q.length) return;
+        // Stale-event guard: only record if the song at this index is still
+        // the one the engine reported AND the one the UI considers current.
+        if (reportedId != null && q[idx].id != reportedId) return;
+        if (_currentSong != null && q[idx].id != _currentSong!.id) return;
         _lastHandledIndex = idx;
         _onSongChanged(idx);
         _maybeExtendQueue(idx);
@@ -1490,6 +1501,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // would have its own genuine state events silently dropped too.
     _dismissedUntil = null;
     _lastHandledIndex = null;
+    // A pending debounce from the PREVIOUS song/skip must not fire against
+    // the new queue (it would log a random song at the old index to History).
+    _indexDebounce?.cancel();
     _uiPlaySession++;
     final mySession = _uiPlaySession;
 
@@ -2157,7 +2171,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (!_shuffle && _currentIndex + 1 < _queue.length) {
       _currentIndex += 1;
       _currentSong = _queue[_currentIndex];
-      _lastHandledIndex = _currentIndex;
+      // Left unset on purpose: pre-marking the target index as "handled" made
+      // the engine's confirming state event look like "no change", so
+      // manual Next/Prev/queue-tap songs never reached _onSongChanged (no
+      // History entry, stale skip/completion tracking, no auto-queue
+      // extend). Stale events are still rejected by the _expectedSongId
+      // guard, so only the song the engine actually lands on is handled.
+      _lastHandledIndex = null;
       _expectedSongId = _currentSong!.id;
       _expectedSongIdSetAt = DateTime.now();
       // FIX (progress bar briefly shows wrong scale after skip): title/
@@ -2224,7 +2244,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (!_shuffle && _currentIndex - 1 >= 0) {
       _currentIndex -= 1;
       _currentSong = _queue[_currentIndex];
-      _lastHandledIndex = _currentIndex;
+      // Left unset on purpose: pre-marking the target index as "handled" made
+      // the engine's confirming state event look like "no change", so
+      // manual Next/Prev/queue-tap songs never reached _onSongChanged (no
+      // History entry, stale skip/completion tracking, no auto-queue
+      // extend). Stale events are still rejected by the _expectedSongId
+      // guard, so only the song the engine actually lands on is handled.
+      _lastHandledIndex = null;
       _expectedSongId = _currentSong!.id;
       _expectedSongIdSetAt = DateTime.now();
       // See matching comment in skipNext() — keeps the progress bar from
@@ -2504,7 +2530,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (!_shuffle && index >= 0 && index < _queue.length) {
       _currentIndex = index;
       _currentSong = _queue[index];
-      _lastHandledIndex = index;
+      // Left unset on purpose: pre-marking the target index as "handled" made
+      // the engine's confirming state event look like "no change", so
+      // manual Next/Prev/queue-tap songs never reached _onSongChanged (no
+      // History entry, stale skip/completion tracking, no auto-queue
+      // extend). Stale events are still rejected by the _expectedSongId
+      // guard, so only the song the engine actually lands on is handled.
+      _lastHandledIndex = null;
       _expectedSongId = _currentSong!.id;
       _expectedSongIdSetAt = DateTime.now();
       // See matching comment in skipNext() — keeps the progress bar from
@@ -2551,7 +2583,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (index >= 0 && index < _queue.length) {
       _currentIndex = index;
       _currentSong = _queue[index];
-      _lastHandledIndex = index;
+      // Left unset on purpose: pre-marking the target index as "handled" made
+      // the engine's confirming state event look like "no change", so
+      // manual Next/Prev/queue-tap songs never reached _onSongChanged (no
+      // History entry, stale skip/completion tracking, no auto-queue
+      // extend). Stale events are still rejected by the _expectedSongId
+      // guard, so only the song the engine actually lands on is handled.
+      _lastHandledIndex = null;
       _expectedSongId = _currentSong!.id;
       _expectedSongIdSetAt = DateTime.now();
       _position = Duration.zero;
@@ -2723,8 +2761,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Line-synced lyrics for the currently playing song. Returns a
   /// [LyricsResult] carrying either timestamped lines (preferred) or a
   /// plain-text fallback when no synced source is available.
-  Future<LyricsResult> fetchSyncedLyrics() async {
-    final song = currentSong;
+  ///
+  /// Pass [forSong] to fetch for the exact song the caller is displaying —
+  /// otherwise a skip landing between the widget noticing the change and
+  /// this call could attach the NEW song's lyrics to the OLD song.
+  Future<LyricsResult> fetchSyncedLyrics({Song? forSong}) async {
+    final song = forSong ?? currentSong;
     if (song == null) return const LyricsResult();
     return ApiService.fetchSyncedLyrics(song);
   }
