@@ -6058,7 +6058,7 @@ class _PlaylistHeaderFade extends StatelessWidget {
 class _PlaylistHeader extends StatelessWidget {
   final AurumPlaylist playlist;
   final double height;
-  final ValueListenable<double> stretch;
+  final ValueNotifier<double> stretch;
   final Color bg;
   final Color poster;
   final VoidCallback onBack;
