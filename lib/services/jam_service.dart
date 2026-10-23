@@ -453,6 +453,9 @@ class JamService extends ChangeNotifier {
   }
 
   String get serverUrl => _serverUrl;
+  bool get hasCustomServer => _serverUrl != defaultServerUrl;
+  /// Only what the user typed themselves; empty when the built-in server is used.
+  String get customServerUrl => hasCustomServer ? _serverUrl : '';
   Future<void> setServerUrl(String v) async {
     final s = v.trim();
     _serverUrl = (s.startsWith('ws://') || s.startsWith('wss://')) ? s : defaultServerUrl;
@@ -967,7 +970,7 @@ class JamService extends ChangeNotifier {
         },
         cancelOnError: true,
       );
-      _log('connected → ${uri.host}');
+      _log(hasCustomServer ? 'connected → ${uri.host}' : 'connected');
       return true;
     } catch (e) {
       _log('connect failed: $e');
@@ -1777,7 +1780,7 @@ class JamService extends ChangeNotifier {
     _tl
       ..songId = _es.currentSongId
       ..posMs = _estimatedPosMs()
-      ..atHost = _now()
+      ..atHost = _hostNow
       ..playing = _es.playing;
   }
 
@@ -1809,7 +1812,7 @@ class JamService extends ChangeNotifier {
       _tl
         ..songId = _es.currentSongId
         ..posMs = _estimatedPosMs() - _nudgeMs
-        ..atHost = _now()
+        ..atHost = _hostNow
         ..playing = true;
     }
     _send({
@@ -2062,7 +2065,7 @@ class JamService extends ChangeNotifier {
       _tl
         ..songId = sid ?? _tl.songId
         ..posMs = s.position.inMilliseconds
-        ..atHost = _now()
+        ..atHost = _hostNow
         ..playing = s.playing;
       if (toggled) _hostHeartbeat(); // a guest the presence list hasn't shown yet still hears it
       return;

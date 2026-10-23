@@ -31,7 +31,7 @@ class _JamSettingsScreenState extends State<JamSettingsScreen> {
       if (!mounted) return;
       setState(() {
         _nameCtrl.text = _jam.customName;
-        _urlCtrl.text = _jam.serverUrl;
+        _urlCtrl.text = _jam.customServerUrl;
         _loaded = true;
       });
     });
@@ -184,10 +184,10 @@ class _JamSettingsScreenState extends State<JamSettingsScreen> {
 
                       // Server
                       _card([
-                        Text(_t('Server', 'Server'),
+                        Text(_t('Own server (optional)', 'Apna server (optional)'),
                             style: TextStyle(color: tp, fontSize: 15.5, fontWeight: FontWeight.w800)),
                         const SizedBox(height: 4),
-                        Text(_t('Only change this if you run your own Jam server.', 'Apna Jam server ho tabhi badlo.'),
+                        Text(_t('Leave empty to use the default server. Fill this only if you run your own Jam server.', 'Khaali chhodo to default server chalega. Apna Jam server ho tabhi bharo.'),
                             style: TextStyle(color: ts, fontSize: 12.5)),
                         const SizedBox(height: 12),
                         TextField(
@@ -196,10 +196,10 @@ class _JamSettingsScreenState extends State<JamSettingsScreen> {
                           enableSuggestions: false,
                           keyboardType: TextInputType.url,
                           style: TextStyle(color: tp, fontSize: 14),
-                          decoration: _dec(JamService.defaultServerUrl),
+                          decoration: _dec('wss://your-server/jam/ws'),
                           onSubmitted: (v) async {
                             await _jam.setServerUrl(v);
-                            if (mounted) _urlCtrl.text = _jam.serverUrl;
+                            if (mounted) _urlCtrl.text = _jam.customServerUrl;
                           },
                         ),
                         const SizedBox(height: 6),
@@ -207,14 +207,14 @@ class _JamSettingsScreenState extends State<JamSettingsScreen> {
                           TextButton(
                             onPressed: () async {
                               await _jam.setServerUrl(_urlCtrl.text);
-                              if (mounted) _urlCtrl.text = _jam.serverUrl;
+                              if (mounted) _urlCtrl.text = _jam.customServerUrl;
                             },
                             child: Text(_t('Save', 'Save'), style: TextStyle(color: accent, fontWeight: FontWeight.w800)),
                           ),
                           TextButton(
                             onPressed: () async {
-                              await _jam.setServerUrl(JamService.defaultServerUrl);
-                              if (mounted) _urlCtrl.text = _jam.serverUrl;
+                              await _jam.setServerUrl('');
+                              if (mounted) _urlCtrl.text = _jam.customServerUrl;
                             },
                             child: Text(_t('Reset', 'Reset'), style: TextStyle(color: ts, fontWeight: FontWeight.w700)),
                           ),
