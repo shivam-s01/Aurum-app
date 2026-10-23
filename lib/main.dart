@@ -399,6 +399,11 @@ Future<void> main() async {
       final ctx = navigatorKey.currentContext;
       if (ctx != null) UpdateService.checkForUpdate(ctx, silent: false, force: true);
     };
+    NotificationService.instance.onJamNotificationTapped = () {
+      navigatorKey.currentState?.push(
+        AurumPageRoute(builder: (_) => const JamScreen()),
+      );
+    };
   } catch (_) {}
 
   // Push notifications ("update available" reaching users even when the

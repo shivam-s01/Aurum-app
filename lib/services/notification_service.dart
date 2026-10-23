@@ -41,6 +41,10 @@ class NotificationService {
           onUpdateNotificationTapped?.call();
           return;
         }
+        if (response.id == _jamRequestId || response.id == _jamSuggestionId) {
+          onJamNotificationTapped?.call();
+          return;
+        }
         onNotificationTapped?.call();
       },
     );
@@ -66,6 +70,16 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(updateChannel);
 
+      const jamChannel = AndroidNotificationChannel(
+        _jamChannelId,
+        _jamChannelName,
+        description: _jamChannelDesc,
+        importance: Importance.high, // a friend is waiting at the door — heads-up
+      );
+      await _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(jamChannel);
+
       // NOTE: no requestNotificationsPermission() here on purpose — the
       // system prompt is shown exactly once, after onboarding, by
       // main.dart's _askNotificationOnce (a prompt on first frame, before
@@ -73,6 +87,52 @@ class NotificationService {
     }
 
     _initialized = true;
+  }
+
+  // ── Astra Jam (listen together) ──────────────────────────────────────────
+  static const String _jamChannelId = 'com.aurum.music.channel.jam';
+  static const String _jamChannelName = 'Astra Jam';
+  static const String _jamChannelDesc = 'Join requests and song suggestions in your Jam';
+  static const int _jamRequestId = 0x7FFFFFF0;
+  static const int _jamSuggestionId = 0x7FFFFFF1;
+
+  /// Tapping a Jam notification opens the Jam page (wired in main.dart).
+  void Function()? onJamNotificationTapped;
+
+  Future<void> showJamRequest(String username) async {
+    if (!_initialized) return;
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _jamChannelId,
+        _jamChannelName,
+        channelDescription: _jamChannelDesc,
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        autoCancel: true,
+      ),
+    );
+    try {
+      await _plugin.show(_jamRequestId, 'Astra Jam', '$username wants to join your Jam', details);
+    } catch (_) {}
+  }
+
+  Future<void> showJamSuggestion(String username, String songTitle) async {
+    if (!_initialized) return;
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _jamChannelId,
+        _jamChannelName,
+        channelDescription: _jamChannelDesc,
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        autoCancel: true,
+      ),
+    );
+    try {
+      await _plugin.show(_jamSuggestionId, 'Astra Jam', '$username suggested "$songTitle"', details);
+    } catch (_) {}
   }
 
   /// Fixed id for the "new update available" notification — always the

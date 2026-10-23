@@ -18,6 +18,7 @@ import '../screens/settings_player_screen.dart'
     show SleepTimerService, EqualizerScreen;
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
+import '../services/jam_service.dart';
 import '../services/native_engine_bridge.dart' show CastState;
 import 'cast_button.dart' show showCastSheet;
 import '../theme/aurum_theme.dart';
@@ -173,6 +174,23 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
   void _close() => Navigator.of(context).pop();
 
   void _toast(String msg) => AurumSnack.show(widget.rootContext, msg);
+
+  /// Astra Jam: a guest can suggest this song to the host ("Suggest to host").
+  List<Widget> _jamRows() {
+    final jam = JamService.instance;
+    if (!jam.inRoom || jam.isHost || widget.song.isLocal) return const [];
+    return [
+      _Row(
+        icon: Icons.record_voice_over_rounded,
+        label: 'Suggest to Jam host',
+        onTap: () {
+          _close();
+          jam.suggestSong(widget.song);
+          _toast('Suggestion sent to the host');
+        },
+      ),
+    ];
+  }
 
   List<String> get _artists {
     final raw = widget.song.artist;
@@ -527,6 +545,7 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
                 _toast('Playing "${song.title}" next');
               },
             ),
+            ..._jamRows(),
             _Row(
               icon: Icons.playlist_add_rounded,
               label: l10n.fpAddToQueue,
@@ -659,6 +678,7 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
                 _toast('Playing "${song.title}" next');
               },
             ),
+            ..._jamRows(),
             _Row(
               icon: Icons.playlist_add_rounded,
               label: l10n.fpAddToQueue,
@@ -793,6 +813,7 @@ class _AurumSongOptionsSheetState extends State<AurumSongOptionsSheet> {
               _toast('Playing "${song.title}" next');
             },
           ),
+          ..._jamRows(),
           _Row(
             icon: Icons.queue_music_rounded,
             label: l10n.fpAddToQueue,

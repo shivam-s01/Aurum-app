@@ -21,11 +21,15 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/song.dart';
 import '../providers/player_provider.dart';
+import '../providers/playlist_provider.dart';
 import '../services/jam_service.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_motion.dart';
+import '../utils/aurum_sheet.dart';
+import '../utils/aurum_transitions.dart' show AurumPageRoute;
 import '../widgets/aurum_pressable.dart';
+import 'jam_settings_screen.dart';
 
 const Color _kGreen = Color(0xFF4CC38A);
 const Color _kAmber = Color(0xFFE0A63A);
@@ -95,6 +99,34 @@ class _S {
   String get pauseAll => t('Pause for everyone', 'Sabke liye pause');
   String get playAll => t('Play for everyone', 'Sabke liye play');
   String get retry => t('Try again', 'Dobara try karo');
+  String get requesting => t('Waiting for the host\u2026', 'Host ka intezaar\u2026');
+  String get requestingBody => t('The host has been asked to let you in. This usually takes a few seconds.',
+      'Host ko aapki request bheji gayi hai. Kuch second lagte hain.');
+  String get requestsTitle => t('Join requests', 'Join requests');
+  String wantsToJoin(String n) => t('$n wants to join', '$n join karna chahta hai');
+  String get approve => t('Let in', 'Andar bulao');
+  String get reject => t('Decline', 'Mana karo');
+  String get suggestionsTitle => t('Song suggestions', 'Gaane ke suggestions');
+  String suggestedBy(String n) => t('Suggested by $n', '$n ne suggest kiya');
+  String get playNext => t('Play next', 'Agla chalao');
+  String get skip => t('Skip', 'Skip');
+  String get makeHost => t('Make host', 'Host banao');
+  String get removeMember => t('Remove from Jam', 'Jam se hatao');
+  String get blockMember => t('Remove & block', 'Hatao aur block karo');
+  String get collabTitle => t('Jam playlist', 'Jam playlist');
+  String get collabHint => t('Every song played in this Jam collects here.',
+      'Is Jam me jo bhi gaana bajega yahan jama hota rahega.');
+  String get savePlaylist => t('Save as playlist', 'Playlist me save karo');
+  String savedN(int n) => t('Saved $n songs to your library', '$n gaane aapki library me save ho gaye');
+  String moreN(int n) => t('+$n more', '+$n aur');
+  String get endForAll => t('End for everyone', 'Sabke liye khatam karo');
+  String get leaveHostBody => t('The Jam continues with the next person as host.',
+      'Jam agle bande ko host bana kar chalta rahega.');
+  String get rejoinTitle => t('Rejoin your Jam', 'Apne Jam me wapas aao');
+  String rejoinBody(String code) => t('You were in $code a moment ago.', 'Aap abhi $code me the.');
+  String get rejoin => t('Rejoin', 'Wapas jao');
+  String get settings => t('Jam settings', 'Jam settings');
+  String get disconnectedTag => t('Reconnecting', 'Dobara connect');
   String get errorTitle => t('Couldn\u2019t open the Jam', 'Jam nahi khul paya');
 
   String shareMessage(String room, String code, String link) {
@@ -127,6 +159,23 @@ class _S {
         return t('Reconnecting…', 'Dobara connect ho raha hai…');
       case JamNotice.hostEnded:
         return t('This Jam has ended.', 'Ye Jam khatam ho gaya.');
+      case JamNotice.joinRejected:
+        return t('The host didn\u2019t let you in.', 'Host ne aapko andar nahi aane diya.');
+      case JamNotice.requestTimeout:
+        return t('The host didn\u2019t answer. Try again in a moment.', 'Host ne jawab nahi diya. Thodi der baad try karo.');
+      case JamNotice.kicked:
+        return t('You were removed from this Jam.', 'Aapko is Jam se hata diya gaya.');
+      case JamNotice.sessionExpired:
+        return t('Your seat in the Jam expired. Join again with the code.',
+            'Jam me aapki jagah khatam ho gayi. Code se dobara join karo.');
+      case JamNotice.suggestionSent:
+        return t('Suggestion sent to the host', 'Suggestion host ko bhej diya');
+      case JamNotice.suggestionApproved:
+        return t('The host added your song!', 'Host ne aapka gaana add kar diya!');
+      case JamNotice.suggestionRejected:
+        return t('The host skipped your suggestion.', 'Host ne aapka suggestion skip kar diya.');
+      case JamNotice.joinRequest:
+      case JamNotice.suggestionIncoming:
       case JamNotice.none:
         return '';
     }
@@ -139,7 +188,11 @@ enum _JamAction { none, start, join }
 
 /// Errors that deserve a proper on-screen card (not just a toast).
 bool _isBlockingError(JamNotice n) =>
-    n == JamNotice.roomNotFound || n == JamNotice.roomFull || n == JamNotice.connectionFailed;
+    n == JamNotice.roomNotFound ||
+    n == JamNotice.roomFull ||
+    n == JamNotice.connectionFailed ||
+    n == JamNotice.joinRejected ||
+    n == JamNotice.requestTimeout;
 
 void _shareJam(BuildContext context) {
   final s = _S.of(context);
@@ -168,6 +221,7 @@ class _JamScreenState extends State<JamScreen> {
   JamNotice? _error;
   JamPhase _prevPhase = JamPhase.idle;
   int _prevMembers = 0;
+  String? _savedCode; // a Jam this phone can still rejoin
 
   @override
   void initState() {
@@ -176,7 +230,8 @@ class _JamScreenState extends State<JamScreen> {
     _prevPhase = _jam.phase;
     _prevMembers = _jam.members.length;
     _jam.addListener(_onJam);
-    _jam.warmUp(); // socket handshake runs while the user is still typing
+    _jam.loadSettings().then((_) => _jam.warmUp()); // DNS warm-up while the user is typing
+    _refreshSaved();
     final code = widget.initialCode;
     if (code != null && code.isNotEmpty) {
       _codeCtrl.text = JamService.parseCode(code) ?? '';
@@ -184,6 +239,24 @@ class _JamScreenState extends State<JamScreen> {
       if (!_jam.inRoom) WidgetsBinding.instance.addPostFrameCallback((_) => _peek());
     } else if (!_jam.inRoom) {
       _fillFromClipboard();
+    }
+  }
+
+  Future<void> _refreshSaved() async {
+    final code = _jam.inRoom ? null : await _jam.savedSessionCode();
+    if (mounted && code != _savedCode) setState(() => _savedCode = code);
+  }
+
+  Future<void> _resume() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    await _jam.resumeSession();
+    if (mounted) {
+      setState(() => _busy = false);
+      _refreshSaved();
     }
   }
 
@@ -217,12 +290,20 @@ class _JamScreenState extends State<JamScreen> {
     } else if (phase == JamPhase.inRoom && count > _prevMembers) {
       AurumHaptics.light(); // a friend joined
     }
+    if (phase == JamPhase.idle && _prevPhase != JamPhase.idle) _refreshSaved();
     _prevPhase = phase;
     _prevMembers = count;
     if (phase != JamPhase.idle && _error != null) _error = null;
 
     final n = _jam.notice;
     if (n == JamNotice.none) return;
+
+    // Cards show these inline; just a nudge so the host notices.
+    if (n == JamNotice.joinRequest || n == JamNotice.suggestionIncoming) {
+      AurumHaptics.medium();
+      _jam.clearNotice();
+      return;
+    }
 
     if (_isBlockingError(n)) {
       // Proper error card on the home screen, with "Try again".
@@ -280,7 +361,9 @@ class _JamScreenState extends State<JamScreen> {
 
   Future<void> _confirmLeave() async {
     final s = _S.of(context);
-    final ok = await showDialog<bool>(
+    final othersHere = _jam.members.any((m) => m.id != _jam.myId);
+    // 0 = stay, 1 = leave, 2 = end for everyone (host only)
+    final choice = await showDialog<int>(
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: AurumTheme.bgElevatedOf(c),
@@ -290,24 +373,29 @@ class _JamScreenState extends State<JamScreen> {
           style: TextStyle(color: AurumTheme.textPrimaryOf(c), fontWeight: FontWeight.w800, fontSize: 19),
         ),
         content: Text(
-          _jam.isHost ? s.leaveBody : s.leaveBodyGuest,
+          _jam.isHost ? (othersHere ? s.leaveHostBody : s.leaveBody) : s.leaveBodyGuest,
           style: TextStyle(color: AurumTheme.textSecondaryOf(c), fontSize: 14, height: 1.4),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(c, false),
+            onPressed: () => Navigator.pop(c, 0),
             child: Text(s.cancel, style: TextStyle(color: AurumTheme.textSecondaryOf(c))),
           ),
+          if (_jam.isHost && othersHere)
+            TextButton(
+              onPressed: () => Navigator.pop(c, 2),
+              child: Text(s.endForAll, style: const TextStyle(color: _kRed, fontWeight: FontWeight.w800)),
+            ),
           TextButton(
-            onPressed: () => Navigator.pop(c, true),
+            onPressed: () => Navigator.pop(c, 1),
             child: Text(s.end, style: const TextStyle(color: _kRed, fontWeight: FontWeight.w800)),
           ),
         ],
       ),
     );
-    if (ok == true) {
+    if (choice == 1 || choice == 2) {
       AurumHaptics.medium();
-      await _jam.leave();
+      await _jam.leave(endForAll: choice == 2);
     }
   }
 
@@ -321,6 +409,8 @@ class _JamScreenState extends State<JamScreen> {
           onJoin: () => _jam.join(),
           onCancel: () => _jam.leave(),
         );
+      case JamPhase.requesting:
+        return _RequestingView(key: const ValueKey('requesting'), onCancel: () => _jam.leave());
       case JamPhase.inRoom:
         return _RoomView(key: const ValueKey('room'), onLeave: _confirmLeave);
       case JamPhase.idle:
@@ -331,6 +421,12 @@ class _JamScreenState extends State<JamScreen> {
           busy: _busy,
           last: _last,
           error: _error,
+          savedCode: _savedCode,
+          onResume: _resume,
+          onForgetSaved: () async {
+            await _jam.forgetSavedSession();
+            _refreshSaved();
+          },
           onStart: _start,
           onJoin: _peek,
           onRetry: _retry,
@@ -357,6 +453,16 @@ class _JamScreenState extends State<JamScreen> {
             fontWeight: FontWeight.w800,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: s.settings,
+            icon: const Icon(Icons.tune_rounded),
+            onPressed: () {
+              AurumHaptics.light();
+              Navigator.of(context).push(AurumPageRoute(builder: (_) => const JamSettingsScreen()));
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: AnimatedBuilder(
@@ -658,6 +764,9 @@ class _HomeView extends StatelessWidget {
   final bool busy;
   final _JamAction last;
   final JamNotice? error;
+  final String? savedCode;
+  final VoidCallback onResume;
+  final VoidCallback onForgetSaved;
   final VoidCallback onStart;
   final VoidCallback onJoin;
   final VoidCallback onRetry;
@@ -669,6 +778,9 @@ class _HomeView extends StatelessWidget {
     required this.busy,
     required this.last,
     required this.error,
+    required this.savedCode,
+    required this.onResume,
+    required this.onForgetSaved,
     required this.onStart,
     required this.onJoin,
     required this.onRetry,
@@ -713,6 +825,35 @@ class _HomeView extends StatelessWidget {
                   child: _ErrorCard(notice: error!, onRetry: onRetry, onDismiss: onDismissError),
                 ),
         ),
+
+        // Rejoin a Jam we were kicked out of by a dead connection / app kill
+        if (savedCode != null) ...[
+          _Card(
+            child: Row(children: [
+              Icon(Icons.history_rounded, color: AurumTheme.accentOf(context), size: 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(s.rejoinTitle, style: TextStyle(color: tp, fontSize: 15, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(s.rejoinBody('${JamService.codePrefix}$savedCode'),
+                      style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12.5)),
+                ]),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.close_rounded, color: AurumTheme.textSecondaryOf(context), size: 18),
+                onPressed: onForgetSaved,
+              ),
+              TextButton(
+                onPressed: busy ? null : onResume,
+                child: Text(s.rejoin,
+                    style: TextStyle(color: AurumTheme.accentOf(context), fontWeight: FontWeight.w800)),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 14),
+        ],
 
         // Start
         _Card(
@@ -803,7 +944,7 @@ class _ErrorCard extends StatelessWidget {
     final ts = AurumTheme.textSecondaryOf(context);
     final offline = notice == JamNotice.connectionFailed;
     // "Room full" can't be fixed by retrying right away, so no retry there.
-    final canRetry = notice != JamNotice.roomFull;
+    final canRetry = notice != JamNotice.roomFull && notice != JamNotice.joinRejected;
 
     return Container(
       width: double.infinity,
@@ -1071,6 +1212,15 @@ class _RoomView extends StatelessWidget {
                 ),
         ),
 
+        if (jam.isHost && jam.pendingRequests.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const _RequestsCard(),
+        ],
+        if (jam.isHost && jam.suggestions.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const _SuggestionsCard(),
+        ],
+
         const SizedBox(height: 20),
         _SectionLabel(s.nowPlaying.toUpperCase()),
         const SizedBox(height: 10),
@@ -1088,6 +1238,11 @@ class _RoomView extends StatelessWidget {
         _SectionLabel('${s.people.toUpperCase()}  \u2022  ${jam.members.length}/${JamService.maxMembers}'),
         const SizedBox(height: 10),
         _MemberGrid(members: jam.members, myId: jam.myId),
+
+        if (jam.collabTracks.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const _CollabCard(),
+        ],
 
         const SizedBox(height: 22),
         _NudgeCard(),
@@ -1286,10 +1441,11 @@ class _MemberTile extends StatelessWidget {
     final tp = AurumTheme.textPrimaryOf(context);
     final ts = AurumTheme.textSecondaryOf(context);
     final accent = AurumTheme.accentOf(context);
-    final ok = m.status == 'ok';
+    final ok = m.status == 'ok' && m.connected;
     final ring = ok ? _kGreen : _kAmber;
+    final canManage = JamService.instance.isHost && !isMe;
 
-    return Container(
+    final tile = Container(
       height: 182,
       padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
       decoration: BoxDecoration(
@@ -1324,9 +1480,347 @@ class _MemberTile extends StatelessWidget {
             Row(mainAxisSize: MainAxisSize.min, children: [
               Container(width: 6, height: 6, decoration: BoxDecoration(color: ring, shape: BoxShape.circle)),
               const SizedBox(width: 5),
-              Text(s.status(m.status), style: TextStyle(color: ts, fontSize: 12)),
+              Text(m.connected ? s.status(m.status) : s.disconnectedTag, style: TextStyle(color: ts, fontSize: 12)),
             ]),
         ],
+      ),
+    );
+    if (!canManage) return tile;
+    return AurumPressable(
+      onTap: () => _showMemberMenu(context, m),
+      child: Stack(children: [
+        tile,
+        Positioned(
+          top: 10,
+          right: 12,
+          child: Icon(Icons.more_horiz_rounded, color: ts, size: 20),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Host: tap a member → hand over the Jam, remove, or remove & block.
+void _showMemberMenu(BuildContext context, JamMember m) {
+  final s = _S.of(context);
+  final jam = JamService.instance;
+  AurumHaptics.light();
+  showAurumModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (sheetCtx) {
+      final tp = AurumTheme.textPrimaryOf(sheetCtx);
+      final ts = AurumTheme.textSecondaryOf(sheetCtx);
+      Widget row(IconData icon, String label, Color color, VoidCallback onTap) => AurumPressable(
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              onTap();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(children: [
+                Icon(icon, color: color, size: 22),
+                const SizedBox(width: 14),
+                Text(label, style: TextStyle(color: color, fontSize: 15.5, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          );
+      return SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+          decoration: BoxDecoration(color: AurumTheme.bgCardOf(sheetCtx), borderRadius: BorderRadius.circular(24)),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: ts.withOpacity(0.35), borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Row(children: [
+                _Avatar(url: m.avatar, name: m.name, size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(m.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: tp, fontSize: 17, fontWeight: FontWeight.w800)),
+                ),
+              ]),
+            ),
+            row(Icons.star_rounded, s.makeHost, tp, () => jam.transferHost(m.id)),
+            row(Icons.person_remove_rounded, s.removeMember, _kRed, () => jam.kickUser(m.id)),
+            row(Icons.block_rounded, s.blockMember, _kRed, () => jam.blockUser(m.name)),
+          ]),
+        ),
+      );
+    },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Host cards: join requests + song suggestions
+// ─────────────────────────────────────────────────────────────────────────
+class _RequestsCard extends StatelessWidget {
+  const _RequestsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _S.of(context);
+    final jam = JamService.instance;
+    final tp = AurumTheme.textPrimaryOf(context);
+    final accent = AurumTheme.accentOf(context);
+    final onAccent = ThemeData.estimateBrightnessForColor(accent) == Brightness.dark ? Colors.white : Colors.black;
+    return _Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _SectionLabel(s.requestsTitle.toUpperCase()),
+        const SizedBox(height: 12),
+        for (final r in jam.pendingRequests)
+          Padding(
+            key: ValueKey(r.userId),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(children: [
+              _Avatar(url: r.avatar, name: r.username, size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(s.wantsToJoin(r.username),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: tp, fontSize: 14.5, fontWeight: FontWeight.w700, height: 1.25)),
+              ),
+              IconButton(
+                tooltip: s.reject,
+                icon: const Icon(Icons.close_rounded, color: _kRed),
+                onPressed: () {
+                  AurumHaptics.light();
+                  jam.rejectJoin(r.userId);
+                },
+              ),
+              AurumPressable(
+                onTap: () {
+                  AurumHaptics.medium();
+                  jam.approveJoin(r.userId);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(14)),
+                  child: Text(s.approve, style: TextStyle(color: onAccent, fontWeight: FontWeight.w800, fontSize: 13.5)),
+                ),
+              ),
+            ]),
+          ),
+      ]),
+    );
+  }
+}
+
+class _SuggestionsCard extends StatelessWidget {
+  const _SuggestionsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _S.of(context);
+    final jam = JamService.instance;
+    final tp = AurumTheme.textPrimaryOf(context);
+    final ts = AurumTheme.textSecondaryOf(context);
+    final accent = AurumTheme.accentOf(context);
+    final onAccent = ThemeData.estimateBrightnessForColor(accent) == Brightness.dark ? Colors.white : Colors.black;
+    return _Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _SectionLabel(s.suggestionsTitle.toUpperCase()),
+        const SizedBox(height: 12),
+        for (final g in jam.suggestions)
+          Padding(
+            key: ValueKey(g.id),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: g.song.artworkUrl.isEmpty
+                      ? Container(color: accent.withOpacity(0.16), child: Icon(Icons.music_note_rounded, color: accent))
+                      : CachedNetworkImage(
+                          imageUrl: g.song.artworkUrl,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 92,
+                          errorWidget: (_, __, ___) => Container(color: accent.withOpacity(0.16)),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(g.song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: tp, fontSize: 14.5, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('${g.song.artist} \u2022 ${s.suggestedBy(g.fromUsername)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: ts, fontSize: 12)),
+                ]),
+              ),
+              IconButton(
+                tooltip: s.skip,
+                icon: const Icon(Icons.close_rounded, color: _kRed),
+                onPressed: () {
+                  AurumHaptics.light();
+                  jam.rejectSuggestion(g.id);
+                },
+              ),
+              AurumPressable(
+                onTap: () {
+                  AurumHaptics.medium();
+                  jam.approveSuggestion(g.id);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(14)),
+                  child: Text(s.playNext, style: TextStyle(color: onAccent, fontWeight: FontWeight.w800, fontSize: 13)),
+                ),
+              ),
+            ]),
+          ),
+      ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Jam playlist — every song played in this Jam, save it to the library
+// ─────────────────────────────────────────────────────────────────────────
+class _CollabCard extends StatelessWidget {
+  const _CollabCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _S.of(context);
+    final jam = JamService.instance;
+    final tp = AurumTheme.textPrimaryOf(context);
+    final ts = AurumTheme.textSecondaryOf(context);
+    final tracks = jam.collabTracks;
+    const maxShown = 4;
+    final shown = tracks.length > maxShown ? tracks.sublist(tracks.length - maxShown) : tracks;
+    return _Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: _SectionLabel('${s.collabTitle.toUpperCase()}  \u2022  ${tracks.length}')),
+        ]),
+        const SizedBox(height: 4),
+        Text(s.collabHint, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12, height: 1.3)),
+        const SizedBox(height: 10),
+        for (final t in shown)
+          Padding(
+            key: ValueKey(t.id),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(children: [
+              Icon(Icons.music_note_rounded, size: 16, color: ts),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('${t.title} \u2022 ${t.artist}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: tp, fontSize: 13.5)),
+              ),
+            ]),
+          ),
+        if (tracks.length > maxShown)
+          Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 2),
+            child: Text(s.moreN(tracks.length - maxShown), style: TextStyle(color: ts, fontSize: 12.5)),
+          ),
+        const SizedBox(height: 10),
+        _PrimaryButton(
+          label: s.savePlaylist,
+          icon: Icons.playlist_add_rounded,
+          tonal: true,
+          height: 46,
+          onTap: () async {
+            AurumHaptics.medium();
+            final n = await jam.saveCollabAsPlaylist(context.read<PlaylistProvider>());
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(
+                content: Text(s.savedN(n)),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
+              ));
+          },
+        ),
+      ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Waiting for the host to let us in
+// ─────────────────────────────────────────────────────────────────────────
+class _RequestingView extends StatefulWidget {
+  final VoidCallback onCancel;
+  const _RequestingView({super.key, required this.onCancel});
+
+  @override
+  State<_RequestingView> createState() => _RequestingViewState();
+}
+
+class _RequestingViewState extends State<_RequestingView> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
+    if (AurumMotion.enabled) _pulse.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _S.of(context);
+    final jam = JamService.instance;
+    final accent = AurumTheme.accentOf(context);
+    final tp = AurumTheme.textPrimaryOf(context);
+    final ts = AurumTheme.textSecondaryOf(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, child) {
+              final t = Curves.easeInOut.transform(_pulse.value);
+              return Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: accent.withOpacity(0.05 + 0.12 * (1 - t)),
+                ),
+                child: child,
+              );
+            },
+            child: _Avatar(url: jam.previewHostAvatar, name: jam.previewHostName, size: 96, ring: accent),
+          ),
+          const SizedBox(height: 22),
+          Text(s.requesting, style: TextStyle(color: tp, fontSize: 19, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(s.requestingBody,
+              textAlign: TextAlign.center, style: TextStyle(color: ts, fontSize: 13.5, height: 1.4)),
+          const SizedBox(height: 18),
+          TextButton(
+            onPressed: widget.onCancel,
+            child: Text(s.cancel, style: TextStyle(color: ts, fontWeight: FontWeight.w600)),
+          ),
+        ]),
       ),
     );
   }
