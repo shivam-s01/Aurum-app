@@ -182,7 +182,8 @@ class _JamSettingsScreenState extends State<JamSettingsScreen> {
                             ]),
                       ]),
 
-                      // Server
+                      // Server (own-server option: off, see JamService.allowCustomServer)
+                      if (JamService.allowCustomServer)
                       _card([
                         Text(_t('Own server (optional)', 'Apna server (optional)'),
                             style: TextStyle(color: tp, fontSize: 15.5, fontWeight: FontWeight.w800)),

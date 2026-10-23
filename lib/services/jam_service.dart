@@ -136,6 +136,9 @@ class JamService extends ChangeNotifier {
   static const String codePrefix = 'ASTRA-';
   static const String linkBase = 'https://astra.mmusic.workers.dev/jam/';
   /// Jam server (Cloudflare Worker). The room code is added as ?room=CODE.
+  /// Own-server option is switched OFF (UI hidden, saved URLs ignored).
+  /// Set to true (and ship an update) to bring it back.
+  static const bool allowCustomServer = false;
   static const String defaultServerUrl = 'wss://astra-jam.shivamsharma962122.workers.dev/jam/ws';
   static const int _sessionGraceMs = 10 * 60 * 1000; // seat is held this long
   static const int _approvalTimeoutMs = 75000; // how long a guest waits for the host
@@ -426,7 +429,7 @@ class JamService extends ChangeNotifier {
       _customName = (sp.getString('jam_name') ?? '').trim();
       _blocked = (sp.getStringList('jam_blocked') ?? const <String>[]).toSet();
       final url = (sp.getString('jam_server_url') ?? '').trim();
-      _serverUrl = url.isEmpty ? defaultServerUrl : url;
+      _serverUrl = (!allowCustomServer || url.isEmpty) ? defaultServerUrl : url;
       _nudgeMs = (sp.getInt('jam_nudge_ms') ?? 0).clamp(-400, 400).toInt();
       _prefsLoaded = true;
     } catch (_) {}
@@ -457,6 +460,7 @@ class JamService extends ChangeNotifier {
   /// Only what the user typed themselves; empty when the built-in server is used.
   String get customServerUrl => hasCustomServer ? _serverUrl : '';
   Future<void> setServerUrl(String v) async {
+    if (!allowCustomServer) return;
     final s = v.trim();
     _serverUrl = (s.startsWith('ws://') || s.startsWith('wss://')) ? s : defaultServerUrl;
     notifyListeners();
