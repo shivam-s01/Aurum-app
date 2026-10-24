@@ -13,6 +13,7 @@ import 'settings_privacy_screen.dart';
 import 'settings_about_screen.dart';
 import 'support_developer_screen.dart';
 import 'jam_screen.dart';
+import 'link_tv_screen.dart';
 import 'settings_language_screen.dart';
 import 'settings_region_screen.dart';
 import 'profile_screen.dart';
@@ -118,6 +119,12 @@ class SettingsScreen extends StatelessWidget {
                           ? 'Doston ke saath ek hi gaana, ek hi time pe'
                           : 'Listen together, in perfect sync',
                       onTap: () => _open(context, const JamScreen()),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.tv_rounded,
+                      title: 'Link TV',
+                      subtitle: 'Sign in on your TV by scanning its code',
+                      onTap: () => _open(context, const LinkTvScreen()),
                     ),
                     _SettingsRow(
                       icon: Icons.sd_storage_rounded,

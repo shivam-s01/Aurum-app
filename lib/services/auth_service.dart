@@ -88,6 +88,24 @@ class AuthService {
     }
   }
 
+  // ── Link TV ───────────────────────────────────────────────────────────────
+
+  /// Fresh Google ID token for the signed-in account. Used to approve a TV
+  /// sign-in: the TV exchanges it for its OWN Supabase session, so phone
+  /// and TV never share (or invalidate) each other's tokens.
+  Future<String?> freshGoogleIdToken() async {
+    try {
+      GoogleSignInAccount? account =
+          await _googleSignIn.signInSilently(reAuthenticate: true);
+      account ??= await _googleSignIn.signIn();
+      if (account == null) return null;
+      return (await account.authentication).idToken;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AuthService] freshGoogleIdToken error: $e');
+      return null;
+    }
+  }
+
   // ── Sign out ──────────────────────────────────────────────────────────────
 
   Future<void> signOut() async {

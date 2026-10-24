@@ -77,6 +77,7 @@ import 'screens/main_shell.dart';
 import 'screens/jam_screen.dart';
 import 'services/jam_service.dart';
 import 'package:app_links/app_links.dart';
+import 'screens/link_tv_screen.dart';
 import 'screens/library_screen.dart';
 import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
@@ -472,6 +473,22 @@ void _onJamLink(Uri uri) {
 /// Opens the Astra Jam join screen for a Jam link. Ignores anything else.
 void _handleJamLink(Uri uri) {
   try {
+    // TV sign-in links (from the TV's QR): astra://tv/CODE or
+    // https://astra.mmusic.workers.dev/tv/CODE -> Link TV screen.
+    String? tvRaw;
+    if (uri.scheme == 'astra' && uri.host == 'tv' && uri.pathSegments.isNotEmpty) {
+      tvRaw = uri.pathSegments.first;
+    } else if (uri.host == 'astra.mmusic.workers.dev' &&
+        uri.pathSegments.length >= 2 &&
+        uri.pathSegments.first == 'tv') {
+      tvRaw = uri.pathSegments[1];
+    }
+    if (tvRaw != null) {
+      navigatorKey.currentState?.push(
+        AurumPageRoute(builder: (_) => LinkTvScreen(initialCode: tvRaw)),
+      );
+      return;
+    }
     String? raw;
     if (uri.scheme == 'astra' && uri.host == 'jam' && uri.pathSegments.isNotEmpty) {
       raw = uri.pathSegments.first;

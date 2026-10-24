@@ -4,6 +4,10 @@
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Link TV: scan the TV's QR with the in-app scanner -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
@@ -104,6 +108,19 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https" android:host="astra.mmusic.workers.dev" android:pathPrefix="/jam/"/>
+            </intent-filter>
+            <!-- Link TV: astra://tv/CODE and https://astra.mmusic.workers.dev/tv/CODE -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="astra" android:host="tv"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="astra.mmusic.workers.dev" android:pathPrefix="/tv/"/>
             </intent-filter>
 
             <!-- Gemini / Google Assistant: "open Astra Music and play <song>" -->
