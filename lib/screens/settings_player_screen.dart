@@ -494,7 +494,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen>
             gradient: AurumTheme.accentGradientOf(context),
             borderRadius: BorderRadius.circular(11),
           ),
-          child: const Icon(Icons.auto_awesome_rounded, color: Colors.black, size: 19),
+          child: const Icon(Icons.spa_rounded, color: Colors.black, size: 19),
         ),
         title: Text(l10n.spPremiumSound,
             style: TextStyle(

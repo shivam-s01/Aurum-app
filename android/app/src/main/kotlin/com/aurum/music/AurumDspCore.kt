@@ -47,6 +47,8 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         val bassShelfDb: Float = 0f,
         val widen: Float = 0f,
         val makeupDb: Float = 0f,
+        /** 0..1 amount of the warm "hall" reverb (Spiritual Sound). 0 = off, bit-exact bypass. */
+        val reverb: Float = 0f,
     ) {
         val bandDb: FloatArray = bandDb.copyOf(BANDS)
     }
@@ -62,6 +64,9 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         /** Default time constant for parameter smoothing. */
         const val DEFAULT_SMOOTH_MS = 40.0
         private const val WIDEN_SPLIT_HZ = 250.0
+
+        /** Time constant of the fade-out when the effect is switched off (still click-free). */
+        const val OFF_SMOOTH_MS = 60.0
 
         /** Limiter ceiling: -0.5 dBFS. */
         const val CEILING = 0.944f
@@ -84,6 +89,16 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         private const val RESP_POINTS = 48
 
         private val UNITY = Params()
+
+        // ── Spiritual hall reverb (Freeverb topology, tuned dark/warm) ──
+        private val COMB_LEN = intArrayOf(1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617)
+        private val AP_LEN = intArrayOf(556, 441, 341, 225)
+        private const val STEREO_SPREAD = 23
+        private const val REV_FB = 0.90f          // ~1.8 s tail
+        private const val REV_DAMP = 0.58f        // heavy HF damping -> soft, never shrill
+        private const val REV_IN_GAIN = 0.015f
+        private const val REV_WET_SCALE = 3.0f
+        private const val REV_GUARD = 1e-18f
     }
 
     private val target = AtomicReference(UNITY)
@@ -103,6 +118,7 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
     private var curWiden = 0f
     private var curMakeup = 0f
     private var smoothK = 0.0
+    private var smoothKOff = 0.0        // faster fade used when the target is fully neutral (effect OFF)
     private var headroomDb = 0.0
     private var headroomDirty = false
     private var tickCount = 0
@@ -144,6 +160,27 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
     private var widenNow = 0f            // value in use (ramped per sample)
     private var widenStep = 0f
 
+    // ── reverb ──────────────────────────────────────────────────────
+    private var curReverb = 0f
+    private var reverbNow = 0f
+    private var reverbStep = 0f
+    private var combL: Array<FloatArray> = emptyArray()
+    private var combR: Array<FloatArray> = emptyArray()
+    private var apL: Array<FloatArray> = emptyArray()
+    private var apR: Array<FloatArray> = emptyArray()
+    private val combIdxL = IntArray(COMB_LEN.size)
+    private val combIdxR = IntArray(COMB_LEN.size)
+    private val apIdxL = IntArray(AP_LEN.size)
+    private val apIdxR = IntArray(AP_LEN.size)
+    private val combFiltL = FloatArray(COMB_LEN.size)
+    private val combFiltR = FloatArray(COMB_LEN.size)
+    private var rvL = 0f
+    private var rvR = 0f
+    // Reverb *input* fade-in (0 -> 1, ~20 ms time constant). Without it the first delayed
+    // samples of a freshly started reverb appear as a step ("tick") when it is switched on.
+    private var revIn = 0f
+    private var revInCoef = 0f
+
     // ── gain ramp ───────────────────────────────────────────────────
     private var gain = 1.0
     private var gainTo = 1.0
@@ -158,6 +195,10 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
     private var boxSum = 0.0
     private var onesRun = 0
     private var relCoef = 0f
+    // False while every parameter is neutral: the limiter then stops *detecting* (it only
+    // finishes releasing), so a hot master (peaks above -0.5 dBFS) is NOT altered when the
+    // effect is off, and the core can return to the bit-exact bypass afterwards.
+    private var limDetect = true
 
     // ── delay line (look-ahead) ─────────────────────────────────────
     private var ring = FloatArray(0)
@@ -188,8 +229,10 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         ch = channels
         la = max(16, (sr * LOOKAHEAD_MS / 1000.0).roundToInt())
         smoothK = 1.0 - exp(-TICK.toDouble() / (sr * smoothMs / 1000.0))
+        smoothKOff = 1.0 - exp(-TICK.toDouble() / (sr * min(smoothMs, OFF_SMOOTH_MS) / 1000.0))
         relCoef = (1.0 - exp(-1.0 / (sr * RELEASE_MS / 1000.0))).toFloat()
         sCoef = 1.0 - exp(-2.0 * Math.PI * WIDEN_SPLIT_HZ / sr)
+        revInCoef = (1.0 - exp(-1.0 / (sr * 0.020))).toFloat()
 
         for (f in 0 until FILTERS) {
             val hz = min(FREQ[f], sr * 0.45)
@@ -199,6 +242,13 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
             val hz = min(20.0 * (20000.0 / 20.0).pow(k.toDouble() / (RESP_POINTS - 1)), sr * 0.45)
             probeTan[k] = kotlin.math.tan(Math.PI * hz / sr)
         }
+        val rs = sr / 44100.0
+        fun len(n: Int) = max(8, (n * rs).roundToInt())
+        combL = Array(COMB_LEN.size) { FloatArray(len(COMB_LEN[it])) }
+        combR = Array(COMB_LEN.size) { FloatArray(len(COMB_LEN[it] + STEREO_SPREAD)) }
+        apL = Array(AP_LEN.size) { FloatArray(len(AP_LEN[it])) }
+        apR = Array(AP_LEN.size) { FloatArray(len(AP_LEN[it] + STEREO_SPREAD)) }
+        clearReverb()
         gtRing = FloatArray(la)
         boxRing = FloatArray(la)
         ring = FloatArray(la * ch)
@@ -229,6 +279,9 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         sLow = 0.0
         widenNow = curWiden
         widenStep = 0f
+        clearReverb()
+        reverbNow = curReverb
+        reverbStep = 0f
         ring.fill(0f)
         head = 0
         count = 0
@@ -237,6 +290,59 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
         identity = false
         tickCount = 0
         headroomDirty = true
+    }
+
+    private fun clearReverb() {
+        for (b in combL) b.fill(0f)
+        for (b in combR) b.fill(0f)
+        for (b in apL) b.fill(0f)
+        for (b in apR) b.fill(0f)
+        combIdxL.fill(0); combIdxR.fill(0); apIdxL.fill(0); apIdxR.fill(0)
+        combFiltL.fill(0f); combFiltR.fill(0f)
+        rvL = 0f; rvR = 0f
+        revIn = 0f
+    }
+
+    private fun runReverb(inp: Float, stereo: Boolean) {
+        var sl = 0f
+        var sr2 = 0f
+        val damp1 = 1f - REV_DAMP
+        for (i in 0 until COMB_LEN.size) {
+            val bl = combL[i]
+            val il = combIdxL[i]
+            val ol = bl[il]
+            combFiltL[i] = ol * damp1 + combFiltL[i] * REV_DAMP
+            bl[il] = inp + combFiltL[i] * REV_FB
+            combIdxL[i] = if (il + 1 == bl.size) 0 else il + 1
+            sl += ol
+            if (stereo) {
+                val br = combR[i]
+                val ir = combIdxR[i]
+                val or2 = br[ir]
+                combFiltR[i] = or2 * damp1 + combFiltR[i] * REV_DAMP
+                br[ir] = inp + combFiltR[i] * REV_FB
+                combIdxR[i] = if (ir + 1 == br.size) 0 else ir + 1
+                sr2 += or2
+            }
+        }
+        for (i in 0 until AP_LEN.size) {
+            val bl = apL[i]
+            val il = apIdxL[i]
+            val bo = bl[il]
+            bl[il] = sl + bo * 0.5f
+            apIdxL[i] = if (il + 1 == bl.size) 0 else il + 1
+            sl = bo - sl
+            if (stereo) {
+                val br = apR[i]
+                val ir = apIdxR[i]
+                val bo2 = br[ir]
+                br[ir] = sr2 + bo2 * 0.5f
+                apIdxR[i] = if (ir + 1 == br.size) 0 else ir + 1
+                sr2 = bo2 - sr2
+            }
+        }
+        rvL = sl
+        rvR = if (stereo) sr2 else sl
     }
 
     private fun limiterToIdle() {
@@ -339,13 +445,16 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
 
     private fun tickControl() {
         val t = target.get()
+        var neutral = t.widen == 0f && t.makeupDb == 0f && t.reverb == 0f && t.bassShelfDb == 0f
+        if (neutral) for (b in 0 until BANDS) if (t.bandDb[b] != 0f) { neutral = false; break }
+        val sk = if (neutral) smoothKOff else smoothK
         var filtersChanged = false
         var activeSetChanged = false
         for (f in 0 until FILTERS) {
             val tgt = sane(if (f < BANDS) t.bandDb[f] else t.bassShelfDb)
             val c = curDb[f]
             if (c != tgt) {
-                var n = (c + (tgt - c) * smoothK).toFloat()
+                var n = (c + (tgt - c) * sk).toFloat()
                 if (abs(tgt - n) < 0.002f) n = tgt
                 curDb[f] = n
                 val was = act[f]
@@ -358,13 +467,20 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
 
         val tw = if (t.widen.isFinite()) t.widen.coerceIn(0f, 1f) else 0f
         if (curWiden != tw) {
-            var n = curWiden + (tw - curWiden) * smoothK.toFloat()
+            var n = curWiden + (tw - curWiden) * sk.toFloat()
             if (abs(tw - n) < 0.0005f) n = tw
             curWiden = n
         }
+        val tr = if (t.reverb.isFinite()) t.reverb.coerceIn(0f, 1f) else 0f
+        if (curReverb != tr) {
+            var n = curReverb + (tr - curReverb) * sk.toFloat()
+            if (abs(tr - n) < 0.0005f) n = tr
+            curReverb = n
+            if (n == 0f) clearReverb()
+        }
         val tm = sane(t.makeupDb)
         if (curMakeup != tm) {
-            var n = curMakeup + (tm - curMakeup) * smoothK.toFloat()
+            var n = curMakeup + (tm - curMakeup) * sk.toFloat()
             if (abs(tm - n) < 0.002f) n = tm
             curMakeup = n
         }
@@ -389,11 +505,13 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
             dm2[f] = (tm2[f] - fm2[f]) / TICK
         }
         widenStep = (curWiden - widenNow) / TICK
+        reverbStep = (curReverb - reverbNow) / TICK
 
-        var allZero = curWiden == 0f && curMakeup == 0f
+        var allZero = curWiden == 0f && curMakeup == 0f && curReverb == 0f
         if (allZero) {
             for (f in 0 until FILTERS) if (curDb[f] != 0f) { allZero = false; break }
         }
+        limDetect = !allZero
         val limiterIdle = rVal == 1f && onesRun >= la
         val nowIdentity = allZero && limiterIdle && headroomDb == 0.0
         if (nowIdentity && !identity) {
@@ -403,6 +521,8 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
             limiterToIdle()
             gain = 1.0; gainTo = 1.0; gainStep = 0.0
             widenNow = 0f; widenStep = 0f
+            clearReverb()
+            reverbNow = 0f; reverbStep = 0f
         }
         identity = nowIdentity
     }
@@ -476,6 +596,17 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
                             x1 = m - s2
                         }
                     }
+                    // Spiritual hall: soft, dark reverb blended in before the EQ, so the
+                    // EQ's high-cut also smooths the tail.
+                    val rw = (reverbNow + reverbStep * ph) * REV_WET_SCALE
+                    if (rw > 0f) {
+                        revIn += (1f - revIn) * revInCoef
+                        val inp = (if (cc == 2) ((x0 + x1) * 0.5).toFloat() else x0.toFloat()) *
+                            (REV_IN_GAIN * revIn) + REV_GUARD
+                        runReverb(inp, cc == 2)
+                        x0 += (rvL * rw).toDouble()
+                        if (cc == 2) x1 += (rvR * rw).toDouble()
+                    }
                     gain += gainStep
                     val g = gain
                     val v0 = bq(0, x0 * g + DENORM_GUARD, ph)
@@ -485,7 +616,7 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
 
                     // ── look-ahead limiter: gain computed for this frame, applied L-1 frames later
                     val pk = max(abs(y0), abs(y1))
-                    val gt = if (pk > CEILING) CEILING / pk else 1f
+                    val gt = if (limDetect && pk > CEILING) CEILING / pk else 1f
                     val idx = ti
                     gtRing[idx] = gt
                     if (gt < 1f) sinceReduce = 0 else if (sinceReduce < laF) sinceReduce++
@@ -499,8 +630,13 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
                     if (m < rVal) {
                         rVal = m
                     } else {
-                        rVal += (m - rVal) * relCoef
-                        if (rVal > 0.999999f) rVal = 1f
+                        // Float step near 1.0 is ~6e-8: a pure one-pole release stalls just below 1
+                        // (-0.001 dB forever) and the core could never return to bit-exact bypass.
+                        // A tiny minimum step guarantees it always finishes.
+                        var inc = (m - rVal) * relCoef
+                        if (inc < 1e-7f) inc = 1e-7f
+                        rVal += inc
+                        if (rVal > 0.999999f || rVal > m) rVal = m
                     }
                     boxSum += (rVal - boxRing[idx]).toDouble()
                     boxRing[idx] = rVal
@@ -535,6 +671,7 @@ class AurumDspCore(private val smoothMs: Double = DEFAULT_SMOOTH_MS) {
                 phase = 0
                 gain = gainTo
                 widenNow = curWiden
+                reverbNow = curReverb
                 for (f in 0 until FILTERS) {
                     fm0[f] = tm0[f]; fm1[f] = tm1[f]; fm2[f] = tm2[f]
                 }

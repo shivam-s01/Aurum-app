@@ -34,8 +34,8 @@ class PremiumSoundProcessor : BaseAudioProcessor() {
         private const val INV_32768 = 1f / 32768f
         private const val LOG_TAG = "PREMIUM_DSP"
 
-        // Premium fades in/out over roughly a second (time constant, so ~95% after ~3x this).
-        private const val FADE_MS = 250.0
+        // Spiritual Sound fades in/out smoothly (time constant, ~95% after ~3x this = ~0.45 s).
+        private const val FADE_MS = 150.0
     }
 
     private val core = AurumDspCore(smoothMs = FADE_MS)
