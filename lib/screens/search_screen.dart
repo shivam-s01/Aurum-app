@@ -346,6 +346,7 @@ class _SearchScreenState extends State<SearchScreen>
     final withOld = (cached != null && cached.isNotEmpty)
         ? await ApiService.topupMoodGenreArtworkFrom(base, cached)
         : base;
+    if (!mounted) return;
     setState(() => _moodSections = withOld);
     final full = await ApiService.topupMoodGenreArtwork(withOld);
     if (!mounted) return;
@@ -480,7 +481,12 @@ class _SearchScreenState extends State<SearchScreen>
       return;
     }
 
-    setState(() { _showHistory = false; _liveLoading = true; _showLiveLoader = false; });
+    // Only rebuild when something actually changes — while typing fast the
+    // flags are already in this state, and each setState rebuilds the whole
+    // search screen.
+    if (_showHistory || !_liveLoading || _showLiveLoader) {
+      setState(() { _showHistory = false; _liveLoading = true; _showLiveLoader = false; });
+    }
 
     // Only start showing the full-cover loader if this exact query is
     // STILL loading 350ms from now — i.e. genuinely slow, not just
@@ -613,33 +619,56 @@ class _SearchScreenState extends State<SearchScreen>
   // the freeze-then-ANR pattern, just triggered from the direct-results
   // path instead of the related-results path. Same fix, same caps.
   void _precomputeResultQueues() {
-    final cap = _results.length < _maxRelatedQueueAnchors
-        ? _results.length
+    _resultQueues = _buildDedupQueues(_results);
+  }
+
+  // PERF (heat / low-end): the old version re-ran isSameSongSmart (regex +
+  // segment matching) for every (anchor, candidate, already-kept) triple —
+  // up to 40 x 40 x 40 = 64,000 calls on the UI thread after every search,
+  // twice (results + related). The pairwise answer never changes, so each
+  // ordered (candidate, kept) pair is now computed at most ONCE and reused
+  // by every anchor. Output queues are identical to before; worst case drops
+  // from ~64k to ~1.6k comparisons.
+  List<List<Song>> _buildDedupQueues(List<Song> src) {
+    final cap = src.length < _maxRelatedQueueAnchors
+        ? src.length
         : _maxRelatedQueueAnchors;
-    _resultQueues = List.generate(cap, (tappedIndex) {
-      final anchor = _results[tappedIndex];
+    final scanLimit = src.length < _maxRelatedQueueScan
+        ? src.length
+        : _maxRelatedQueueScan;
+    // Per-song "inherent variant" flag, once per song instead of per anchor.
+    final isVariant = List<bool?>.filled(scanLimit, null);
+    // Memo of isSameSongSmart(candidateTitle, keptTitle) keyed by ordered pair.
+    final memo = <int, bool>{};
+    bool same(int cand, int kept, String candTitle, String keptTitle) {
+      final key = cand * 1000 + kept;
+      return memo[key] ??= RecommendationEngine.isSameSongSmart(candTitle, keptTitle);
+    }
+
+    return List.generate(cap, (tappedIndex) {
+      final anchor = src[tappedIndex];
       final seenIds = <String>{anchor.id};
-      final seenRawTitles = <String>[anchor.title];
+      // Source index of every song already kept in this queue (anchor first).
+      final keptIdx = <int>[tappedIndex];
       final out = <Song>[anchor];
-      final scanLimit = _results.length < _maxRelatedQueueScan
-          ? _results.length
-          : _maxRelatedQueueScan;
       for (int j = 0; j < scanLimit; j++) {
         if (j == tappedIndex) continue;
-        final s = _results[j];
-        if (seenIds.contains(s.id)) continue;
-        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        final cand = src[j];
+        if (seenIds.contains(cand.id)) continue;
+        final variant = isVariant[j] ??=
+            RecommendationEngine.isInherentVariant(cand.title);
+        if (variant) continue;
         var isDup = false;
-        for (final raw in seenRawTitles) {
-          if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
+        for (final k in keptIdx) {
+          if (same(j, k, cand.title, src[k].title)) {
             isDup = true;
             break;
           }
         }
         if (isDup) continue;
-        seenIds.add(s.id);
-        seenRawTitles.add(s.title);
-        out.add(s);
+        seenIds.add(cand.id);
+        keptIdx.add(j);
+        out.add(cand);
       }
       return out;
     });
@@ -667,36 +696,7 @@ class _SearchScreenState extends State<SearchScreen>
   static const int _maxRelatedQueueScan = 40;
 
   void _precomputeRelatedQueues() {
-    final cap = _relatedResults.length < _maxRelatedQueueAnchors
-        ? _relatedResults.length
-        : _maxRelatedQueueAnchors;
-    _relatedQueues = List.generate(cap, (tappedIndex) {
-      final anchor = _relatedResults[tappedIndex];
-      final seenIds = <String>{anchor.id};
-      final seenRawTitles = <String>[anchor.title];
-      final out = <Song>[anchor];
-      final scanLimit = _relatedResults.length < _maxRelatedQueueScan
-          ? _relatedResults.length
-          : _maxRelatedQueueScan;
-      for (int j = 0; j < scanLimit; j++) {
-        if (j == tappedIndex) continue;
-        final s = _relatedResults[j];
-        if (seenIds.contains(s.id)) continue;
-        if (RecommendationEngine.isInherentVariant(s.title)) continue;
-        var isDup = false;
-        for (final raw in seenRawTitles) {
-          if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
-            isDup = true;
-            break;
-          }
-        }
-        if (isDup) continue;
-        seenIds.add(s.id);
-        seenRawTitles.add(s.title);
-        out.add(s);
-      }
-      return out;
-    });
+    _relatedQueues = _buildDedupQueues(_relatedResults);
   }
 
   void _search(String q) {

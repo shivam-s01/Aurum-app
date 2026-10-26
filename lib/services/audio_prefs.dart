@@ -23,9 +23,9 @@ class LyricsStyle {
   final double lineSpacing; // height multiplier
 
   const LyricsStyle({
-    this.position = 'Centre',
-    this.textSize = 16.0,
-    this.lineSpacing = 2.0,
+    this.position = 'Left',
+    this.textSize = 26.0,
+    this.lineSpacing = 1.25,
   });
 
   LyricsStyle copyWith({String? position, double? textSize, double? lineSpacing}) =>

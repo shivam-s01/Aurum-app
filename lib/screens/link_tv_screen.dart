@@ -38,6 +38,9 @@ class LinkTvScreen extends StatefulWidget {
 class _LinkTvScreenState extends State<LinkTvScreen> {
   final TextEditingController _input = TextEditingController();
   MobileScannerController? _scanner;
+  // Camera is OFF until the user taps "Scan QR code" — opening this screen
+  // must never jump straight into the camera.
+  bool _scanning = false;
   String? _pendingCode; // scanned/typed, waiting for the user's Approve tap
   bool _busy = false;
   bool _done = false;
@@ -47,18 +50,31 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
   void initState() {
     super.initState();
     final c = parseTvCode(widget.initialCode);
-    if (c != null) {
-      _pendingCode = c;
-    } else if (AuthService.instance.isSignedIn) {
-      _startScanner();
-    }
+    if (c != null) _pendingCode = c;
   }
 
   void _startScanner() {
-    _scanner ??= MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      formats: const [BarcodeFormat.qrCode],
-    );
+    if (_scanning) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _message = null;
+      _scanner ??= MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        formats: const [BarcodeFormat.qrCode],
+      );
+      _scanning = true;
+    });
+  }
+
+  /// Turns the camera fully off (widget removed first, controller disposed
+  /// after the frame so the preview never touches a disposed controller).
+  void _stopScanner() {
+    final c = _scanner;
+    _scanner = null;
+    _scanning = false;
+    if (c != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => c.dispose());
+    }
   }
 
   @override
@@ -78,7 +94,9 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
         // Never auto-approve: the user must see the code and confirm, so a
         // QR shown by someone else can't silently link THEIR TV to this
         // account.
+        if (!mounted) return;
         setState(() {
+          _stopScanner();
           _pendingCode = code;
           _message = null;
         });
@@ -94,6 +112,7 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
       return;
     }
     setState(() {
+      _stopScanner();
       _pendingCode = code;
       _message = null;
     });
@@ -108,12 +127,14 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
     });
     try {
       final token = await AuthService.instance.freshGoogleIdToken();
+      if (!mounted) return;
       if (token == null) {
         setState(() => _message = 'Couldn\'t get your Google sign-in. Try again.');
         return;
       }
       final ok = await Supabase.instance.client
           .rpc('tv_pair_approve', params: {'p_code': code, 'p_id_token': token});
+      if (!mounted) return;
       if (ok == true) {
         setState(() => _done = true);
         await Future<void>.delayed(const Duration(milliseconds: 1500));
@@ -125,7 +146,7 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
         });
       }
     } catch (e) {
-      setState(() => _message = 'Couldn\'t link the TV: $e');
+      if (mounted) setState(() => _message = 'Couldn\'t link the TV: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -138,8 +159,78 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
     setState(() {
       _busy = false;
       if (err != null && err != 'cancelled') _message = err;
-      if (AuthService.instance.isSignedIn && _pendingCode == null) _startScanner();
     });
+  }
+
+  // Shown instead of a live camera until the user asks for it.
+  Widget _buildScanCard(TextTheme text, ColorScheme scheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.qr_code_scanner_rounded, size: 52, color: scheme.primary),
+          const SizedBox(height: 14),
+          Text('Scan the QR code on your TV', style: text.titleMedium, textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+          Text(
+            'The camera only turns on when you tap the button.',
+            style: text.bodySmall,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: _startScanner,
+            icon: const Icon(Icons.photo_camera_rounded),
+            label: const Text('Scan QR code'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCamera(TextTheme text, ColorScheme scheme) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: SizedBox(
+            height: 300,
+            width: double.infinity,
+            child: _scanner == null
+                ? const SizedBox.shrink()
+                : RepaintBoundary(
+                    child: MobileScanner(
+                      controller: _scanner,
+                      onDetect: _onDetect,
+                      errorBuilder: (context, error, child) => Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Text(
+                            'Camera unavailable. Allow camera access, or type the code below.',
+                            textAlign: TextAlign.center,
+                            style: text.bodyMedium,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: () => setState(_stopScanner),
+          icon: const Icon(Icons.close_rounded),
+          label: const Text('Close camera'),
+        ),
+      ],
+    );
   }
 
   @override
@@ -228,36 +319,20 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
         ),
       );
     } else {
-      _startScanner(); // no-op when already created (e.g. after Cancel)
       body = ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.all(20),
         children: [
           Text(
-            'On your TV open Astra → profile icon. Scan the code shown there.',
+            'On your TV open Astra → profile icon. Then scan the code shown there, or type it below.',
             style: text.bodyMedium,
           ),
           const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              height: 300,
-              child: _scanner == null
-                  ? const SizedBox.shrink()
-                  : MobileScanner(
-                      controller: _scanner,
-                      onDetect: _onDetect,
-                      errorBuilder: (context, error, child) => Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Text(
-                            'Camera unavailable. Allow camera access, or type the code below.',
-                            textAlign: TextAlign.center,
-                            style: text.bodyMedium,
-                          ),
-                        ),
-                      ),
-                    ),
-            ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _scanning ? _buildCamera(text, scheme) : _buildScanCard(text, scheme),
           ),
           const SizedBox(height: 22),
           Text('Or type the code from the TV', style: text.titleSmall),
@@ -266,6 +341,8 @@ class _LinkTvScreenState extends State<LinkTvScreen> {
             controller: _input,
             textCapitalization: TextCapitalization.characters,
             autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
             onSubmitted: (_) => _useTypedCode(),
             decoration: const InputDecoration(
               border: OutlineInputBorder(),

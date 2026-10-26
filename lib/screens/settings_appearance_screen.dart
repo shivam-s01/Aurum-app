@@ -52,9 +52,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   double _navBarBlurSigma = 18.0;
   double _miniPlayerBlurSigma = 12.0;
   // Lyrics
-  String _lyricsTextPosition = 'Centre';
-  double _lyricsTextSize = 16.0;
-  double _lyricsLineSpacing = 1.5;
+  String _lyricsTextPosition = 'Left';
+  double _lyricsTextSize = 26.0;
+  double _lyricsLineSpacing = 1.25;
   bool _showLyricsOnPlayer = true;
   LyricsViewMode _lyricsViewMode = LyricsViewMode.inline;
   // New
@@ -134,9 +134,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _liquidGlass = p.getBool('liquid_glass_enabled') ?? false;
       _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 18.0;
       _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 12.0;
-      _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
-      _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
-      _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
+      _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Left';
+      _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 26.0;
+      _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.25;
       _showLyricsOnPlayer = p.getBool('show_lyrics_on_player') ?? true;
       _lyricsViewMode = LyricsViewMode
           .values[p.getInt('lyrics_view_mode') ?? LyricsViewMode.inline.index];

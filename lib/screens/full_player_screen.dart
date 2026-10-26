@@ -5791,6 +5791,13 @@ class _LyricsPageState extends State<AurumLyricsPage> {
   // we always animate to an exact, already-known pixel offset, so there
   // is nothing left to correct mid-flight.
   final ScrollController _scrollController = ScrollController();
+  // SPOTIFY BEHAVIOUR: while the user is dragging the lyrics to read ahead,
+  // auto-follow must NOT yank the list back — it waits a few seconds, then
+  // resumes on the next line change.
+  DateTime _userScrollHoldUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  // First position after lyrics load/open jumps straight to the current line
+  // (no long glide from the top when opening lyrics mid-song).
+  bool _needsInstantScroll = true;
   final GlobalKey _listKey = GlobalKey();
   final Map<int, GlobalKey> _lineKeys = {};
 
@@ -5812,6 +5819,7 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     // left over from before would make _scrollToActiveLine measure the
     // wrong (or now-nonexistent) RenderBox.
     _lineKeys.clear();
+    _needsInstantScroll = true;
     setState(() {
       _loading = true;
       _notFound = false;
@@ -5870,12 +5878,26 @@ class _LyricsPageState extends State<AurumLyricsPage> {
   /// active line at the same ~35%-down-the-viewport resting spot the old
   /// alignment: 0.35 gave, but against a real measurement instead of a
   /// pre-layout guess, so there is nothing left to correct mid-scroll.
-  void _scrollToActiveLine(int index) {
+  void _scrollToActiveLine(int index, {bool retry = true}) {
     if (!_scrollController.hasClients) return;
     final lineContext = _lineKeys[index]?.currentContext;
     final listBox =
         _listKey.currentContext?.findRenderObject() as RenderBox?;
-    if (lineContext == null || listBox == null) return;
+    if (lineContext == null || listBox == null) {
+      // The target line is far off-screen, so the lazy list hasn't built it
+      // yet and there is nothing to measure (this is what left lyrics stuck
+      // at the top when opened mid-song). Jump to a rough position first so
+      // the line gets built, then measure it exactly on the next frame.
+      final total = _result?.synced?.length ?? 0;
+      if (retry && listBox != null && total > 0) {
+        final max = _scrollController.position.maxScrollExtent;
+        _scrollController.jumpTo((max * index / total).clamp(0.0, max));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scrollToActiveLine(index, retry: false);
+        });
+      }
+      return;
+    }
     final lineBox = lineContext.findRenderObject() as RenderBox?;
     if (lineBox == null) return;
 
@@ -5888,10 +5910,17 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     // offset (undoing the current scroll position from the global calc).
     final lineAbsoluteTop = currentOffset + linePositionInList;
     final targetOffset =
-        (lineAbsoluteTop - viewportHeight * 0.35).clamp(
+        (lineAbsoluteTop - viewportHeight * 0.30).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
+
+    if (_needsInstantScroll) {
+      _needsInstantScroll = false;
+      _scrollController.jumpTo(targetOffset);
+      return;
+    }
+    if (DateTime.now().isBefore(_userScrollHoldUntil)) return;
 
     _scrollController.animateTo(
       targetOffset,
@@ -6017,7 +6046,7 @@ class _LyricsPageState extends State<AurumLyricsPage> {
             ),
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
               child: Text(
                 displayPlain,
                 textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
@@ -6028,8 +6057,8 @@ class _LyricsPageState extends State<AurumLyricsPage> {
                   // what the user picked in settings.
                   fontSize: style.textSize,
                   height: style.lineSpacing,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
@@ -6043,9 +6072,20 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     return Stack(
       children: [
         Positioned.fill(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            child: content,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              final dragged = (n is ScrollStartNotification && n.dragDetails != null) ||
+                  (n is ScrollUpdateNotification && n.dragDetails != null);
+              if (dragged) {
+                _userScrollHoldUntil =
+                    DateTime.now().add(const Duration(seconds: 4));
+              }
+              return false;
+            },
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              child: content,
+            ),
           ),
         ),
         Positioned.fill(
@@ -6098,25 +6138,17 @@ class _SyncedLyricsView extends StatefulWidget {
   State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
 }
 
-class _SyncedLyricsViewState extends State<_SyncedLyricsView>
-    with SingleTickerProviderStateMixin {
-  // FIX ("white line dead jaisa lagta hai, live chahiye"): one shared,
-  // continuously-repeating controller for the active line's breathing
-  // glow — owned here (once, for the whole visible list) rather than per
-  // line, so there's a single ticker driving the effect no matter how
-  // many lines exist, and it survives line-to-line active-index changes
-  // without restarting (the breathing rhythm itself never resets, only
-  // which line's Opacity wrapper is currently letting it show through).
-  late final AnimationController _breathController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _breathController.dispose();
-    super.dispose();
-  }
+class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
+  // SPOTIFY-STYLE LYRICS (\"Spotify level ka lyrics chahiye, awkward lag raha
+  // hai\"): big, bold, left-aligned lines on the player's own backdrop. The
+  // active line is full-strength; already-sung lines dim right down and
+  // upcoming lines sit at a mid tone — exactly the three-tier read Spotify
+  // uses. The ONLY thing that animates is colour (one cheap TweenAnimationBuilder
+  // per visible line). The old blur + radial glow + scale + always-running
+  // \"breathing\" ticker are gone: they re-rasterised a blurred layer every
+  // frame (heat/jank on low-end phones) and made the text look soft/muddy.
+  // Nothing here changes a line's layout size, so the scroll target measured
+  // in _LyricsPageState._scrollToActiveLine can never move mid-glide.
 
   @override
   Widget build(BuildContext context) {
@@ -6126,243 +6158,71 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView>
     final listKey = widget.listKey;
     final lineKeyFor = widget.lineKeyFor;
     final isLight = widget.isLight;
+    // Lets the very last line still scroll up to the active-line resting spot.
+    final bottomPad = MediaQuery.sizeOf(context).height * 0.55;
 
     return ValueListenableBuilder<LyricsStyle>(
       valueListenable: AudioPrefs.lyricsStyleNotifier,
       builder: (context, style, _) {
         final activeColor =
             isLight ? AurumTheme.lightTextPrimary : Colors.white;
-        final inactiveColor = isLight
-            ? AurumTheme.lightTextMuted.withAlpha(150)
-            : Colors.white.withAlpha(85);
-        // Soft glow tint behind the active line — same hue as the text,
-        // just a translucent halo. Real premium lyrics UIs (Spotify/Apple
-        // Music) give the current line a subtle luminous quality, not
-        // just a weight change.
-        final glowColor =
-            (isLight ? AurumTheme.lightTextPrimary : Colors.white)
-                .withAlpha(isLight ? 40 : 55);
+        // Sung lines: dimmest. Upcoming lines: mid tone (still easy to read).
+        final pastColor = isLight
+            ? AurumTheme.lightTextMuted.withAlpha(100)
+            : Colors.white.withAlpha(95);
+        final upcomingColor = isLight
+            ? AurumTheme.lightTextMuted.withAlpha(170)
+            : Colors.white.withAlpha(150);
+        final isLeft = style.position == 'Left';
+        final align = isLeft ? TextAlign.left : TextAlign.center;
 
-        // FIX ("lyrics awkward bump karte hain, kabhi sahi se scroll nahi
-        // hota" — root cause): ScrollablePositionedList estimates each
-        // line's height before layout, then corrects itself once the real
-        // (different, since lines wrap differently) height is known —
-        // that correction was the visible bump. A plain ListView lays
-        // every line out normally (no pre-layout guessing) and the
-        // parent's own AnimationController-driven animateTo() (measuring
-        // each line's real RenderBox via its GlobalKey — see
-        // _scrollToActiveLine in _LyricsPageState) glides to an exact,
-        // already-known offset — nothing left to re-correct mid-flight.
         final list = ListView.builder(
           key: listKey,
           controller: scrollController,
           physics: const BouncingScrollPhysics(),
-          // Extra top padding gives the first few lines room to sit below
-          // the fade mask instead of emerging from directly under it;
-          // extra bottom padding keeps the last lines reachable above the
-          // tab bar, same as before.
-          padding: const EdgeInsets.fromLTRB(28, 32, 28, 220),
+          padding: EdgeInsets.fromLTRB(24, 40, 24, bottomPad),
           itemCount: lines.length,
           itemBuilder: (context, index) {
             final line = lines[index];
-            final isActive = index == activeIndex;
             if (line.text.isEmpty) {
-              return SizedBox(key: lineKeyFor(index), height: 22);
+              // Instrumental gap — a small, fixed breathing space.
+              return SizedBox(key: lineKeyFor(index), height: 20);
             }
-            // FIX ("lyrics ka change awkward hai, niche bump karta hai,
-            // kabhi kabhi scroll sahi se nahi hota — ekdam smooth aur cool
-            // chahiye"): the ONE remaining piece of this reveal that still
-            // changed real LAYOUT size was `size` below (fontSize
-            // baseSize→activeSize over the same 420ms as the scroll-to
-            // animation). A scroll's target offset is computed once, but
-            // this line's actual RenderBox height kept growing for the
-            // next 420ms underneath that already-locked target — the
-            // exact "bump then settle" symptom. Every other property here
-            // (blur, rise, scale, glow, color, weight) already lived
-            // safely in the paint layer and never caused this. Font size
-            // now stays fixed at baseSize for every line, active or not —
-            // the "bigger" read comes entirely from the Transform.scale
-            // below (paint-only, zero layout impact), so this line's
-            // height genuinely never changes and a scroll's target can
-            // never move out from under it again.
-            final baseSize = style.textSize;
+            final target = index == activeIndex
+                ? activeColor
+                : (index < activeIndex ? pastColor : upcomingColor);
             return Padding(
               key: lineKeyFor(index),
-              padding: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(vertical: 7),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => context.read<PlayerProvider>().seekTo(line.time),
-                // FIX ("lyrics ka animation koi aur, jyada attractive aur
-                // smooth chahiye — top grade"): the previous version
-                // stacked three separate implicit animations (AnimatedSlide
-                // + AnimatedScale + AnimatedOpacity glow + AnimatedDefault
-                // TextStyle), each ticking independently — which is part
-                // of what read as slightly mechanical/uncoordinated. This
-                // replaces all of that with ONE TweenAnimationBuilder
-                // driving a single 0→1 progress value, so every visual
-                // property (rise, scale, blur, glow, color, weight) moves
-                // on the exact same curve in perfect lockstep — a soft
-                // focus-pull "blur clears as the line rises into focus"
-                // reveal, the same premium feel Apple Music's karaoke-
-                // style focus lines have, rather than a flat size swap.
-                child: TweenAnimationBuilder<double>(
-                  key: ValueKey('lyric-anim-$index-$isActive'),
-                  tween: Tween(begin: 0.0, end: isActive ? 1.0 : 0.0),
-                  duration: const Duration(milliseconds: 420),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, t, _) {
-                    // Ease the blur out faster than the rest so it never
-                    // lingers as a muddy smear on the way in/out — the
-                    // focus should feel "snap-then-glide" not "hazy".
-                    final blurT = Curves.easeOutQuart.transform(t);
-                    final blurSigma = (1 - blurT) * 2.4;
-                    final rise = (1 - t) * 3.0; // px, settles to 0
-                    // Paint-only "bigger" emphasis — Transform never
-                    // participates in layout, so this line's real extent
-                    // (what the scroll list measures) never moves.
-                    final scale = 1.0 + (0.10 * t);
-                    final color = Color.lerp(inactiveColor, activeColor, t)!;
-                    final weight = t > 0.5 ? FontWeight.w800 : FontWeight.w500;
-                    final glowOpacity = t;
-
-                    return Transform.translate(
-                      offset: Offset(0, rise),
-                      child: Transform.scale(
-                        scale: scale,
-                        alignment: style.position == 'Left'
-                            ? Alignment.centerLeft
-                            : Alignment.center,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            // FIX ("white line aata hai, dead jaisa lagta
-                            // hai — live/attractive chahiye"): the old glow
-                            // was a flat rectangular pill — a hard-edged
-                            // BoxDecoration box with rounded corners behind
-                            // the whole line, same shape and intensity
-                            // everywhere inside it. A uniform flat-color
-                            // rectangle reads exactly as "a white bar/line"
-                            // because it visually IS one — no light source,
-                            // no falloff, nothing to suggest it's coming
-                            // FROM the text rather than sitting flatly
-                            // behind it. Real "alive" light — a stage
-                            // spotlight, a phone flashlight, Apple Music's
-                            // own current-line glow — always falls off
-                            // radially from a source and gently breathes
-                            // rather than holding one constant intensity.
-                            // Replaced with a RadialGradient centered on
-                            // the text (soft hotspot in the middle,
-                            // dissolving to fully transparent at the
-                            // edges — no rectangle edge exists to read as
-                            // a "line" at all) plus a slow continuous
-                            // breathing pulse for as long as the line
-                            // stays active, layered on top of the existing
-                            // one-shot reveal fade — so it doesn't just
-                            // flash on and go static, it keeps gently
-                            // living while it's the focus, exactly the
-                            // "not dead" quality being asked for.
-                            if (glowOpacity > 0.001)
-                            Positioned.fill(
-                              child: RepaintBoundary(
-                              child: Opacity(
-                                opacity: glowOpacity,
-                                child: AnimatedBuilder(
-                                  animation: _breathController,
-                                  builder: (context, _) {
-                                    final breathe =
-                                        0.85 + 0.15 * _breathController.value;
-                                    // FIX ("light aur dark dono theme pe
-                                    // ekdam perfect"): the app's own accent
-                                    // (theme-reactive — see the same
-                                    // AurumTheme.accentOf() already used
-                                    // for the lyrics shimmer highlight)
-                                    // reads as genuine colored light on
-                                    // BOTH themes, rather than the old
-                                    // convention of a plain white tint in
-                                    // dark mode and a dark/muddy tint in
-                                    // light mode — two visually different
-                                    // treatments for what should be one
-                                    // consistent "alive" glow. Light mode
-                                    // gets a lower peak alpha than dark
-                                    // (same asymmetry the rest of this
-                                    // screen already uses for glows/scrims)
-                                    // since the same absolute alpha reads
-                                    // far more strongly against a light
-                                    // background than a dark one.
-                                    final accent = AurumTheme.accentOf(context);
-                                    final peakAlpha = isLight ? 30 : 70;
-                                    return DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: RadialGradient(
-                                          center: style.position == 'Left'
-                                              ? const Alignment(-0.6, 0)
-                                              : Alignment.center,
-                                          radius: 1.3,
-                                          colors: [
-                                            accent.withAlpha(
-                                                (peakAlpha * breathe).round()),
-                                            accent.withAlpha(0),
-                                          ],
-                                          stops: const [0.0, 1.0],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 11, horizontal: 14),
-                              child: ImageFiltered(
-                                enabled: blurSigma > 0.05,
-                                imageFilter: ImageFilter.blur(
-                                  sigmaX: blurSigma,
-                                  sigmaY: blurSigma,
-                                ),
-                                child: Text(
-                                  line.text,
-                                  textAlign: style.position == 'Left'
-                                      ? TextAlign.left
-                                      : TextAlign.center,
-                                  style: TextStyle(
-                                    color: color,
-                                    fontSize: baseSize,
-                                    height: style.lineSpacing,
-                                    fontWeight: weight,
-                                    letterSpacing: 0.1,
-                                    shadows: t > 0.05
-                                        ? [
-                                            Shadow(
-                                              color: glowColor
-                                                  .withAlpha(
-                                                      (glowColor.alpha * t)
-                                                          .round()),
-                                              blurRadius: 18,
-                                            ),
-                                          ]
-                                        : null,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: target),
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOut,
+                    builder: (context, color, _) => Text(
+                      line.text,
+                      textAlign: align,
+                      style: TextStyle(
+                        color: color ?? target,
+                        fontSize: style.textSize,
+                        height: style.lineSpacing,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             );
           },
         );
 
-        // Top/bottom fade mask — the detail that most reads as "premium
-        // scrolling surface" rather than a plain list: lines don't hard-
-        // clip at the viewport edge, they dissolve into the background,
-        // exactly like Spotify/Apple Music's lyrics screens. Pure
-        // ShaderMask, no extra widgets rebuilding per scroll tick.
+        // Soft top/bottom fade so lines dissolve into the backdrop instead
+        // of hard-clipping at the edges (single ShaderMask, no per-tick work).
         return ShaderMask(
           shaderCallback: (rect) {
             return const LinearGradient(
@@ -6374,7 +6234,7 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView>
                 Colors.black,
                 Colors.transparent,
               ],
-              stops: [0.0, 0.06, 0.88, 1.0],
+              stops: [0.0, 0.05, 0.86, 1.0],
             ).createShader(rect);
           },
           blendMode: BlendMode.dstIn,
