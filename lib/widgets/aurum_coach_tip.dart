@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/splash_screen.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_motion.dart';
+import 'aurum_promo_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AurumCoachTip — one-time, non-blocking hint under a button.
@@ -44,6 +45,15 @@ class AurumCoachTip extends StatefulWidget {
   /// (e.g. "first-launch permission prompts are not finished yet").
   final Future<bool> Function()? ready;
 
+  /// When set, the hint is a full-screen animated promo (AurumPromoScreen,
+  /// auto-closes in ~2s) instead of the small bubble. The same patient
+  /// "calm moment" logic decides WHEN it appears. [title]/[message]/[icon]
+  /// are ignored in this mode (the promo carries its own copy).
+  final AurumPromoData? promo;
+
+  /// Runs only if the person taps the promo's CTA button.
+  final VoidCallback? onPromoAction;
+
   const AurumCoachTip({
     super.key,
     required this.child,
@@ -53,6 +63,8 @@ class AurumCoachTip extends StatefulWidget {
     required this.message,
     required this.enabled,
     this.ready,
+    this.promo,
+    this.onPromoAction,
   });
 
   @override
@@ -157,6 +169,34 @@ class _AurumCoachTipState extends State<AurumCoachTip> {
         if (++calm < _calmTicksNeeded) continue;
 
         // Calm for ~2.4s — show it.
+        // Re-check the flag right before showing: another instance with the
+        // same prefKey (e.g. grid / list toolbar) may have shown it already.
+        if (prefs.getBool(widget.prefKey) == true) return;
+        final promo = widget.promo;
+        if (promo != null) {
+          // Full-screen promo. Skipped (NOT marked seen) when animations are
+          // off / Battery Saver is on, so it can still appear on a later
+          // launch once motion is allowed again.
+          if (!AurumPromoScreen.canShow) return;
+          final nav = Navigator.of(context, rootNavigator: true);
+          _showing = true;
+          await prefs.setBool(widget.prefKey, true);
+          if (_disposed || !mounted) {
+            _showing = false;
+            return;
+          }
+          bool? go;
+          try {
+            go = await nav.push<bool>(AurumPromoRoute(promo, anchor: rect));
+          } finally {
+            _showing = false;
+          }
+          if (go == true && !_disposed && mounted) {
+            widget.onPromoAction?.call();
+          }
+          return;
+        }
+
         final overlay = Overlay.of(context);
         _showing = true;
         await prefs.setBool(widget.prefKey, true);

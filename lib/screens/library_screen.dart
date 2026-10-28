@@ -32,10 +32,8 @@ import '../widgets/aurum_equalizer_bars.dart';
 import '../widgets/aurum_song_options_sheet.dart' show showAurumSongOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
-import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
@@ -50,6 +48,8 @@ import '../services/api_service.dart' show ApiService;
 import '../services/playlist_import_service.dart';
 import '../models/artist.dart';
 import '../widgets/aurum_snack.dart';
+import '../widgets/aurum_coach_tip.dart';
+import '../widgets/aurum_promo_screen.dart' show AurumPromoData;
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/sync_service.dart';
@@ -4703,266 +4703,32 @@ class _ManageTagsSheetState extends State<_ManageTagsSheet> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IMPORT-PLAYLIST COACH MARK
+// IMPORT-PLAYLIST PROMO
 //
-// One-time, tiny tooltip under the toolbar's import button the first time a
-// person opens the Playlists screen, so they discover that playlists can be
-// imported from Spotify / YouTube. Design rules (20k active users, nothing
-// may feel pushy or glitchy):
-//   • shown ONCE per install (flag saved the moment it appears)
-//   • appears ~1s after the screen settled, never during the first frames
-//   • no dimming, no blocking: any touch anywhere removes it INSTANTLY and
-//     the touch still goes through to whatever was tapped
-//   • auto-hides after 8s, and is skipped if the button isn't on screen or
-//     another screen/sheet is on top
+// One-time, full-screen animated promo (≈2s, auto-closes, tap to skip) the
+// first time a person opens the Playlists screen, so they discover that
+// playlists can be imported from Spotify / YouTube. The WHEN-to-show logic
+// (once per install, waits for splash + a calm screen, never over a dialog)
+// lives in AurumCoachTip; the visuals live in aurum_promo_screen.dart.
+// Tapping the promo's "Import now" button opens the import flow (which asks
+// to sign in first when signed out).
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _ImportCoachAnchor extends StatefulWidget {
+class _ImportCoachAnchor extends StatelessWidget {
   final Widget child;
   const _ImportCoachAnchor({required this.child});
 
   @override
-  State<_ImportCoachAnchor> createState() => _ImportCoachAnchorState();
-}
-
-class _ImportCoachAnchorState extends State<_ImportCoachAnchor> {
-  static const _prefKey = 'import_playlist_tip_seen_v1';
-  static bool _showing = false; // never two at once
-  final GlobalKey _anchorKey = GlobalKey();
-  OverlayEntry? _entry;
-  Timer? _autoHide;
-  bool _disposed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShow());
-  }
-
-  Future<void> _maybeShow() async {
-    if (_showing) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefKey) == true) return;
-      await Future.delayed(const Duration(milliseconds: 1000));
-      if (_disposed || !mounted || _showing) return;
-
-      final route = ModalRoute.of(context);
-      if (route != null && !route.isCurrent) return;
-      final box = _anchorKey.currentContext?.findRenderObject();
-      if (box is! RenderBox || !box.attached || !box.hasSize) return;
-      final topLeft = box.localToGlobal(Offset.zero);
-      final rect = topLeft & box.size;
-      final screen = MediaQuery.of(context).size;
-      if (rect.top < 0 || rect.bottom > screen.height - 80) return;
-      if (rect.left < 0 || rect.right > screen.width) return;
-      // Really visible? A hit-test at the button's centre only reaches it
-      // when it is painted on the active tab and nothing (another tab of
-      // the IndexedStack, a sheet, a dialog) is on top of it.
-      final hit = HitTestResult();
-      WidgetsBinding.instance
-          .hitTestInView(hit, rect.center, View.of(context).viewId);
-      if (!hit.path.any((e) => identical(e.target, box))) return;
-
-      final overlay = Overlay.of(context);
-      _showing = true;
-      await prefs.setBool(_prefKey, true);
-      if (_disposed || !mounted) {
-        _showing = false;
-        return;
-      }
-      _entry = OverlayEntry(
-        builder: (ctx) => _ImportCoachOverlay(
-          anchor: rect,
-          onDismiss: _dismiss,
-        ),
-      );
-      overlay.insert(_entry!);
-      _autoHide = Timer(const Duration(seconds: 8), _dismiss);
-    } catch (_) {
-      // A tip is never worth an error — just skip it.
-      _showing = false;
-    }
-  }
-
-  void _dismiss() {
-    _autoHide?.cancel();
-    _autoHide = null;
-    final e = _entry;
-    _entry = null;
-    if (e != null) {
-      try {
-        e.remove();
-      } catch (_) {}
-      _showing = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _dismiss();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      KeyedSubtree(key: _anchorKey, child: widget.child);
-}
-
-class _ImportCoachOverlay extends StatelessWidget {
-  final Rect anchor;
-  final VoidCallback onDismiss;
-  const _ImportCoachOverlay({required this.anchor, required this.onDismiss});
-
-  @override
   Widget build(BuildContext context) {
-    final screen = MediaQuery.of(context).size;
-    const cardW = 252.0;
-    const margin = 16.0;
-    final accent = AurumTheme.accentOf(context);
-    final cx = anchor.center.dx;
-    final left = (cx + cardW / 2 + margin > screen.width)
-        ? screen.width - cardW - margin
-        : (cx - cardW / 2).clamp(margin, screen.width);
-    final arrowLeft = (cx - left - 7).clamp(18.0, cardW - 32);
-    final top = anchor.bottom + 12;
-
-    return Listener(
-      // translucent: a touch anywhere removes the tip at once AND still
-      // reaches the widget underneath — nothing ever gets blocked.
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (_) => onDismiss(),
-      child: Material(
-        type: MaterialType.transparency,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration:
-              AurumMotion.durationOrZero(const Duration(milliseconds: 320)),
-          curve: Curves.easeOutCubic,
-          builder: (context, t, child) => Opacity(
-            opacity: t,
-            child: Transform.translate(
-                offset: Offset(0, (1 - t) * 8), child: child),
-          ),
-          child: Stack(
-            children: [
-              // soft ring around the button
-              Positioned(
-                left: anchor.left - 4,
-                top: anchor.top - 4,
-                width: anchor.width + 8,
-                height: anchor.height + 8,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: accent.withOpacity(0.55), width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                            color: accent.withOpacity(0.28), blurRadius: 14),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: left.toDouble(),
-                top: top,
-                width: cardW,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(top: 6),
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                      decoration: BoxDecoration(
-                        color: AurumTheme.bgCardOf(context),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: accent.withOpacity(0.28)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.22),
-                            blurRadius: 22,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: accent.withOpacity(0.16),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.cloud_download_rounded,
-                                color: accent, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Import playlist',
-                                    style: TextStyle(
-                                        color:
-                                            AurumTheme.textPrimaryOf(context),
-                                        fontSize: 14.5,
-                                        fontWeight: FontWeight.w800)),
-                                const SizedBox(height: 2),
-                                Text.rich(
-                                  TextSpan(
-                                    children: [
-                                      const TextSpan(
-                                          text:
-                                              'Spotify, YouTube & more — just in sec '),
-                                      WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: Icon(Icons.bolt_rounded,
-                                            size: 15, color: accent),
-                                      ),
-                                    ],
-                                  ),
-                                  style: TextStyle(
-                                      color: AurumTheme.textMutedOf(context),
-                                      fontSize: 12.5,
-                                      height: 1.25),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      left: arrowLeft.toDouble(),
-                      top: 0,
-                      child: Transform.rotate(
-                        angle: 0.785398,
-                        child: Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: AurumTheme.bgCardOf(context),
-                            border: Border(
-                              top: BorderSide(color: accent.withOpacity(0.28)),
-                              left: BorderSide(color: accent.withOpacity(0.28)),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return AurumCoachTip(
+      prefKey: 'import_playlist_promo_seen_v2',
+      icon: Icons.cloud_download_rounded,
+      title: 'Import playlist',
+      message: 'Spotify, YouTube & more — just in sec',
+      promo: AurumPromoData.importPlaylist,
+      onPromoAction: () => _showImportPlaylistDialog(context),
+      enabled: () => true,
+      child: child,
     );
   }
 }

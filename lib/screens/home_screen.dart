@@ -38,6 +38,7 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_coach_tip.dart';
+import '../widgets/aurum_promo_screen.dart' show AurumPromoData;
 import '../widgets/mini_player.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../widgets/aurum_stacked_artwork.dart';
@@ -1349,47 +1350,28 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Subtle depth layer — barely-there, not a glow.
-                Text(
-                  'Astra',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                    height: 1.0,
-                    foreground: Paint()
-                      ..color = AurumTheme.accentOf(context).withOpacity(0.22)
-                      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-                  ),
-                ),
-                ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [
-                      AurumTheme.accentLightOf(context),
-                      AurumTheme.accentOf(context),
-                      AurumTheme.accentDarkOf(context),
-                    ],
-                    stops: [0.0, 0.5, 1.0],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ).createShader(bounds),
-                  child: const Text(
-                    'Astra',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
-                      height: 1.0,
-                    ),
-                  ),
-                ),
-              ],
+            // Astra wordmark (logo-style, wide geometric lettering),
+            // tinted with the same theme accent gradient as before.
+            ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) => LinearGradient(
+                colors: [
+                  AurumTheme.accentLightOf(context),
+                  AurumTheme.accentOf(context),
+                  AurumTheme.accentDarkOf(context),
+                ],
+                stops: const [0.0, 0.5, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: Image.asset(
+                'assets/images/astra_wordmark.png',
+                height: 14,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             // PREMIUM UPGRADE — slightly larger badge, crisper glow ring,
             // matches the bolder/bigger visual language used across the
             // rest of this redesign pass.
@@ -2406,11 +2388,15 @@ class _ProfileAvatarButton extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 12, left: 4),
       child: AurumCoachTip(
-        prefKey: 'profile_signin_tip_seen_v1',
+        // v2: new full-screen animated promo — everyone who never noticed
+        // the old small bubble gets to see it once.
+        prefKey: 'profile_signin_promo_seen_v2',
         icon: Icons.auto_awesome_rounded,
         title: 'Make it yours',
         message:
             'Sign in for smarter recommendations and a library that stays in sync.',
+        promo: AurumPromoData.signIn,
+        onPromoAction: () => _openProfile(context),
         enabled: () => !context.read<AuthProvider>().isSignedIn,
         // First launch shows the notification / storage prompts
         // one after another — wait until they are all finished so this hint
