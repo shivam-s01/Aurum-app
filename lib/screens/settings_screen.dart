@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/build_flavor.dart';
 import '../utils/aurum_transitions.dart';
 import '../providers/player_provider.dart';
 import '../providers/auth_provider.dart';
@@ -650,7 +651,9 @@ class _VersionFooterState extends State<_VersionFooter> {
     super.initState();
     if (_text == null) {
       PackageInfo.fromPlatform().then((info) {
-        _cached = 'Astra Music  •  v${info.version} (${info.buildNumber})';
+        _cached = kBuildLabel.isEmpty
+            ? 'Astra Music  •  v${info.version}'
+            : 'Astra Music  •  v${info.version} ($kBuildLabel)';
         if (mounted) setState(() => _text = _cached);
       }).catchError((_) {});
     }

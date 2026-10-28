@@ -193,11 +193,13 @@ object AurumSilentInstaller {
         }
 
         val filter = IntentFilter(ACTION_INSTALL_RESULT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(newReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(newReceiver, filter)
-        }
+        // SECURITY: never exported, on every API level (the plain
+        // registerReceiver() overload is exported on API <= 32, which let
+        // any app spoof install results / inject EXTRA_INTENT).
+        androidx.core.content.ContextCompat.registerReceiver(
+            context, newReceiver, filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         receiver = newReceiver
     }
 

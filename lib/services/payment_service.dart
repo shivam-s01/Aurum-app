@@ -234,8 +234,18 @@ class PaymentService {
       }
       final data = jsonDecode(resp.body);
       final status = data['order_status'] as String?;
+      var grantPlan = plan;
 
       if (status == 'PAID') {
+        // SECURITY: the plan actually paid for is derived by the Worker from
+        // the amount Cashfree charged. Prefer it over the locally-pending
+        // plan so a cheap order can never be redeemed as a pricier plan.
+        // (Older Workers don't send `plan` -> fall back to the pending plan.)
+        final serverPlanId = data['plan'] as String?;
+        if (serverPlanId != null) {
+          final matched = AurumPlan.values.where((p) => p.id == serverPlanId);
+          if (matched.isNotEmpty) grantPlan = matched.first;
+        }
         // Local grant: instant UI update on this device, and the fallback
         // PremiumProvider._refresh() uses if a later Supabase check is
         // offline/slow.
@@ -251,8 +261,10 @@ class PaymentService {
         // paid". Removing it and trusting only the Worker's server-side
         // write (which only fires when Cashfree itself confirms PAID) is
         // what actually closes that hole.
-        await _grantPremiumLocally(plan, orderId);
-        onPaymentSuccess?.call(plan, orderId);
+        await _grantPremiumLocally(grantPlan, orderId);
+        onPaymentSuccess?.call(grantPlan, orderId);
+      } else if (status == 'AMOUNT_MISMATCH') {
+        onPaymentError?.call('Payment amount could not be verified. Please contact support if you were charged.');
       } else if (status == 'ACTIVE') {
         // Payment still pending/in-progress on Cashfree's side.
         onPaymentError?.call('Payment not completed. Please try again.');

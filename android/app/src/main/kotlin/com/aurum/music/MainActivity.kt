@@ -142,7 +142,7 @@ class MainActivity : FlutterFragmentActivity() {
         // (focus/title/artist/album/genre/playlist/query) -> build the payload.
         val q = (intent.getStringExtra(VoiceBridge.EXTRA_PAYLOAD)
             ?: VoiceBridge.payload(intent.getStringExtra(android.app.SearchManager.QUERY), intent.extras)).trim()
-        if (q.isEmpty()) return
+        if (q.isEmpty() || q.length > 1000) return
         pendingVoiceQuery = q
         if (push) {
             voiceChannel?.invokeMethod("voicePlay", q, object : MethodChannel.Result {
@@ -322,15 +322,6 @@ class MainActivity : FlutterFragmentActivity() {
                         } catch (e: Exception) {
                             Log.w(TAG, "requestOverlayPermission error", e)
                             result.error("OVERLAY_PERMISSION_ERROR", e.message, null)
-                        }
-                    }
-                    "requestBatteryExemption" -> {
-                        try {
-                            requestBatteryExemption()
-                            result.success(null)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "requestBatteryExemption error", e)
-                            result.success(null)
                         }
                     }
                     "startIslandOverlay" -> {
@@ -632,22 +623,6 @@ class MainActivity : FlutterFragmentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val intent = Intent(
             android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName"),
-        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-        startActivity(intent)
-    }
-
-    // Battery optimization exemption — without this, some OEM battery
-    // managers (same MIUI/ColorOS/etc. family openAutostartSettings()
-    // already deals with) can freeze this process while backgrounded,
-    // which would silently kill the overlay's WindowManager views even
-    // though playback itself survives via the foreground MediaSessionService.
-    @Suppress("BatteryLife")
-    private fun requestBatteryExemption() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
-        val intent = Intent(
-            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
             Uri.parse("package:$packageName"),
         ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         startActivity(intent)

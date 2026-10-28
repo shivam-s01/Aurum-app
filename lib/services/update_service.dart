@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/build_flavor.dart';
 import '../utils/aurum_motion.dart';
 
 class ChangelogSection {
@@ -27,6 +28,24 @@ class _LatestBuild {
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
+
+  /// SECURITY: an APK URL (from check.json or the Releases API) is only
+  /// trusted if it is https and points at THIS repo's release downloads.
+  /// Anything else (tampered check.json, other host, http) is ignored.
+  /// The OS additionally refuses any APK not signed with our key.
+  static bool _isTrustedApkUrl(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null || u.scheme != 'https') return false;
+    final host = u.host.toLowerCase();
+    if (host != 'github.com' && host != 'objects.githubusercontent.com' &&
+        host != 'release-assets.githubusercontent.com') {
+      return false;
+    }
+    if (host == 'github.com') {
+      return u.path.toLowerCase().startsWith('/${_repo.toLowerCase()}/releases/download/');
+    }
+    return true;
+  }
   // Exact same two-call pattern Musify uses (gokadzev/Musify):
   // 1) check.json on the 'update' branch via raw.githubusercontent.com
   //    — no auth, no rate limit — just to compare version numbers.
@@ -57,6 +76,8 @@ class UpdateService {
     bool silent = true,
     bool force = false,
   }) async {
+    // Play Store builds are updated by Play, never from GitHub APKs.
+    if (kPlayBuild) return;
     try {
       final info = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
@@ -133,7 +154,9 @@ class UpdateService {
           final map = jsonDecode(res.body) as Map<String, dynamic>;
           final build = int.tryParse(map['buildNumber']?.toString() ?? '');
           final apkUrl = map['url']?.toString() ?? '';
-          if (build != null && apkUrl.isNotEmpty) return _LatestBuild(build, apkUrl);
+          if (build != null && apkUrl.isNotEmpty && _isTrustedApkUrl(apkUrl)) {
+            return _LatestBuild(build, apkUrl);
+          }
         }
       } catch (_) {}
       if (attempt == 0) await Future.delayed(const Duration(milliseconds: 600));
@@ -151,7 +174,7 @@ class UpdateService {
         String apk = '';
         for (final a in assets) {
           final u = (a as Map)['browser_download_url']?.toString() ?? '';
-          if (u.endsWith('.apk')) {
+          if (u.endsWith('.apk') && _isTrustedApkUrl(u)) {
             apk = u;
             break;
           }
@@ -522,6 +545,9 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
       final oldFile = File(path);
       if (await oldFile.exists()) await oldFile.delete();
 
+      if (!UpdateService._isTrustedApkUrl(widget.url)) {
+        throw Exception('untrusted update url');
+      }
       final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 15)));
       await dio.download(
         widget.url,

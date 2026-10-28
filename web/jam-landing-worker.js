@@ -19,6 +19,12 @@ function jamLanding(url) {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
     .slice(0, 6);
+  if (code.length !== 6) {
+    return new Response('Not found', {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  }
   const full = 'ASTRA-' + code;
   const fallback = encodeURIComponent(DOWNLOAD_URL);
   const intent =
@@ -55,6 +61,13 @@ function jamLanding(url) {
 </main></body></html>`;
 
   return new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer',
+      'x-frame-options': 'DENY',
+    },
   });
 }

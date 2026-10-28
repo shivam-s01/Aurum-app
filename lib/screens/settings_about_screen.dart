@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/build_flavor.dart';
 import '../utils/constants.dart';
 import '../services/update_service.dart';
 import '../widgets/changelog_sheet.dart';
@@ -21,7 +22,6 @@ class SettingsAboutScreen extends StatefulWidget {
 
 class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   String _version = '';
-  String _buildNumber = '';
 
   @override
   void initState() {
@@ -34,12 +34,12 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     if (!mounted) return;
     setState(() {
       _version = info.version;
-      _buildNumber = info.buildNumber;
     });
   }
 
   Future<void> _launch(String url, {bool inApp = false}) async {
     final uri = Uri.parse(url);
+    if (uri.scheme != 'https') return; // only web links, never intent:/file:
     // In-app browser tab (Chrome Custom Tabs) for our own legal pages —
     // stays inside the app; falls back to the external browser if no
     // custom-tabs provider exists.
@@ -114,11 +114,11 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
               _version.isEmpty ? 'Loading...' : 'v$_version',
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
             ),
-            if (_buildNumber.isNotEmpty)
+            if (kBuildLabel.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
-                  'Build $_buildNumber',
+                  'Build $kBuildLabel',
                   style: TextStyle(
                     color: AurumTheme.textMutedOf(context).withOpacity(0.6),
                     fontSize: 11,
@@ -130,12 +130,14 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
       ),
 
       _sectionLabel(context, l10n.abUpdate),
-      AurumSettingsTile.action(context,
-        icon: Icons.system_update_rounded,
-        title: l10n.abCheckForUpdate,
-        subtitle: l10n.abCheckForUpdateSubtitle,
-        onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context, silent: false, force: true); },
-      ),
+      // Play Store builds are updated by Play — no GitHub self-update tile.
+      if (!kPlayBuild)
+        AurumSettingsTile.action(context,
+          icon: Icons.system_update_rounded,
+          title: l10n.abCheckForUpdate,
+          subtitle: l10n.abCheckForUpdateSubtitle,
+          onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context, silent: false, force: true); },
+        ),
       AurumSettingsTile.action(context,
         icon: Icons.history_rounded,
         title: l10n.abChangelog,

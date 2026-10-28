@@ -97,6 +97,7 @@ class _SupportDeveloperScreenState extends State<SupportDeveloperScreen>
   Future<void> _open(String url, {bool inApp = false}) async {
     AurumHaptics.light();
     final uri = Uri.parse(url);
+    if (uri.scheme != 'https') return; // only web links, never intent:/file:
     try {
       if (inApp && await launchUrl(uri, mode: LaunchMode.inAppBrowserView)) return;
       if (await canLaunchUrl(uri)) {

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SECURITY: only the cache dir is shareable (the update APK is written
+     there by UpdateService). filesDir / external dirs are NOT exposed. -->
 <paths>
-    <external-files-path name="external_files" path="." />
     <cache-path name="cache" path="." />
-    <external-cache-path name="external_cache" path="." />
-    <files-path name="files" path="." />
 </paths>

@@ -2412,7 +2412,7 @@ class _ProfileAvatarButton extends StatelessWidget {
         message:
             'Sign in for smarter recommendations and a library that stays in sync.',
         enabled: () => !context.read<AuthProvider>().isSignedIn,
-        // First launch shows the notification / storage / autostart prompts
+        // First launch shows the notification / storage prompts
         // one after another — wait until they are all finished so this hint
         // never competes with them (existing users pass instantly).
         ready: () async {

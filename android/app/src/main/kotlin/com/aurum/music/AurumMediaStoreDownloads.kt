@@ -178,7 +178,11 @@ object AurumMediaStoreDownloads {
             "Astra",
         )
         if (!musicDir.exists()) musicDir.mkdirs()
-        val destFile = File(musicDir, displayName)
+        // SECURITY: strip any path component / illegal chars so a crafted
+        // title can't escape Music/Astra (../).
+        val safeName = File(displayName).name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        if (safeName.isBlank() || safeName == "." || safeName == "..") return null
+        val destFile = File(musicDir, safeName)
         try {
             sourceFile.copyTo(destFile, overwrite = true)
         } catch (e: Exception) {

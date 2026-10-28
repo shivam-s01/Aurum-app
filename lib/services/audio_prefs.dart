@@ -660,10 +660,6 @@ class AudioPrefs {
         await requestOverlayPermission();
         return false;
       }
-      // Best-effort — battery optimization exemption isn't required for
-      // the overlay to work, just makes it less likely to get killed in
-      // the background on aggressive OEM battery managers.
-      await requestBatteryExemption();
     }
     islandEnabledNotifier.value = v;
     final p = await SharedPreferences.getInstance();
@@ -690,13 +686,6 @@ class AudioPrefs {
   static Future<void> requestOverlayPermission() async {
     try {
       await _nativeChannel.invokeMethod('requestOverlayPermission');
-    } catch (_) {}
-  }
-
-  /// Opens the system's battery-optimization exemption prompt for Aurum.
-  static Future<void> requestBatteryExemption() async {
-    try {
-      await _nativeChannel.invokeMethod('requestBatteryExemption');
     } catch (_) {}
   }
 

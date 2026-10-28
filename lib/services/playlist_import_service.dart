@@ -355,10 +355,16 @@ class PlaylistImportService {
       final url = candidate.toLowerCase().startsWith('http')
           ? candidate
           : 'https://$candidate';
+      if (Uri.tryParse(url)?.scheme != 'https') {
+        throw const PlaylistImportException(PlaylistImportError.invalidLink);
+      }
       final resp = await http.get(Uri.parse(url), headers: {
         'User-Agent': _userAgent,
         'Accept-Language': 'en-US,en;q=0.9',
       }).timeout(const Duration(seconds: 12));
+      if (resp.bodyBytes.length > 3 * 1024 * 1024) {
+        throw const PlaylistImportException(PlaylistImportError.invalidLink);
+      }
       final finalUrl = resp.request?.url.toString() ?? url;
       final fromUrl = fromText(finalUrl);
       if (fromUrl != null) return fromUrl;

@@ -26,7 +26,6 @@ import 'library_screen.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/update_service.dart';
-import '../services/local_music_service.dart';
 import '../services/audio_prefs.dart';
 import '../services/sync_service.dart';
 import '../providers/auth_provider.dart';
@@ -331,59 +330,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     });
   }
 
-  /// Storage/audio access (so Downloads and the Offline library work
-  /// without a jarring mid-scan permission popup later) and battery
-  /// optimization exemption (THE fix for aggressive OEM skins —
-  /// Realme/ColorOS, MIUI, etc. — killing background playback within
-  /// minutes regardless of everything else being correctly wired). Each
-  /// request is independently try/caught: a denial of one never blocks or
-  /// crashes the rest of the app, it just degrades that specific feature.
+  /// Storage/audio access, so Downloads and the Offline library work
+  /// without a jarring mid-scan permission popup later. Try/caught: a
+  /// denial never blocks or crashes the rest of the app. No battery-
+  /// optimization or "Keep music playing" prompts are shown at launch.
   Future<void> _requestLaunchPermissions() async {
     try {
       final audio = await Permission.audio.request();
       if (!audio.isGranted) await Permission.storage.request();
     } catch (_) {}
-
-    // Battery-optimization-ignore system popup removed on request — never
-    // show it, at launch or anywhere else.
-    if (!mounted) return;
-
-    // OEM autostart/background-allow dialog (realme/OPPO/MIUI/Vivo/etc).
-    // Battery-optimization exemption alone isn't enough on these skins —
-    // there's a separate "Auto-launch"/"Allow background running" toggle
-    // that also has to be turned on manually, or the OS kills playback
-    // within minutes regardless of the exemption above.
-    if (!mounted) return;
-    await _showAutostartDialog();
-  }
-
-  Future<void> _showAutostartDialog() async {
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AurumTheme.bgCardOf(ctx),
-        title: const Text('Keep music playing'),
-        content: const Text(
-          'Allow background running & auto-launch for Aurum so songs '
-          "don't stop when the screen locks.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Later'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              LocalMusicService.openAutostartSettings();
-            },
-            child: const Text('Enable'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
