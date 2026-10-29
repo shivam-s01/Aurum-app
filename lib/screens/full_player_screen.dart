@@ -33,6 +33,7 @@ import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_snack.dart';
 import '../widgets/aurum_play_pause_icon.dart';
+import '../widgets/constellation_lyrics.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/audio_output_sheet.dart';
 import '../widgets/cast_button.dart';
@@ -5959,6 +5960,8 @@ class _LyricsPageState extends State<AurumLyricsPage> {
     final l10n = AppLocalizations.of(context)!;
     final isLight = !widget.onDarkBackdrop &&
         Theme.of(context).brightness == Brightness.light;
+    final lyricsAccent =
+        context.select<ThemeProvider, Color>((t) => t.accentColor);
     final mutedIcon =
         isLight ? AurumTheme.lightTextMuted.withAlpha(80) : Colors.white.withAlpha(25);
     final primaryMuted =
@@ -6012,15 +6015,31 @@ class _LyricsPageState extends State<AurumLyricsPage> {
       // returned — and that's what reads as clean. Matching that here:
       // show the raw synced text unchanged, same as the inline strip.
       final displayLines = rawLines;
-      content = _SyncedLyricsView(
+      // "Impressive lyrics" (Settings → Appearance → Immersive Lyrics ON):
+      // the full-screen lyrics views — the only callers that pass
+      // onDarkBackdrop — show the constellation (word = star) lyrics.
+      // Everything else, and the normal lyrics, stays exactly as before.
+      content = ValueListenableBuilder<LyricsViewMode>(
         key: const ValueKey('synced-lyrics'),
-        lines: displayLines,
-        activeIndex: _activeIndex,
-        scrollController: _scrollController,
-        listKey: _listKey,
-        lineKeyFor: _keyFor,
-        onPositionChanged: _onPositionChanged,
-        isLight: isLight,
+        valueListenable: AudioPrefs.lyricsViewModeNotifier,
+        builder: (context, mode, _) {
+          if (widget.onDarkBackdrop && mode == LyricsViewMode.fullscreen) {
+            return ConstellationLyrics(
+              lines: displayLines,
+              accent: lyricsAccent,
+              isLight: isLight,
+            );
+          }
+          return _SyncedLyricsView(
+            lines: displayLines,
+            activeIndex: _activeIndex,
+            scrollController: _scrollController,
+            listKey: _listKey,
+            lineKeyFor: _keyFor,
+            onPositionChanged: _onPositionChanged,
+            isLight: isLight,
+          );
+        },
       );
     } else {
       final rawPlain = _result!.plain ?? '';
