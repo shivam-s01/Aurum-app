@@ -430,6 +430,9 @@ class _ConstellationPainter extends CustomPainter {
   // One reusable Paint/Path for the whole frame (drawn immediately, so
   // sharing is safe) instead of allocating dozens per frame.
   final Paint _p = Paint();
+  // Used ONLY for gradient draws and never has its colour changed, so it
+  // behaves exactly like a fresh Paint() would (opaque, shader-only).
+  final Paint _sp = Paint();
   final Path _path = Path();
 
   // Theme colours depend only on accent + isLight, so compute them once.
@@ -535,9 +538,7 @@ class _ConstellationPainter extends CustomPainter {
     canvas.drawCircle(
       Offset.zero,
       rq / 4.0,
-      _p
-        ..style = PaintingStyle.fill
-        ..shader = sh,
+      _sp..shader = sh,
     );
     canvas.restore();
   }
