@@ -94,6 +94,7 @@ class _ConstellationLyricsState extends State<ConstellationLyrics>
   void didUpdateWidget(covariant ConstellationLyrics old) {
     super.didUpdateWidget(old);
     if (!identical(old.lines, widget.lines)) {
+      _sim.dispose();
       _sim = _Sim(_buildLines(widget.lines));
       _needSnap = true;
     }
@@ -104,6 +105,7 @@ class _ConstellationLyricsState extends State<ConstellationLyrics>
     _player.removeListener(_onPlayer);
     _ticker.dispose();
     _frame.dispose();
+    _sim.dispose();
     super.dispose();
   }
 
@@ -168,7 +170,7 @@ class _ConstellationLyricsState extends State<ConstellationLyrics>
 
   @override
   Widget build(BuildContext context) {
-    _reduceMotion = MediaQuery.of(context).disableAnimations;
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
     return LayoutBuilder(
       builder: (context, c) {
         _size = Size(c.maxWidth, c.maxHeight);
@@ -270,6 +272,30 @@ class _Sim {
   _Shoot? shoot;
   double _shootIn = 9000;
 
+  // Render caches. A word's text only needs laying out again when its size
+  // or colour actually changes, and a gradient only when its radius/alpha
+  // changes, so steady frames re-use everything instead of rebuilding it.
+  final Map<int, TextPainter> tpCache = {};
+  final Map<int, TextPainter> glowCache = {};
+  final Map<int, ui.Shader> shCache = {};
+  int _cacheLi = -2;
+
+  void _clearText() {
+    for (final t in tpCache.values) {
+      t.dispose();
+    }
+    for (final t in glowCache.values) {
+      t.dispose();
+    }
+    tpCache.clear();
+    glowCache.clear();
+  }
+
+  void dispose() {
+    _clearText();
+    shCache.clear();
+  }
+
   double camX = 0, camY = 0;
   int li = -1;
   int act = -1;
@@ -313,6 +339,12 @@ class _Sim {
     if (playing) amb += dt;
 
     li = lines.isEmpty ? -1 : _findLine(pos);
+    // Safe point to evict caches: update() always runs before paint().
+    if (li != _cacheLi || tpCache.length > 160 || glowCache.length > 40) {
+      _clearText();
+      _cacheLi = li;
+    }
+    if (shCache.length > 40) shCache.clear();
     act = -1;
     var tx = 0.0, ty = 0.0;
     if (li >= 0) {
@@ -395,6 +427,22 @@ class _ConstellationPainter extends CustomPainter {
   final Color accent;
   final bool isLight;
 
+  // One reusable Paint/Path for the whole frame (drawn immediately, so
+  // sharing is safe) instead of allocating dozens per frame.
+  final Paint _p = Paint();
+  final Path _path = Path();
+
+  // Theme colours depend only on accent + isLight, so compute them once.
+  late final Color _deep = isLight
+      ? HSLColor.fromColor(accent).withLightness(0.30).toColor()
+      : accent;
+  late final Color _text = isLight
+      ? const Color(0xFF1A1610)
+      : (Color.lerp(Colors.white, accent, 0.16) ?? Colors.white);
+  late final Color _dim = isLight
+      ? HSLColor.fromColor(accent).withLightness(0.26).toColor()
+      : (Color.lerp(accent, Colors.white, 0.1) ?? accent);
+
   _ConstellationPainter({
     required this.sim,
     required this.accent,
@@ -406,22 +454,101 @@ class _ConstellationPainter extends CustomPainter {
   bool shouldRepaint(covariant _ConstellationPainter old) =>
       old.accent != accent || old.isLight != isLight || !identical(old.sim, sim);
 
+  Paint _fill(Color c) => _p
+    ..shader = null
+    ..style = PaintingStyle.fill
+    ..color = c;
+
+  Paint _stroke(Color c, double w) => _p
+    ..shader = null
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = w
+    ..color = c;
+
+  // Cached text layout. Size is quantised to 0.1px (invisible) so a word
+  // that is not animating hits the cache every frame.
+  TextPainter _tpFor(int i, String word, int fq, Color color) {
+    final key = (i * 2048 + fq) * 4294967296 + color.value;
+    var tp = sim.tpCache[key];
+    if (tp == null) {
+      tp = TextPainter(
+        text: TextSpan(
+          text: word,
+          style: TextStyle(
+            fontSize: fq / 10.0,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+            height: 1.0,
+            color: color,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      sim.tpCache[key] = tp;
+    }
+    return tp;
+  }
+
+  TextPainter _glowFor(int i, String word, int fq, Color color) {
+    final key = (i * 2048 + fq) * 4294967296 + color.value;
+    var tp = sim.glowCache[key];
+    if (tp == null) {
+      tp = TextPainter(
+        text: TextSpan(
+          text: word,
+          style: TextStyle(
+            fontSize: fq / 10.0,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+            height: 1.0,
+            foreground: Paint()
+              ..color = color
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      sim.glowCache[key] = tp;
+    }
+    return tp;
+  }
+
+  // Radial glow with a cached shader. The gradient is built around the
+  // origin and the canvas is translated to [c], so moving glows (drifting
+  // nebula, following star) never need a new shader.
+  void _radial(Canvas canvas, int slot, Offset c, double r, Color col, double al) {
+    final rq = (r * 4).round();
+    if (rq <= 0) return;
+    final ai = (_c01(al) * 255).round();
+    final key = ((slot * 8192 + rq) * 256 + ai) * 16777216 + (col.value & 0xFFFFFF);
+    var sh = sim.shCache[key];
+    if (sh == null) {
+      sh = ui.Gradient.radial(
+        Offset.zero,
+        rq / 4.0,
+        [col.withAlpha(ai), col.withAlpha(0)],
+      );
+      sim.shCache[key] = sh;
+    }
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.drawCircle(
+      Offset.zero,
+      rq / 4.0,
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = sh,
+    );
+    canvas.restore();
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final dark = !isLight;
     final w = size.width, h = size.height;
     if (w <= 0 || h <= 0 || sim.size == Size.zero) return;
     final lite = sim.lite;
-
-    final deep = isLight
-        ? HSLColor.fromColor(accent).withLightness(0.30).toColor()
-        : accent;
-    final text = isLight
-        ? const Color(0xFF1A1610)
-        : (Color.lerp(Colors.white, accent, 0.16) ?? Colors.white);
-    final dim = isLight
-        ? HSLColor.fromColor(accent).withLightness(0.26).toColor()
-        : (Color.lerp(accent, Colors.white, 0.1) ?? accent);
+    final deep = _deep, text = _text, dim = _dim;
 
     final t = sim.amb;
     _space(canvas, size, t, deep, dark, lite);
@@ -454,16 +581,13 @@ class _ConstellationPainter extends CustomPainter {
     canvas.translate(
         sim.camX + math.sin(t / 2600) * 3, sim.camY + math.cos(t / 3100) * 3);
 
-    final dot = Paint();
+    final upcoming = _a(deep, 0.16 * env);
     for (var i = act + 1; i < n; i++) {
-      canvas.drawCircle(Offset(L.pts[i].dx * w, L.pts[i].dy * h), 1.6,
-          dot..color = _a(deep, 0.16 * env));
+      canvas.drawCircle(
+          Offset(L.pts[i].dx * w, L.pts[i].dy * h), 1.6, _fill(upcoming));
     }
 
     // ── constellation lines ──
-    final linePaint = Paint()
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
     for (var i = 1; i <= act; i++) {
       final p0 = Offset(L.pts[i - 1].dx * w, L.pts[i - 1].dy * h);
       final p1 = Offset(L.pts[i].dx * w, L.pts[i].dy * h);
@@ -472,13 +596,14 @@ class _ConstellationPainter extends CustomPainter {
           Offset(p0.dx + (p1.dx - p0.dx) * p, p0.dy + (p1.dy - p0.dy) * p);
       final extra = i == act ? 0.25 * (1 - p) : 0.0;
       canvas.drawLine(
-          p0, head, linePaint..color = _a(deep, (lineBase + extra) * env));
+          p0, head, _stroke(_a(deep, (lineBase + extra) * env), 1));
       if (p < 1) {
-        canvas.drawCircle(head, 2, Paint()..color = _a(text, env));
+        canvas.drawCircle(head, 2, _fill(_a(text, env)));
       }
     }
 
     // ── stars + words ──
+    final maxW = w - pad * 2;
     for (var i = 0; i <= act; i++) {
       final px = L.pts[i].dx * w;
       final py = L.pts[i].dy * h;
@@ -487,30 +612,14 @@ class _ConstellationPainter extends CustomPainter {
       final sh = i < act ? _easeOut((pos - L.wordMs[i + 1]) / 650.0) : 0.0;
       var fs = _lerp(big * (0.55 + 0.45 * ap), small, sh);
       final alpha = _lerp(1, dark ? 0.55 : 0.7, sh) * ap * env;
-      final col = Color.lerp(text, dim, sh) ?? text;
+      final col = _a(Color.lerp(text, dim, sh) ?? text, alpha);
 
-      TextStyle style(double size, {Paint? fg}) => TextStyle(
-            fontSize: size,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.2,
-            height: 1.0,
-            color: fg == null ? _a(col, alpha) : null,
-            foreground: fg,
-          );
-
-      var tp = TextPainter(
-        text: TextSpan(text: L.words[i], style: style(fs)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final maxW = w - pad * 2;
+      var fq = math.max(1, (fs * 10).round());
+      var tp = _tpFor(i, L.words[i], fq, col);
       if (tp.width > maxW && tp.width > 0) {
-        final ratio = maxW / tp.width;
-        tp.dispose();
-        fs = fs * ratio;
-        tp = TextPainter(
-          text: TextSpan(text: L.words[i], style: style(fs)),
-          textDirection: TextDirection.ltr,
-        )..layout();
+        fs = fs * maxW / tp.width;
+        fq = math.max(1, (fs * 10).round());
+        tp = _tpFor(i, L.words[i], fq, col);
       }
 
       var tx = px;
@@ -522,26 +631,12 @@ class _ConstellationPainter extends CustomPainter {
         tx = px + (c - sx) * (1 - sh);
       }
       final cy = py - (fs * 0.62 + 8) + (1 - ap) * 10;
-      final at = Offset(tx - tp.width / 2, cy - tp.height / 2);
 
       if (dark && !lite && i == act && sh < 0.5 && alpha > 0.05) {
-        final g = TextPainter(
-          text: TextSpan(
-            text: L.words[i],
-            style: style(
-              fs,
-              fg: Paint()
-                ..color = _a(accent, 0.75 * alpha)
-                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
+        final g = _glowFor(i, L.words[i], fq, _a(accent, 0.75 * alpha));
         g.paint(canvas, Offset(tx - g.width / 2, cy - g.height / 2));
-        g.dispose();
       }
-      tp.paint(canvas, at);
-      tp.dispose();
+      tp.paint(canvas, Offset(tx - tp.width / 2, cy - tp.height / 2));
 
       // star
       final c = Offset(px, py);
@@ -550,18 +645,9 @@ class _ConstellationPainter extends CustomPainter {
         final glowR = sr * 3.4;
         final gA = (dark ? 0.35 : 0.18) * alpha;
         if (i == act && !lite) {
-          canvas.drawCircle(
-            c,
-            glowR,
-            Paint()
-              ..shader = ui.Gradient.radial(
-                c,
-                glowR,
-                [_a(deep, gA), _a(deep, 0)],
-              ),
-          );
+          _radial(canvas, 2, c, glowR, deep, gA);
         } else {
-          canvas.drawCircle(c, glowR * 0.6, Paint()..color = _a(deep, gA * 0.35));
+          canvas.drawCircle(c, glowR * 0.6, _fill(_a(deep, gA * 0.35)));
         }
         _sparkle(canvas, c, sr, i == act ? t / 900 : 0,
             _a(Color.lerp(text, deep, 0.5) ?? deep, alpha));
@@ -571,29 +657,22 @@ class _ConstellationPainter extends CustomPainter {
           canvas.drawCircle(
             c,
             _easeOut(age / 800) * 46,
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1
-              ..color = _a(deep, (1 - age / 800) * 0.45 * env),
+            _stroke(_a(deep, (1 - age / 800) * 0.45 * env), 1),
           );
         }
         canvas.drawCircle(
           c,
           13 + math.sin(t / 260) * 1.5,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1
-            ..color = _a(deep, 0.3 * env),
+          _stroke(_a(deep, 0.3 * env), 1),
         );
       }
     }
 
     // ── sparks ──
-    final sp = Paint();
     for (final q in sim.parts) {
       final a = 1 - q.life / q.max;
       if (a <= 0) continue;
-      canvas.drawCircle(Offset(q.x, q.y), 0.4 + 1.6 * a, sp..color = _a(deep, a));
+      canvas.drawCircle(Offset(q.x, q.y), 0.4 + 1.6 * a, _fill(_a(deep, a)));
     }
 
     canvas.restore();
@@ -607,38 +686,27 @@ class _ConstellationPainter extends CustomPainter {
     // Deliberately subtle and single-hue (the theme accent only): the
     // lyrics sit on the player's own artwork gradient, so anything louder
     // or multi-coloured would fight it.
-    final blobs = <List<Object>>[
-      [0.22, 0.30, 0.80, deep, dark ? 0.085 : 0.04],
-      [0.80, 0.62, 0.75, deep, dark ? 0.065 : 0.03],
-    ];
-    for (var i = 0; i < blobs.length; i++) {
-      final b = blobs[i];
+    const bx = [0.22, 0.80];
+    const by = [0.30, 0.62];
+    const br = [0.80, 0.75];
+    final ba = dark ? const [0.085, 0.065] : const [0.04, 0.03];
+    for (var i = 0; i < 2; i++) {
       final drift = lite ? 0.0 : 18.0;
-      final ox = (b[0] as double) * w + math.sin(t / 5200 + i * 2.1) * drift - sim.camX * 0.25;
-      final oy = (b[1] as double) * h + math.cos(t / 6100 + i * 1.3) * drift - sim.camY * 0.25;
-      final r = (b[2] as double) * mx;
+      final ox = bx[i] * w + math.sin(t / 5200 + i * 2.1) * drift - sim.camX * 0.25;
+      final oy = by[i] * h + math.cos(t / 6100 + i * 1.3) * drift - sim.camY * 0.25;
+      final r = br[i] * mx;
       final breathe = lite ? 1.0 : 0.88 + 0.12 * math.sin(t / 4200 + i);
-      final col = b[3] as Color;
-      final al = (b[4] as double) * breathe;
-      final c = Offset(ox, oy);
-      canvas.drawCircle(
-        c,
-        r,
-        Paint()..shader = ui.Gradient.radial(c, r, [_a(col, al), _a(col, 0)]),
-      );
+      _radial(canvas, i, Offset(ox, oy), r, deep, ba[i] * breathe);
     }
 
     final count = lite ? 24 : 46;
-    final p = Paint();
     for (var i = 0; i < count; i++) {
       final s = sim.stars[i];
       final y = (s.y * h - t * 0.004 * s.d) % h;
       final x = (s.x * w + sim.camX * s.d * 0.4) % w;
       final tw = lite ? 0.6 : 0.5 + 0.5 * math.sin(t / 700 + s.ph);
       final al = (0.07 + 0.36 * tw) * s.d * (dark ? 1.0 : 0.6);
-      final r = 0.4 + 0.9 * s.d;
-      p.color = _a(deep, al);
-      canvas.drawCircle(Offset(x, y), r, p);
+      canvas.drawCircle(Offset(x, y), 0.4 + 0.9 * s.d, _fill(_a(deep, al)));
     }
 
     final s = sim.shoot;
@@ -673,7 +741,7 @@ class _ConstellationPainter extends CustomPainter {
   }
 
   void _sparkle(Canvas canvas, Offset c, double r, double rot, Color color) {
-    final path = Path();
+    final path = _path..reset();
     for (var i = 0; i < 8; i++) {
       final rad = i.isEven ? r : r * 0.22;
       final ang = rot + i * math.pi / 4 - math.pi / 2;
@@ -686,6 +754,6 @@ class _ConstellationPainter extends CustomPainter {
       }
     }
     path.close();
-    canvas.drawPath(path, Paint()..color = color);
+    canvas.drawPath(path, _fill(color));
   }
 }
