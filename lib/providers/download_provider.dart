@@ -245,6 +245,11 @@ class DownloadProvider extends ChangeNotifier {
   List<DownloadItem> get inProgress =>
       items.where((d) => d.isDownloading || d.isPaused).toList();
 
+  /// Failed downloads - surfaced on the "In progress" tab with a retry
+  /// action so a failure is never silent.
+  List<DownloadItem> get failed =>
+      items.where((d) => d.isFailed).toList();
+
   bool isDownloaded(String songId) =>
       _items[songId]?.status == DownloadStatus.completed;
 
@@ -956,6 +961,17 @@ class DownloadProvider extends ChangeNotifier {
       return;
     }
     _cancelTokens[songId]?.cancel();
+  }
+
+  /// Removes a failed download's entry (the "x" on a failed card) so it
+  /// stops showing on the In progress tab.
+  Future<void> dismissFailed(String songId) async {
+    final item = _items[songId];
+    if (item == null || !item.isFailed) return;
+    _items.remove(songId);
+    notifyListeners();
+    final box = _box ?? await _boxReady.future;
+    await box.delete(songId);
   }
 
   Future<void> retry(Song song) async {

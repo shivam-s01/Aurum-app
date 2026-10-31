@@ -1057,10 +1057,14 @@ class _SearchScreenState extends State<SearchScreen>
               _buildSearchBar(context),
               _buildFilterChips(context),
               Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).viewInsets.bottom,
-                  ),
+                // PERF (battery/heat/low-end): the keyboard inset used to be
+                // read via MediaQuery.of(context) right here in the State's
+                // build(), so EVERY keyboard-animation frame (60+ per open
+                // or close) rebuilt the whole Search screen — header, bar,
+                // chips and the entire results subtree. Now only this tiny
+                // wrapper listens to the inset; its child is the same widget
+                // instance, so Flutter skips rebuilding it.
+                child: _KeyboardInsetPadding(
                   child:
                     // FIX (nav bar showed solid/opaque on Search but
                     // transparent on Home): this used to be
@@ -1223,9 +1227,10 @@ class _SearchScreenState extends State<SearchScreen>
       return _buildEmptyFilterState(context, 'No albums found');
     }
     return ListView.builder(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       key: const ValueKey('albums_filter'),
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      padding: EdgeInsets.fromLTRB(20, 8, 20, _searchBottomClearance(context)),
       itemCount: _albumResults.length,
       itemBuilder: (context, i) {
         final album = _albumResults[i];
@@ -1300,9 +1305,10 @@ class _SearchScreenState extends State<SearchScreen>
       return _buildEmptyFilterState(context, 'No artists found');
     }
     return ListView.builder(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       key: const ValueKey('artists_filter'),
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      padding: EdgeInsets.fromLTRB(20, 8, 20, _searchBottomClearance(context)),
       itemCount: _artistResults.length,
       itemBuilder: (context, i) => _buildArtistListTile(context, _artistResults[i]),
     );
@@ -1352,9 +1358,10 @@ class _SearchScreenState extends State<SearchScreen>
       return _buildEmptyFilterState(context, 'No community playlists found');
     }
     return ListView.builder(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       key: const ValueKey('community_playlists_filter'),
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      padding: EdgeInsets.fromLTRB(20, 8, 20, _searchBottomClearance(context)),
       itemCount: _communityPlaylistResults.length,
       itemBuilder: (context, i) =>
           _buildPlaylistResultTile(context, _communityPlaylistResults[i]),
@@ -1402,9 +1409,10 @@ class _SearchScreenState extends State<SearchScreen>
       return _buildEmptyFilterState(context, 'No featured playlists found');
     }
     return ListView.builder(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       key: const ValueKey('featured_playlists_filter'),
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      padding: EdgeInsets.fromLTRB(20, 8, 20, _searchBottomClearance(context)),
       itemCount: _featuredPlaylistResults.length,
       itemBuilder: (context, i) =>
           _buildPlaylistResultTile(context, _featuredPlaylistResults[i]),
@@ -1568,7 +1576,22 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
+  // The bar rebuilds itself (and ONLY itself) on focus / text changes. Before,
+  // focus styling (border, glow, icon colour, back/clear buttons) depended on
+  // the whole screen happening to setState — so it could go stale when no
+  // history existed — and any full setState re-ran the entire screen. Now the
+  // visuals are always right and cost one tiny subtree per keystroke.
+  late final Listenable _searchBarListenable =
+      Listenable.merge([_focusNode, _controller]);
+
   Widget _buildSearchBar(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _searchBarListenable,
+      builder: (ctx, _) => _buildSearchBarContent(ctx),
+    );
+  }
+
+  Widget _buildSearchBarContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final focused = _focusNode.hasFocus;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1631,7 +1654,13 @@ class _SearchScreenState extends State<SearchScreen>
                     AurumPressable(
                       scaleAmount: 0.82,
                       onTap: _clearSearch,
-                      child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                      // 34px tap target (was the bare 18px icon) — much
+                      // easier to hit on small phones; AurumPressable is
+                      // opaque so the padding is tappable.
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                      ),
                     ),
                   AurumPressable(
                     scaleAmount: 0.82,
@@ -1746,10 +1775,12 @@ class _SearchScreenState extends State<SearchScreen>
         ),
         Expanded(
           child: ListView.builder(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             physics: const BouncingScrollPhysics(),
             // PERF: pre-builds rows a bit ahead of view so fast scrolling
             // through history doesn't show list items popping in.
             cacheExtent: 600,
+            padding: EdgeInsets.only(bottom: _searchBottomClearance(context)),
             itemCount: _history.length,
             itemExtent: 52,
             itemBuilder: (_, i) {
@@ -1846,7 +1877,8 @@ class _SearchScreenState extends State<SearchScreen>
       // results list below — this live-typing list scrolls independently
       // of the header/search bar above it, so it shouldn't repaint them.
       content = RepaintBoundary(child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 80),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.only(bottom: _searchBottomClearance(context)),
         itemCount: totalCount,
         // PERF: bounds how much off-screen content gets pre-built while
         // scrolling — same tuning as the submit-search results list below.
@@ -2110,11 +2142,12 @@ class _SearchScreenState extends State<SearchScreen>
       children: [
         RepaintBoundary(
           child: ListView.builder(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             key: const ValueKey('results'),
             physics: const BouncingScrollPhysics(),
             cacheExtent: 800,
             itemCount: headerItemCount + itemCount,
-            padding: const EdgeInsets.only(bottom: 80),
+            padding: EdgeInsets.only(bottom: _searchBottomClearance(context)),
             itemBuilder: (_, rawIndex) {
               if (showTopResultsHeader && rawIndex == 0) {
                 return _topResultsHeader(context);
@@ -2576,14 +2609,19 @@ class _SearchScreenState extends State<SearchScreen>
         if (seenTitles.add(tile.title)) tiles.add(tile);
       }
     }
-    return SingleChildScrollView(
+    // PERF (low-end / battery): this used to be SingleChildScrollView ->
+    // Column -> GridView(shrinkWrap: true), which builds and lays out EVERY
+    // tile (40-80 of them, each with a rotated network thumbnail) the moment
+    // the tab opens. SliverGrid inside a CustomScrollView is lazy: only the
+    // tiles near the viewport exist, so first paint is far cheaper and
+    // memory/CPU stay flat. Same layout, spacing and look.
+    return CustomScrollView(
       key: const ValueKey('explore_grid'),
-      padding: const EdgeInsets.only(bottom: 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: Text(
               'Mood & Genres',
               style: TextStyle(
@@ -2594,20 +2632,18 @@ class _SearchScreenState extends State<SearchScreen>
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: tiles.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 2.1,
-              ),
-              itemBuilder: (context, i) {
+        ),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(20, 0, 20, _searchBottomClearance(context)),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 2.1,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, i) {
                 final tile = tiles[i];
                 final color = tile.color != null
                     ? Color(tile.color!).withAlpha(255)
@@ -2626,10 +2662,11 @@ class _SearchScreenState extends State<SearchScreen>
                   },
                 );
               },
+              childCount: tiles.length,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -2778,51 +2815,48 @@ class _SuggestionsLandingState extends State<_SuggestionsLanding> {
       }
     }
 
-    return SingleChildScrollView(
+    Widget heading(String text, double top) => Padding(
+          padding: EdgeInsets.fromLTRB(20, top, 20, 8),
+          child: Text(
+            text,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+            ),
+          ),
+        );
+
+    // PERF: CustomScrollView + SliverList builds "Unique Songs" lazily
+    // (each SongTile loads artwork + listens to player state). The old
+    // Column + List.generate built every tile up-front.
+    return CustomScrollView(
       key: const ValueKey('suggestions_landing'),
-      padding: const EdgeInsets.only(bottom: 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
           if (songs.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Text(
-                'Unique Songs',
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
+            SliverToBoxAdapter(child: heading('Unique Songs', 16)),
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final song = songs[i];
+                  return SongTile(
+                    key: ValueKey('unique_song_${song.id}'),
+                    song: song,
+                    queue: songs,
+                    index: i,
+                    showIndex: true,
+                    displayIndex: i + 1,
+                  );
+                },
+                childCount: songs.length,
               ),
             ),
-            ...List.generate(songs.length, (i) {
-              final song = songs[i];
-              return SongTile(
-                key: ValueKey('unique_song_${song.id}'),
-                song: song,
-                queue: songs,
-                index: i,
-                showIndex: true,
-                displayIndex: i + 1,
-              );
-            }),
           ],
           if (uniqueArtists.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: Text(
-                'Unique Artists',
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-            FadedHorizontalList(
+            SliverToBoxAdapter(child: heading('Unique Artists', 20)),
+            SliverToBoxAdapter(child: FadedHorizontalList(
               height: 132,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
@@ -2833,22 +2867,11 @@ class _SuggestionsLandingState extends State<_SuggestionsLanding> {
                 itemBuilder: (context, i) =>
                     _SuggestionArtistChip(key: ValueKey(uniqueArtists[i].id), artist: uniqueArtists[i]),
               ),
-            ),
+            )),
           ],
           if (albums.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: Text(
-                'Top Albums',
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-            SizedBox(
+            SliverToBoxAdapter(child: heading('Top Albums', 20)),
+            SliverToBoxAdapter(child: SizedBox(
               height: 190,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
@@ -2874,10 +2897,10 @@ class _SuggestionsLandingState extends State<_SuggestionsLanding> {
                   },
                 ),
               ),
-            ),
+            )),
           ],
-        ],
-      ),
+          SliverToBoxAdapter(child: SizedBox(height: _searchBottomClearance(context))),
+      ],
     );
   }
 }
@@ -3002,6 +3025,40 @@ class _ExploreMoodTile extends StatelessWidget {
 }
 
 
+// How much empty space every Search list must leave at its END so the last
+// row (e.g. the final Mood & Genres tile, "Telugu") can scroll fully ABOVE
+// the floating mini player + nav bar and stay tappable.
+//
+// MainShell strips MediaQuery bottom padding for tab content (so content
+// never jitters when the mini player shows/hides), which means screens must
+// reserve this space themselves — and it must NOT depend on whether the mini
+// player is currently visible, or lists would shift when it appears.
+// Worst case is used: mini player (68, taller "floating" variant) + its
+// margin (8) + nav bar (64) + its floating bottom gap (10) + the real
+// system bottom inset (gesture bar / 3-button nav, read straight from the
+// view because the shell zeroes it in MediaQuery) + 16 breathing room.
+double _searchBottomClearance(BuildContext context) {
+  final view = View.of(context);
+  final systemBottom = view.padding.bottom / view.devicePixelRatio;
+  return 68 + 8 + 64 + 10 + 16 + systemBottom;
+}
+
+// Pads its child by the on-screen keyboard height. Isolated into its own
+// widget so the (per-frame) keyboard animation only rebuilds this wrapper,
+// never the Search screen's State.build() or the results list beneath it.
+class _KeyboardInsetPadding extends StatelessWidget {
+  final Widget child;
+  const _KeyboardInsetPadding({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: child,
+    );
+  }
+}
+
 // Tiny reusable press-scale wrapper — same feel as home_screen's _SongCard
 // press animation, without duplicating an AnimationController per widget type.
 class _PressScale extends StatefulWidget {
@@ -3039,7 +3096,11 @@ class _PressScaleState extends State<_PressScale>
 
   void _handleTap() {
     AurumHaptics.selection();
-    _ctrl.forward().then((_) => _ctrl.reverse());
+    // mounted guard: reverse() on a disposed controller throws if the
+    // widget is torn down (tab switch / filter change) mid-press.
+    _ctrl.forward().then((_) {
+      if (mounted) _ctrl.reverse();
+    });
     widget.onTap();
   }
 

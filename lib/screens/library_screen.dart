@@ -34,7 +34,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
@@ -67,7 +66,6 @@ import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import '../utils/aurum_transitions.dart';
 import 'settings_screen.dart';
-import 'settings_storage_screen.dart';
 import 'liked_screen.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
@@ -484,7 +482,15 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
   void initState() {
     super.initState();
     final lib = context.read<LibraryProvider>();
-    if (!lib.hasLoaded) {
+    // No likes yet -> open on "All Songs" instead of an empty Liked list
+    // (only once favorites have actually finished loading).
+    final fav = context.read<FavoritesProvider>();
+    if (!fav.isLoading && fav.favorites.isEmpty) {
+      _filter = _SongsFilter.all;
+    }
+    // The device scan (and its storage-permission prompt) is only needed
+    // for "All Songs" - don't trigger it while showing Liked/Downloaded.
+    if (_filter == _SongsFilter.all && !lib.hasLoaded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => lib.load());
     }
   }
@@ -492,10 +498,25 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<LibraryProvider>();
-    final favorites = context.watch<FavoritesProvider>();
-    final downloads = context.watch<DownloadProvider>();
+    // PERF (battery/heat): this tab used to context.watch() Favorites and
+    // Download providers outright. DownloadProvider notifies on every
+    // download percent, so while a song downloaded the whole Songs list
+    // (copy + reverse + duration fold over every song, then re-diff) re-ran
+    // ~100x per download. Now it only rebuilds when the liked/downloaded
+    // COUNT (or favorites loading flag) actually changes; the data itself
+    // is read once per build.
+    context.select<FavoritesProvider, (int, bool)>(
+        (f) => (f.favorites.length, f.isLoading));
+    context.select<DownloadProvider, int>((d) => d.completed.length);
+    final favorites = context.read<FavoritesProvider>();
+    final downloads = context.read<DownloadProvider>();
 
-    if (lib.status == LibraryStatus.loading || lib.status == LibraryStatus.idle) {
+    // Storage scan / permission only matters for "All Songs" - Liked and
+    // Downloaded come from Favorites/Download providers.
+    final needsScan = _filter == _SongsFilter.all;
+
+    if (needsScan &&
+        (lib.status == LibraryStatus.loading || lib.status == LibraryStatus.idle)) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 48),
@@ -504,7 +525,7 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
       );
     }
 
-    if (lib.status == LibraryStatus.noPermission) {
+    if (needsScan && lib.status == LibraryStatus.noPermission) {
       return _AurumPermissionState(onGrant: () => lib.load());
     }
 
@@ -520,14 +541,8 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
         songs = List<Song>.from(lib.allSongs);
         break;
     }
-    if (_newestFirst) {
-      // LibraryProvider doesn't track a per-song "added" timestamp — the
-      // scan order from MediaStore is already newest-ish first on most
-      // devices, so newest-first simply keeps that order; "oldest first"
-      // reverses it. Neither branch invents data the provider doesn't have.
-    } else {
-      songs.reversed.toList();
-    }
+    // LibraryProvider has no per-song "added" timestamp: scan order is
+    // already newest-ish first, so "oldest first" just reverses it.
     final ordered = _newestFirst ? songs : songs.reversed.toList();
 
     final totalSeconds = ordered.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
@@ -569,6 +584,8 @@ class _AurumSongsTabState extends State<_AurumSongsTab> {
                   onTap: () {
                     AurumHaptics.selection();
                     setState(() => _filter = _SongsFilter.all);
+                    final lib = context.read<LibraryProvider>();
+                    if (lib.status == LibraryStatus.idle) lib.load();
                   },
                 ),
                 const SizedBox(width: 10),
@@ -896,7 +913,9 @@ class _AurumSongRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFav = context.watch<FavoritesProvider>().isFavorite(song.id);
+    // PERF: select -> this row rebuilds only when ITS liked state flips,
+    // not on every like/unlike of any song in the library.
+    final isFav = context.select<FavoritesProvider, bool>((f) => f.isFavorite(song.id));
     // FIX (same class of bug already fixed in _AurumArtistRow below —
     // hardcoded Colors.white instead of a theme-aware surface color made
     // rows unreadable on dark/AMOLED theme, where the row's own text is
@@ -986,86 +1005,11 @@ class _AurumSongRow extends StatelessWidget {
               IconButton(
                 icon: Icon(Icons.more_vert_rounded,
                     color: AurumTheme.textMutedOf(context), size: 20),
-                onPressed: () => _showSongSheet(context, song),
+                tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+                onPressed: () => showAurumSongOptionsSheet(context, song),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  void _showSongSheet(BuildContext context, Song song) {
-    final rootContext = context;
-    showAurumModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: AurumArtwork(url: song.artworkUrl, size: 46, borderRadius: 10),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700)),
-                      Text(song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Consumer<FavoritesProvider>(
-              builder: (context, fav, _) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  fav.isFavorite(song.id)
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  color: Colors.redAccent,
-                ),
-                title: Text(
-                  fav.isFavorite(song.id) ? AppLocalizations.of(context)!.libraryRemoveFromLiked : AppLocalizations.of(context)!.libraryAddToLiked,
-                  style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
-                ),
-                onTap: () {
-                  rootContext.read<FavoritesProvider>().toggleFavorite(song);
-                  Navigator.pop(sheetContext);
-                },
-              ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
-              title: Text(AppLocalizations.of(context)!.libraryAddToPlaylist,
-                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
-              onTap: () => Navigator.pop(sheetContext),
-            ),
-          ],
         ),
       ),
     );
@@ -1355,62 +1299,7 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
       });
     }
     final followedProvider = context.watch<FollowedArtistsProvider>();
-    // DEBUG VISIBILITY (temporary, ungated — release build confirmed via
-    // the previous screenshot round showing NEITHER the isLoading
-    // SnackBar NOR the "No artists saved yet" empty state, which rules
-    // out the isLoading-stuck theory entirely: if isLoading were stuck
-    // true we'd have seen the loading branch below fire every time. Since
-    // we saw a totally blank Scaffold body instead, something in THIS
-    // exact build() is throwing before reaching either the loading
-    // branch's return or the empty/list slivers further down — most
-    // likely inside the isLoading==false path (the ordered/base
-    // computation, or _TopArtistAndCountRow itself) never even getting a
-    // chance to paint. This top-of-build SnackBar fires on every single
-    // build() call regardless of which branch is taken, unconditionally,
-    // so it will fire even if something later in this same build() throws
-    // — telling us definitively whether build() is even being *entered*
-    // for this tab, and with what raw data, before whatever breaks.
-    // RECHECK FIX: this diagnostic previously fired unconditionally in
-    // EVERY build (release included) — now gated behind kDebugMode so a
-    // production install never shows debug SnackBars to real users.
-    if (kDebugMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        String rawInfo;
-        try {
-          rawInfo = 'raw=${followedProvider.followed.length} '
-              'isLoading=${followedProvider.isLoading}';
-        } catch (e) {
-          rawInfo = 'ERROR reading followed.length: $e';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 10),
-            content: Text('ArtistsTab build() entered — $rawInfo'),
-          ),
-        );
-      });
-    }
     if (followedProvider.isLoading) {
-      // DEBUG VISIBILITY (temporary, NOT gated behind kDebugMode this
-      // time — the previous kDebugMode-only SnackBar never fired on a
-      // release build, which is exactly the build this is being tested
-      // on, so it told us nothing). Shows unconditionally so we can see
-      // the real state on the actual installed build.
-      if (kDebugMode) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              duration: Duration(seconds: 8),
-              content: Text(
-                'ArtistsTab: STUCK in isLoading=true branch — '
-                'Hive box never finished opening for this provider instance.',
-              ),
-            ),
-          );
-        });
-      }
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -1455,53 +1344,6 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
     }).toList();
     final ordered = _newestFirst ? base : base.reversed.toList();
     final top = ordered.isNotEmpty ? ordered.first : null;
-    // DEBUG VISIBILITY (temporary, ungated): previous round confirmed
-    // raw=45/isLoading=false but the screen still renders nothing at
-    // all — no hero card, no rows, no "No artists saved yet" empty
-    // state either. That last part is the key clue: if `ordered` were
-    // genuinely empty, the SliverFillRemaining empty-state branch further
-    // down would have painted something. Seeing literally nothing means
-    // either `ordered` isn't actually empty (so we're in the SliverList
-    // branch) and something inside _TopArtistAndCountRow/_AurumArtistRow
-    // is throwing during build/layout/paint — which a release build shows
-    // as nothing at all instead of a red error screen — or somehow
-    // `ordered` IS empty despite raw=45, meaning every single entry is
-    // failing the id.isEmpty/name.isEmpty filter above. This SnackBar
-    // shows the FILTERED count (ordered.length) next to the raw count
-    // already shown at the top of build(), which tells us definitively
-    // which of those two it is.
-    if (kDebugMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 10),
-            content: Text(
-              'ArtistsTab: raw=${followedProvider.followed.length} '
-              'filtered(ordered)=${ordered.length} top=${top?['name']}',
-            ),
-          ),
-        );
-      });
-    }
-    if (kDebugMode) {
-      debugPrint('[ArtistsTab] rebuild — isLoading=${followedProvider.isLoading} '
-          'followed.length=${base.length} names=${base.map((m) => m['name']).toList()}');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        final raw = followedProvider.followed;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 8),
-            content: Text(
-              'ArtistsTab: raw=${raw.length} filtered=${base.length}\n'
-              'raw ids: ${raw.map((m) => "${m['id']}/${m['name']}").toList()}',
-            ),
-          ),
-        );
-      });
-    }
-
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       cacheExtent: 1200,
@@ -1510,40 +1352,10 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-              // FIX (release build: entire Artists tab renders as a
-              // completely blank Scaffold — no hero card, no list, no
-              // empty state — despite raw=45/filtered>0 confirmed via the
-              // diagnostics above): a SliverToBoxAdapter's child throwing
-              // during build doesn't just fail that one sliver — it can
-              // take down the whole CustomScrollView's layout pass,
-              // since Sliver layout is a single coordinated protocol
-              // across all slivers in the list. That matches this exact
-              // symptom far better than a plain list-item crash would
-              // (which should still let the AppBar/tab-chip row above it
-              // paint normally). Wrapping the builder in try/catch turns
-              // a crash here into a visible error card instead of an
-              // invisible one that silently blanks everything below it.
-              child: Builder(builder: (context) {
-                try {
-                  return _TopArtistAndCountRow(
-                    top: top,
-                    totalCount: ordered.length,
-                  );
-                } catch (e) {
-                  return Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Text(
-                      'Hero card error: $e',
-                      style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 11),
-                    ),
-                  );
-                }
-              }),
+              child: _TopArtistAndCountRow(
+                top: top,
+                totalCount: ordered.length,
+              ),
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 18)),
@@ -1639,23 +1451,6 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
                           setState(() => _newestFirst = !_newestFirst);
                         },
                       ),
-                      const Spacer(),
-                      if (ordered.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: AurumTheme.bgSurfaceOf(context),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            AppLocalizations.of(context)!.librarySubscribedOnly,
-                            style: TextStyle(
-                              color: AurumTheme.accentOf(context),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
           ),
@@ -1676,47 +1471,17 @@ class _AurumArtistsTabState extends State<_AurumArtistsTab> {
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) {
-                  // FIX (release build renders a totally blank Artists
-                  // tab despite raw=45/filtered>0 confirmed via the
-                  // diagnostics above): a build()-time exception thrown
-                  // by any single row (e.g. a malformed imageUrl value
-                  // reaching AurumArtwork/ClipOval in a way debug mode
-                  // tolerates but release mode's stripped error handling
-                  // does not) takes down this entire SliverList's layout
-                  // pass with no visible error — release builds have no
-                  // red screen, so the whole list just renders nothing.
-                  // Isolating each row's build in its own try/catch means
-                  // one bad entry degrades to a single error placeholder
-                  // row instead of hiding every followed artist.
                   final artistId = (ordered[i]['id'] ?? '').toString();
-                  try {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _AurumArtistRow(
-                        artist: ordered[i],
-                        selectMode: _selectMode,
-                        selected: _selectedIds.contains(artistId),
-                        onEnterSelectMode: () => _enterSelectMode(artistId),
-                        onToggleSelected: () => _toggleSelected(artistId),
-                      ),
-                    );
-                  } catch (e) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Text(
-                          'Row error for "${ordered[i]['name']}": $e',
-                          style: const TextStyle(
-                              color: Colors.redAccent, fontSize: 11),
-                        ),
-                      ),
-                    );
-                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _AurumArtistRow(
+                      artist: ordered[i],
+                      selectMode: _selectMode,
+                      selected: _selectedIds.contains(artistId),
+                      onEnterSelectMode: () => _enterSelectMode(artistId),
+                      onToggleSelected: () => _toggleSelected(artistId),
+                    ),
+                  );
                 },
                 childCount: ordered.length,
               ),
@@ -2378,12 +2143,20 @@ class _ViewToggleButton extends StatelessWidget {
   }
 }
 
-class _FeaturedAlbumHero extends StatelessWidget {
+class _FeaturedAlbumHero extends StatefulWidget {
   final Map<String, dynamic> album;
   const _FeaturedAlbumHero({required this.album});
 
   @override
+  State<_FeaturedAlbumHero> createState() => _FeaturedAlbumHeroState();
+}
+
+class _FeaturedAlbumHeroState extends State<_FeaturedAlbumHero> {
+  bool _loading = false;
+
+  @override
   Widget build(BuildContext context) {
+    final album = widget.album;
     final id = (album['id'] ?? '').toString();
     final name = (album['name'] ?? '').toString();
     final artworkUrl = (album['artworkUrl'] ?? '').toString();
@@ -2402,6 +2175,38 @@ class _FeaturedAlbumHero extends StatelessWidget {
           AlbumScreen(albumId: id, albumName: name, artworkUrl: artworkUrl),
         );
       }
+    }
+
+    // REAL play: mixes already hold their songs locally; albums are
+    // fetched the same way AlbumScreen does, then handed to the player.
+    Future<void> play() async {
+      if (_loading) return;
+      AurumHaptics.light();
+      final player = context.read<PlayerProvider>();
+      setState(() => _loading = true);
+      List<Song> songs;
+      try {
+        if (isMix) {
+          songs = context.read<FollowedAlbumsProvider>().songsFor(id);
+        } else {
+          final r = await ApiService.fetchAlbumSongsWithArtwork(id);
+          final art = r.headerArtworkUrl.isNotEmpty ? r.headerArtworkUrl : artworkUrl;
+          songs = r.songs
+              .map((s) => s.artworkUrl.isEmpty && art.isNotEmpty
+                  ? s.copyWith(artworkUrl: art)
+                  : s)
+              .toList();
+        }
+      } catch (_) {
+        songs = const <Song>[];
+      }
+      if (!mounted) return;
+      setState(() => _loading = false);
+      if (songs.isEmpty) {
+        AurumSnack.show(context, AppLocalizations.of(context)!.libraryNoPlayableSongsFor(name));
+        return;
+      }
+      player.playSong(songs.first, queue: songs, index: 0, curatedQueue: true);
     }
 
     return Container(
@@ -2452,14 +2257,22 @@ class _FeaturedAlbumHero extends StatelessWidget {
                       borderRadius: BorderRadius.circular(22),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
-                        onTap: open,
+                        onTap: play,
                         child: Padding(
                           padding: EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
-                              SizedBox(width: 8),
+                              _loading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.play_arrow_rounded,
+                                      color: Colors.white, size: 18),
+                              const SizedBox(width: 8),
                               Text(AppLocalizations.of(context)!.commonPlay,
                                   style: TextStyle(
                                       color: Colors.white,
@@ -2478,8 +2291,10 @@ class _FeaturedAlbumHero extends StatelessWidget {
                         customBorder: const CircleBorder(),
                         onTap: open,
                         child: Padding(
-                          padding: EdgeInsets.all(11),
-                          child: Icon(Icons.more_horiz_rounded, color: AurumTheme.accentOf(context), size: 18),
+                          padding: const EdgeInsets.all(13),
+                          child: Icon(Icons.chevron_right_rounded,
+                              semanticLabel: name,
+                              color: AurumTheme.accentOf(context), size: 22),
                         ),
                       ),
                     ),
@@ -2712,7 +2527,10 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
   @override
   Widget build(BuildContext context) {
     final favorites = context.watch<FavoritesProvider>();
-    final downloads = context.watch<DownloadProvider>();
+    // PERF: only the completed COUNT is shown here, so select it — a plain
+    // watch() rebuilt this whole artwork-heavy page on every download %.
+    final downloadedCount =
+        context.select<DownloadProvider, int>((d) => d.completed.length);
     final recentlyPlayed = context.watch<RecentlyPlayedProvider>();
     final playlists = context.watch<PlaylistProvider>();
     // FEATURE ("Laibry mai Laibry option ke playlist ke niche artist
@@ -2722,7 +2540,6 @@ class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
     final followedArtists = context.watch<FollowedArtistsProvider>();
 
     final likedCount = favorites.favorites.length;
-    final downloadedCount = downloads.completed.length;
     final recent = recentlyPlayed.history.take(10).toList();
     final hasRecent = recent.isNotEmpty;
     final heroTitle = !hasRecent
@@ -3362,25 +3179,12 @@ class _QuickAccessGrid extends StatelessWidget {
           onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
         ),
         _QuickAccessCard(
-          icon: Icons.sync_rounded,
+          icon: Icons.trending_up_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: AppLocalizations.of(context)!.libraryCached,
-          subtitle: AppLocalizations.of(context)!.libraryInstantPlayback,
-          // FIX ("cache jo Library mein diya hu, uska kya kiya jaye, kisi
-          // kaam mein use kiya jaye"): this tile did nothing at all
-          // (onTap: () {}) — a dead button. The two real on-disk/in-memory
-          // caches in this app (Media3's song cache directory, the
-          // in-memory YouTube stream-URL cache) are both genuinely opaque
-          // — neither stores per-song metadata the UI can resolve back
-          // into a real "Song" to list, so faking a browsable "cached
-          // songs" list here would just be placeholder data pretending to
-          // be real, which this screen's own header comment explicitly
-          // rules out. _CacheInfoScreen instead surfaces the real numbers
-          // (song/image cache size on disk, same figures Settings →
-          // Storage already computes) plus a real clear action and a
-          // shortcut into the full Storage settings — genuinely useful,
-          // and nothing shown is invented.
-          onTap: () => AurumDepthRoute.to(context, const _CacheInfoScreen()),
+          title: AppLocalizations.of(context)!.libraryMyTop50,
+          subtitle: AppLocalizations.of(context)!.libraryAllTime,
+          // Ranked by REAL play count (RecommendationEngine), not recency.
+          onTap: () => AurumDepthRoute.to(context, const _TopSongsScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.folder_rounded,
@@ -3390,28 +3194,11 @@ class _QuickAccessGrid extends StatelessWidget {
           onTap: () => AurumDepthRoute.to(context, const _LocalFilesScreen()),
         ),
         _QuickAccessCard(
-          icon: Icons.trending_up_rounded,
+          icon: Icons.history_rounded,
           iconColor: AurumTheme.accentOf(context),
-          title: AppLocalizations.of(context)!.libraryMyTop50,
-          subtitle: AppLocalizations.of(context)!.libraryAllTime,
-          // FIX ("Top 50 wala actually listening history pr bane, na ki
-          // history hi laga do"): this used to just open _HistoryScreen —
-          // the same chronological Recently Played list shown by the
-          // History tile above, only relabeled. Recently Played dedupes
-          // each song to its single most-recent play position, so it
-          // carries ZERO frequency signal — a song played 40 times and a
-          // song played once look identical there (whichever was played
-          // more recently sorts higher, full stop). That's not a "Top
-          // 50" by any real definition.
-          //
-          // RecommendationEngine already tracks a genuine per-song play
-          // COUNT on every single play (_plays, incremented in
-          // onSongStarted — see topPlayedSongIds()) entirely separately
-          // from history's move-to-front list, but nothing in the UI
-          // ever read it. _TopSongsScreen below is the first consumer:
-          // it ranks by that real play-count data and resolves each id
-          // back to a full Song via RecentlyPlayedProvider.history.
-          onTap: () => AurumDepthRoute.to(context, const _TopSongsScreen()),
+          title: AppLocalizations.of(context)!.libraryHistory,
+          subtitle: AppLocalizations.of(context)!.libraryRecentlyPlayed,
+          onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
         ),
       ],
     );
@@ -4347,14 +4134,44 @@ class _PlaylistListRowState extends State<_PlaylistListRow> {
             ListTile(
               leading: Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
               title: Text(AppLocalizations.of(context)!.commonRename, style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
-              onTap: () => Navigator.pop(sheetContext),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                if (!context.mounted) return;
+                await showDialog(
+                  context: context,
+                  builder: (_) => _RenamePlaylistDialog(playlist: playlist),
+                );
+              },
             ),
             ListTile(
               leading: const Icon(Icons.delete_rounded, color: Colors.redAccent),
               title: Text(AppLocalizations.of(context)!.commonDelete, style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () async {
                 Navigator.pop(sheetContext);
-                await context.read<PlaylistProvider>().deletePlaylist(playlist.id);
+                if (!context.mounted) return;
+                final l10n = AppLocalizations.of(context)!;
+                final pp = context.read<PlaylistProvider>();
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AurumTheme.bgElevatedOf(context),
+                    title: Text(l10n.libraryDeletePlaylistConfirm(playlist.name),
+                        style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+                    content: Text(l10n.libraryActionCannotBeUndone,
+                        style: TextStyle(color: AurumTheme.textMutedOf(context))),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text(l10n.commonCancel,
+                              style: TextStyle(color: AurumTheme.textMutedOf(context)))),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text(l10n.commonDelete,
+                              style: const TextStyle(color: Colors.redAccent))),
+                    ],
+                  ),
+                );
+                if (confirmed == true) await pp.deletePlaylist(playlist.id);
               },
             ),
           ],
@@ -5188,7 +5005,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     _ensureGlow(pl);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = immersiveScaffoldBg(context, _glowTarget);
-    final headerH = MediaQuery.of(context).size.width * 1.04;
+    final headerH = MediaQuery.sizeOf(context).width * 1.04;
     final songs = pl.songs;
     final duration = pl.totalDurationString;
     final summary = '${songs.length} ${songs.length == 1 ? 'track' : 'tracks'}'
@@ -5222,13 +5039,16 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           _SelectModeAppBar(
             background: bg,
             selectedCount: _selectedIds.length,
-            totalCount: songs.length,
-            allSelected: _selectedIds.length == songs.length,
+            // Selection is keyed by song id, and imports can contain the same
+            // id twice - compare against UNIQUE ids so "Select all" flips.
+            totalCount: songs.map((s) => s.id).toSet().length,
+            allSelected:
+                _selectedIds.length == songs.map((s) => s.id).toSet().length,
             onClose: _exitSelectMode,
             onToggleSelectAll: () {
               AurumHaptics.light();
               setState(() {
-                if (_selectedIds.length == songs.length) {
+                if (_selectedIds.length == songs.map((s) => s.id).toSet().length) {
                   _selectedIds.clear();
                 } else {
                   _selectedIds
@@ -5674,10 +5494,11 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await context
-          .read<PlaylistProvider>()
-          .deletePlaylist(pl.id);
-      if (context.mounted) Navigator.pop(context);
+      // Pop first so the screen never flashes "Playlist not found" while
+      // the provider notifies and Hive/cover cleanup finishes.
+      final pp = context.read<PlaylistProvider>();
+      Navigator.pop(context);
+      await pp.deletePlaylist(pl.id);
     }
   }
 }
@@ -5845,7 +5666,7 @@ class _PlaylistHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final topInset = MediaQuery.of(context).padding.top;
+    final topInset = MediaQuery.paddingOf(context).top;
     final art = playlist.coverArt ?? '';
     final titleColor = isDark ? Colors.white : AurumTheme.textPrimaryOf(context);
     final subColor = isDark
@@ -6782,13 +6603,20 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
       _nameCtrl.text = l10n.libraryDefaultPlaylistName;
     }
     setState(() => _creating = true);
-    final pl = await context.read<PlaylistProvider>().createPlaylist(
-          name: _nameCtrl.text.trim().isEmpty
-              ? l10n.libraryDefaultPlaylistName
-              : _nameCtrl.text.trim(),
-          description: _descCtrl.text.trim(),
-          initialSong: widget.initialSong,
-        );
+    final AurumPlaylist pl;
+    try {
+      pl = await context.read<PlaylistProvider>().createPlaylist(
+            name: _nameCtrl.text.trim().isEmpty
+                ? l10n.libraryDefaultPlaylistName
+                : _nameCtrl.text.trim(),
+            description: _descCtrl.text.trim(),
+            initialSong: widget.initialSong,
+          );
+    } catch (_) {
+      // Never leave the Create button dead behind a spinner.
+      if (mounted) setState(() => _creating = false);
+      return;
+    }
     if (mounted) {
       Navigator.pop(context);
       // Navigate directly to the new playlist
@@ -6943,7 +6771,9 @@ class _ImportPlaylistDialogState extends State<_ImportPlaylistDialog> {
         songs: result.songs,
         youtubeSynced: result.source == PlaylistImportSource.youtube,
       );
-      if (!mounted) return;
+      // Cancel tapped while saving: playlist is already stored, but don't
+      // navigate / flip stages behind the user's back.
+      if (!mounted || cancel.isCancelled) return;
 
       final clean = result.unmatched.isEmpty && !result.possiblyTruncated;
       if (clean) {
@@ -7596,7 +7426,14 @@ class _TopSongsScreen extends StatelessWidget {
         // holds up to 200 entries; RecommendationEngine tracks up to
         // 500), and any id that genuinely fell out of both is simply
         // skipped rather than shown broken.
-        final byId = {for (final s in rp.history) s.id: s};
+        // History only keeps ~200 songs, so also resolve through liked and
+        // downloaded songs (history last = freshest metadata wins).
+        final byId = <String, Song>{
+          for (final d in context.read<DownloadProvider>().completed)
+            d.song.id: d.song,
+          for (final s in context.read<FavoritesProvider>().favorites) s.id: s,
+          for (final s in rp.history) s.id: s,
+        };
         final rankedIds = RecommendationEngine.topPlayedSongIds(count: 50);
         final topSongs = rankedIds
             .map((id) => byId[id])
@@ -7781,197 +7618,6 @@ class _TopSongsScreen extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// Cache Info Screen -- surfaces the REAL cache state (disk usage figures
-// already computed in Settings -> Storage) instead of leaving the old
-// "Cached" tile as a dead onTap: () {}. See that tile's onTap comment above
-// for why this isn't a browsable song list (neither on-disk nor in-memory
-// cache stores per-song metadata to resolve into real Song objects).
-// ============================================================================
-
-class _CacheInfoScreen extends StatefulWidget {
-  const _CacheInfoScreen();
-
-  @override
-  State<_CacheInfoScreen> createState() => _CacheInfoScreenState();
-}
-
-class _CacheInfoScreenState extends State<_CacheInfoScreen> {
-  bool _loading = true;
-  int _songCacheBytes = 0;
-  int _imageCacheBytes = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<int> _dirSize(Directory dir) async {
-    int total = 0;
-    try {
-      await for (final f in dir.list(recursive: true)) {
-        if (f is File) total += await f.length();
-      }
-    } catch (_) {}
-    return total;
-  }
-
-  Future<void> _load() async {
-    final cacheDir = await getTemporaryDirectory();
-    int songBytes = 0;
-    int imageBytes = 0;
-    try {
-      final songCache = Directory('${cacheDir.path}/song_cache');
-      if (await songCache.exists()) songBytes = await _dirSize(songCache);
-      final imgCache = Directory('${cacheDir.path}/image_cache');
-      if (await imgCache.exists()) imageBytes = await _dirSize(imgCache);
-    } catch (_) {}
-    if (!mounted) return;
-    setState(() {
-      _songCacheBytes = songBytes;
-      _imageCacheBytes = imageBytes;
-      _loading = false;
-    });
-  }
-
-  String _fmt(int bytes) {
-    if (bytes < 1024) return '${bytes}B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
-  }
-
-  Widget _statCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String value,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AurumTheme.accentOf(context).withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: AurumTheme.accentOf(context), size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style: TextStyle(
-                        color: AurumTheme.textMutedOf(context), fontSize: 12)),
-              ],
-            ),
-          ),
-          Text(value,
-              style: TextStyle(
-                  color: AurumTheme.accentOf(context),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final totalBytes = _songCacheBytes + _imageCacheBytes;
-    return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
-      bottomNavigationBar: const MiniPlayerSlot(),
-      appBar: AppBar(
-        backgroundColor: AurumTheme.bgOf(context),
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded,
-              color: AurumTheme.textPrimaryOf(context), size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(AppLocalizations.of(context)!.libraryCached,
-            style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 18,
-                fontWeight: FontWeight.w600)),
-      ),
-      body: _loading
-          ? const Center(child: AurumMorphLoader(size: 56, contained: true))
-          : ListView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-              children: [
-                Text(
-                  AppLocalizations.of(context)!.libraryCacheExplainer,
-                  style: TextStyle(
-                      color: AurumTheme.textSecondaryOf(context),
-                      fontSize: 13,
-                      height: 1.5),
-                ),
-                const SizedBox(height: 20),
-                _statCard(
-                  icon: Icons.music_note_rounded,
-                  title: AppLocalizations.of(context)!.libraryCacheSong,
-                  subtitle: AppLocalizations.of(context)!.libraryCacheSongDesc,
-                  value: _fmt(_songCacheBytes),
-                ),
-                _statCard(
-                  icon: Icons.image_rounded,
-                  title: AppLocalizations.of(context)!.libraryCacheArtwork,
-                  subtitle: AppLocalizations.of(context)!.libraryCacheArtworkDesc,
-                  value: _fmt(_imageCacheBytes),
-                ),
-                _statCard(
-                  icon: Icons.sd_storage_rounded,
-                  title: AppLocalizations.of(context)!.libraryCacheTotal,
-                  subtitle: AppLocalizations.of(context)!.libraryCacheTotalDesc,
-                  value: _fmt(totalBytes),
-                ),
-                const SizedBox(height: 8),
-                AurumPressable(
-                  onTap: () =>
-                      AurumDepthRoute.to(context, const SettingsStorageScreen()),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: AurumTheme.accentGradientOf(context),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Center(
-                      child: Text(AppLocalizations.of(context)!.libraryManageCacheInStorage,
-                          style: TextStyle(
-                              color: AurumTheme.bg,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-}
-
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // History Screen — time-grouped, animated, play all / shuffle
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -8004,11 +7650,20 @@ class _HistoryScreenState extends State<_HistoryScreen>
   }
 
   // â”€â”€ Time label helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static String _groupLabel(int index, int total, AppLocalizations l10n) {
-    if (index == 0) return l10n.libraryHistoryJustNow;
-    if (index < 5) return l10n.libraryHistoryRecent;
-    if (index < 15) return l10n.libraryHistoryEarlierToday;
-    if (index < 30) return l10n.libraryHistoryYesterday;
+  // Buckets use the REAL played-at timestamp (RecentlyPlayedProvider
+  // .playedAtFor), so "Yesterday" really means yesterday.
+  static String _groupLabel(int? playedAtMs, AppLocalizations l10n) {
+    if (playedAtMs == null) return l10n.libraryHistoryOlder;
+    final now = DateTime.now();
+    final t = DateTime.fromMillisecondsSinceEpoch(playedAtMs);
+    final mins = now.difference(t).inMinutes;
+    if (mins < 10) return l10n.libraryHistoryJustNow;
+    if (mins < 60) return l10n.libraryHistoryRecent;
+    final days = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(t.year, t.month, t.day))
+        .inDays;
+    if (days <= 0) return l10n.libraryHistoryEarlierToday;
+    if (days == 1) return l10n.libraryHistoryYesterday;
     return l10n.libraryHistoryOlder;
   }
 
@@ -8076,7 +7731,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        l10n.libraryRecentlyPlayed,
+                        l10n.libraryHistory,
                         style: TextStyle(
                           color: AurumTheme.accentOf(context),
                           fontSize: 18,
@@ -8252,9 +7907,10 @@ class _HistoryScreenState extends State<_HistoryScreen>
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
                       final song = history[i];
-                      final currentGroup = _groupLabel(i, history.length, l10n);
+                      final currentGroup =
+                          _groupLabel(rp.playedAtFor(song.id), l10n);
                       final prevGroup = i > 0
-                          ? _groupLabel(i - 1, history.length, l10n)
+                          ? _groupLabel(rp.playedAtFor(history[i - 1].id), l10n)
                           : null;
                       final showHeader = currentGroup != prevGroup;
 
@@ -8738,7 +8394,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final downloads = context.watch<DownloadProvider>();
-    final inProgress = downloads.inProgress;
+    final inProgress = [...downloads.inProgress, ...downloads.failed];
     final completed = downloads.completed;
     final totalBytes = completed.fold<int>(
         0, (sum, d) => sum + (d.fileSizeBytes ?? 0));
@@ -9100,11 +8756,15 @@ class _InProgressCard extends StatelessWidget {
                             fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(
-                      item.isPaused
-                          ? l10n.libraryDownloadPaused
-                          : '$percent%',
+                      item.isFailed
+                          ? l10n.libraryDownloadFailedTapRetry
+                          : item.isPaused
+                              ? l10n.libraryDownloadPaused
+                              : '$percent%',
                       style: TextStyle(
-                          color: AurumTheme.accentOf(context),
+                          color: item.isFailed
+                              ? Colors.redAccent
+                              : AurumTheme.accentOf(context),
                           fontSize: 12,
                           fontWeight: FontWeight.w600),
                     ),
@@ -9113,14 +8773,20 @@ class _InProgressCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               _RoundIconButton(
-                icon: item.isPaused
-                    ? Icons.play_arrow_rounded
-                    : Icons.pause_rounded,
-                tooltip: item.isPaused
-                    ? l10n.libraryDownloadResume
-                    : l10n.libraryDownloadPause,
+                icon: item.isFailed
+                    ? Icons.refresh_rounded
+                    : item.isPaused
+                        ? Icons.play_arrow_rounded
+                        : Icons.pause_rounded,
+                tooltip: item.isFailed
+                    ? l10n.commonRetry
+                    : item.isPaused
+                        ? l10n.libraryDownloadResume
+                        : l10n.libraryDownloadPause,
                 onTap: () {
-                  if (item.isPaused) {
+                  if (item.isFailed) {
+                    dl.retry(song);
+                  } else if (item.isPaused) {
                     dl.resumeDownload(song);
                   } else {
                     dl.pauseDownload(song.id);
@@ -9131,7 +8797,9 @@ class _InProgressCard extends StatelessWidget {
               _RoundIconButton(
                 icon: Icons.close_rounded,
                 tooltip: l10n.libraryDownloadCancel,
-                onTap: () => dl.cancelDownload(song.id),
+                onTap: () => item.isFailed
+                    ? dl.dismissFailed(song.id)
+                    : dl.cancelDownload(song.id),
               ),
             ],
           ),
@@ -9139,7 +8807,7 @@ class _InProgressCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
             child: LinearProgressIndicator(
-              value: item.progress.clamp(0.0, 1.0),
+              value: item.isFailed ? 0.0 : item.progress.clamp(0.0, 1.0),
               minHeight: 5,
               backgroundColor: AurumTheme.accentOf(context).withValues(alpha: 0.15),
               valueColor: AlwaysStoppedAnimation(
